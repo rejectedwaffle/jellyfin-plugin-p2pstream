@@ -140,7 +140,14 @@ public sealed class StreamOptions
             var c = Plugin.Instance!.Configuration;
             var ranked = ReleaseRanker.Rank(await _sources.SearchAsync(request, CancellationToken.None).ConfigureAwait(false), request);
             var keep = Math.Max(Math.Clamp(c.StreamPickerMax, 1, 50), Math.Max(1, c.CandidatesToTry));
-            var list = ranked.Take(keep).ToList();
+            // The top releases, plus the best few of every resolution, so "Best 1080p" exists even when 4K fills the top.
+            var chosen = new HashSet<ReleaseCandidate>(ranked.Take(keep));
+            foreach (var group in ranked.GroupBy(r => r.Resolution))
+            {
+                chosen.UnionWith(group.Take(3));
+            }
+
+            var list = ranked.Where(chosen.Contains).ToList(); // keep the ranking order
             _cache[request.Key] = (DateTime.UtcNow, list);
             _logger.LogInformation("Found {Count} streams for {Request}", list.Count, request);
             return list;

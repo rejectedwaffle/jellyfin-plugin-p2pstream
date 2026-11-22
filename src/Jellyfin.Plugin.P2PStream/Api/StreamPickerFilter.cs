@@ -124,7 +124,10 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             auto.DefaultAudioStreamIndex ??= (probe.Streams.FirstOrDefault(s => s.Type == MediaStreamType.Audio && s.IsDefault)
                 ?? probe.Streams.FirstOrDefault(s => s.Type == MediaStreamType.Audio))?.Index;
         }
-        dto.MediaSources = new[] { auto }.Concat(StreamPicker.BuildSources(item, url, releases, _options)).ToArray();
+        dto.MediaSources = new[] { auto }
+            .Concat(BestPerResolution(item, url, releases))
+            .Concat(StreamPicker.BuildSources(item, url, releases, _options))
+            .ToArray();
         dto.MediaSourceCount = dto.MediaSources.Length;
     }
 
@@ -160,6 +163,13 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         if (!_options.TryGetCached(request, out var releases))
         {
             releases = await _options.GetAsync(request, context.HttpContext.RequestAborted).WaitAsync(PlayBudget).ConfigureAwait(false);
+        }
+
+        // "Best 1080p" and the like: the best-ranked release at that resolution (the list is ranked, best first).
+        if (ResolutionChoice().Match(chosen) is { Success: true } choice)
+        {
+            var resolution = int.Parse(choice.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            chosen = releases.Where(r => r.Resolution == resolution).Select(StreamOptions.IdFor).FirstOrDefault() ?? chosen;
         }
 
         var release = releases.FirstOrDefault(r => StreamOptions.IdFor(r) == chosen);
@@ -201,6 +211,37 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
     }
 
     private static string Short(string s) => s.Length > 70 ? s[..67] + "..." : s;
+
+    /// <summary>
+    /// "Best 4K / Best 1080p / ..." entries for the Version menu: one per resolution found, each standing for that
+    /// resolution's best-ranked release. Only shown when there's more than one resolution to choose from.
+    /// </summary>
+    private List<MediaSourceInfo> BestPerResolution(BaseItem item, string url, List<ReleaseCandidate> releases)
+    {
+        var groups = releases.Where(r => r.Resolution > 0).GroupBy(r => r.Resolution).OrderByDescending(g => g.Key).ToList();
+        if (groups.Count < 2)
+        {
+            return [];
+        }
+
+        var list = new List<MediaSourceInfo>();
+        foreach (var g in groups)
+        {
+            var best = g.First();
+            var source = StreamPicker.BuildSources(item, url, [best], _options)[0];
+            source.Id = source.ETag = "p2pres" + g.Key.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var label = g.Key == 2160 ? "4K" : g.Key + "p";
+            var size = best.Size > 0 ? $" · {best.Size / (double)(1L << 30):0.0} GB" : string.Empty;
+            var seeds = best.Seeders >= 0 ? $" · {best.Seeders} seeds" : string.Empty;
+            source.Name = $"Best {label} · {g.Count()} available{seeds}{size}";
+            list.Add(source);
+        }
+
+        return list;
+    }
+
+    [GeneratedRegex(@"^p2pres(\d{3,4})$")]
+    private static partial Regex ResolutionChoice();
 
     [GeneratedRegex(@"/Items/[0-9a-fA-F-]{32,36}$")]
     private static partial Regex ItemPath();

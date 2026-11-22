@@ -68,9 +68,43 @@ public static partial class ReleaseRanker
         return list
             .OrderBy(r => r.IsSeasonPack)
             .ThenBy(r => ResolutionTier(r.Resolution, pref))
+            .ThenBy(r => c.PreferStreamingSizes && !StreamingFriendly(r, request) ? 1 : 0)
             .ThenByDescending(r => r.Seeders)
             .ToList();
     }
+
+    /// <summary>
+    /// Whether a release is a sensible size to stream: within a soft size cap for its resolution and well seeded.
+    /// Huge remuxes (20 GB+) are slow to start over a torrent, so a well-seeded, reasonably sized encode ranks
+    /// above them at the same resolution. They stay in the list; they're just not tried first.
+    /// </summary>
+    public static bool StreamingFriendly(ReleaseCandidate r, MediaRequest? request)
+    {
+        if (r.Size <= 0 || r.IsSeasonPack)
+        {
+            return true; // unknown size, or a pack whose size isn't the episode's
+        }
+
+        var seeded = r.Seeders < 0 || r.Seeders >= 10;
+        return seeded && r.Size <= SoftCapGb(r.Resolution, request?.Kind == MediaKind.Episode) * (1L << 30);
+    }
+
+    /// <summary>Soft size caps (GB) used by <see cref="StreamingFriendly"/>.</summary>
+    public static double SoftCapGb(int resolution, bool episode) => (resolution, episode) switch
+    {
+        (2160, false) => 15,
+        (1440, false) => 12,
+        (1080, false) => 8,
+        (720, false) => 4,
+        (0, false) => 8,
+        (_, false) => 2,
+        (2160, true) => 6,
+        (1440, true) => 4,
+        (1080, true) => 3,
+        (720, true) => 1.5,
+        (0, true) => 3,
+        _ => 1
+    };
 
     /// <summary>Returns the release type id (see <see cref="ReleaseTypes"/>), or null if it can't be told.</summary>
     public static string? DetectReleaseType(string title)

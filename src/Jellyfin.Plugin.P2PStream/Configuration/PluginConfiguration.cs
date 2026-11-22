@@ -140,6 +140,9 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public int CandidatesToTry { get; set; } = 3;
 
+    /// <summary>Gets or sets a value indicating whether well-seeded, reasonably sized releases rank above huge ones of the same resolution.</summary>
+    public bool PreferStreamingSizes { get; set; } = true;
+
     /// <summary>Gets or sets a value indicating whether a title's releases are listed in Jellyfin's Version menu (Elementum-style picker).</summary>
     public bool StreamPicker { get; set; } = true;
 
