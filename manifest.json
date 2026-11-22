@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.3.3.0",
+                             "changelog":  "Fix playback: a cancelled probe left the torrent stream locked, so every play request failed with HTTP 500 (black screen, then playback error).",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.3.3.0/p2pstream_0.3.3.0.zip",
+                             "checksum":  "5ab3b3a5bb47ea9bd7340c1a1369d161",
+                             "timestamp":  "2026-11-22T07:54:39Z"
+                         },
+                         {
                              "version":  "0.3.2.0",
                              "changelog":  "Gelato-style settings page (tabs, catalogs table, New library folders, unsaved-changes bar); built-in sources incl. KickAss, BT4G, 1337x; Jellyfin search integration; Burst-style quality filters.",
                              "targetAbi":  "12.4.0.0",

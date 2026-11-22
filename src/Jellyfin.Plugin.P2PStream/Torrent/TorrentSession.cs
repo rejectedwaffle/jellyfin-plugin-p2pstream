@@ -69,7 +69,7 @@ public sealed class TorrentSession
                 await Manager.SetFilePriorityAsync(file, Priority.Normal).ConfigureAwait(false);
             }
 
-            var stream = await Manager.StreamProvider!.CreateStreamAsync(file, prebuffer: true, cts.Token).ConfigureAwait(false);
+            var stream = await CreateStreamAsync(file, cts.Token).ConfigureAwait(false);
             Interlocked.Increment(ref _activeStreams);
             Touch();
             return new StreamLease(this, stream, cts);
@@ -78,6 +78,42 @@ public sealed class TorrentSession
         {
             ReleaseCore(cts);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Disposes a stream MonoTorrent still counts as open although nobody holds it. This happens when
+    /// CreateStreamAsync is cancelled mid-prebuffer: MonoTorrent has already registered the stream and never
+    /// releases it, so every later CreateStreamAsync throws "You must Dispose the previous stream".
+    /// Only called while holding the stream gate, so any open stream at that point is an orphan.
+    /// </summary>
+    internal static bool ReleaseOrphanedStream(MonoTorrent.Streaming.StreamProvider provider)
+    {
+        if (ActiveStreamProperty?.GetValue(provider) is Stream orphan)
+        {
+            orphan.Dispose(); // idempotent if it was already disposed
+            return true;
+        }
+
+        return false;
+    }
+
+    // StreamProvider.ActiveStream is internal in MonoTorrent 3.0.2. Null if a future version renames it, which only skips the cleanup.
+    private static readonly System.Reflection.PropertyInfo? ActiveStreamProperty =
+        typeof(MonoTorrent.Streaming.StreamProvider).GetProperty("ActiveStream", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+    private async Task<Stream> CreateStreamAsync(ITorrentManagerFile file, CancellationToken ct)
+    {
+        var provider = Manager.StreamProvider!;
+        ReleaseOrphanedStream(provider);
+        try
+        {
+            // No prebuffer: it's the cancellable wait that orphans streams, and reads block until data arrives anyway.
+            return await provider.CreateStreamAsync(file, prebuffer: false, ct).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException) when (ReleaseOrphanedStream(provider))
+        {
+            return await provider.CreateStreamAsync(file, prebuffer: false, ct).ConfigureAwait(false);
         }
     }
 
