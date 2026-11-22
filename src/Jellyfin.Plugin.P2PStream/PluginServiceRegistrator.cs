@@ -29,6 +29,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<SourceHub>();
         serviceCollection.AddSingleton<ResolutionCache>();
         serviceCollection.AddSingleton<StreamOptions>();
+        serviceCollection.AddSingleton<StreamProber>();
         serviceCollection.AddSingleton<StreamResolver>();
 
         // Catalog and search

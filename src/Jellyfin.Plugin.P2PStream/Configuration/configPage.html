@@ -29,17 +29,27 @@
                 #P2PStreamConfigPage table { width: 100%; border-collapse: collapse; font-size: .92em; }
                 #P2PStreamConfigPage th, #P2PStreamConfigPage td { text-align: left; padding: .45em .5em; border-bottom: 1px solid rgba(128,128,128,.22); vertical-align: middle; }
                 #P2PStreamConfigPage th { font-weight: 600; }
-                #P2PStreamConfigPage .p2p-files { font-size: .85em; opacity: .85; margin-top: .3em; }
-                #P2PStreamConfigPage .p2p-files a, #P2PStreamConfigPage code { word-break: break-all; }
+                #P2PStreamConfigPage code { word-break: break-all; }
+                #P2PStreamConfigPage .p2p-link { color: #52b5ff; font-weight: 600; text-decoration: none; white-space: nowrap; }
+                #P2PStreamConfigPage .p2p-link:hover { text-decoration: underline; }
+                #P2PStreamConfigPage .p2p-tname { font-weight: 600; word-break: break-word; }
+                #P2PStreamConfigPage .p2p-files { font-size: .88em; margin-top: .35em; display: flex; flex-wrap: wrap; align-items: center; gap: .25em 1.1em; }
+                #P2PStreamConfigPage .p2p-nowrap { white-space: nowrap; }
+                #P2PStreamConfigPage .p2p-bar { height: 4px; width: 5.5em; margin-top: .35em; border-radius: 2px; background: rgba(128,128,128,.3); overflow: hidden; }
+                #P2PStreamConfigPage .p2p-bar > span { display: block; height: 100%; background: #00a4dc; }
                 #P2PStreamConfigPage .p2p-tag { display: inline-block; padding: .1em .55em; border-radius: 1em; background: rgba(128,128,128,.25); font-size: .8em; }
                 #P2PStreamConfigPage .p2p-plain { background: rgba(128,128,128,.15); color: inherit; border: 1px solid rgba(128,128,128,.4); border-radius: 4px; padding: .35em .5em; font: inherit; }
                 #P2PStreamConfigPage .p2p-plain option { background: #202020; color: #fff; }
                 #P2PStreamConfigPage .p2p-round { width: 2.2em; height: 2.2em; border-radius: 50%; border: 0; background: #00a4dc; color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
                 #P2PStreamConfigPage .p2p-round .material-icons { font-size: 1.25em; }
                 #P2PStreamConfigPage .p2p-cat td .checkboxContainer { margin: 0; }
-                #P2PStreamConfigPage .p2p-source { border-bottom: 1px solid rgba(128,128,128,.2); padding: .2em 0; }
-                #P2PStreamConfigPage .p2p-source-line { display: flex; align-items: center; justify-content: space-between; gap: 1em; }
-                #P2PStreamConfigPage .p2p-source-line .checkboxContainer { margin: 0; }
+                #P2PStreamConfigPage .p2p-source { border-bottom: 1px solid rgba(128,128,128,.2); padding: .5em 0; }
+                #P2PStreamConfigPage .p2p-source-line { display: flex; align-items: flex-start; justify-content: space-between; gap: 1em; }
+                #P2PStreamConfigPage .p2p-source-line .checkboxContainer { margin: 0; flex: 1; }
+                #P2PStreamConfigPage .p2p-src-name { font-weight: 600; }
+                #P2PStreamConfigPage .p2p-src-desc { display: block; font-size: .85em; opacity: .7; margin-top: .1em; }
+                #P2PStreamConfigPage .src-edit { color: #52b5ff; font-size: .85em; white-space: nowrap; text-decoration: none; padding-top: .3em; }
+                #P2PStreamConfigPage .src-edit:hover { text-decoration: underline; }
                 #P2PStreamConfigPage .src-url-row { padding: 0 0 .5em 2.6em; }
                 #P2PStreamConfigPage .p2p-indexer { border: 1px solid rgba(128,128,128,.3); border-radius: 6px; padding: .6em .9em; margin-bottom: .6em; }
                 #P2PStreamConfigPage .p2p-checks { columns: 2; }
@@ -81,7 +91,7 @@
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">link</span>Add a torrent</h3>
-                            <p class="p2p-muted">Paste a magnet link or a .torrent URL. Its video files get a stream link, and "make .strm" puts one in your library (the <code>Added</code> folder).</p>
+                            <p class="p2p-muted">Paste a magnet link or a .torrent URL. Each video file gets <b>Open stream</b> (a direct link) and <b>Add to library</b> (puts it in the <code>Added</code> catalog folder).</p>
                             <div class="p2p-row">
                                 <div class="inputContainer"><input is="emby-input" type="text" id="p2pMagnet" label="Magnet link or .torrent URL" /></div>
                                 <button is="emby-button" type="button" class="raised button-submit" id="p2pAdd"><span>Add</span></button>
@@ -213,6 +223,9 @@
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="StreamPicker" /><span>Let me choose the stream</span></label>
                             <div class="p2p-desc">Opening a title's page lists the releases in Jellyfin's <b>Version</b> menu with resolution, size, seeds, quality and source, like Elementum. "Auto (best match)" stays the default. The first time, the list can take a few seconds; reopen the page if it isn't there yet. The stream you pick is remembered.</div>
                             <div class="inputContainer"><input is="emby-input" type="number" min="1" max="50" data-key="StreamPickerMax" data-type="int" label="Streams to list" /></div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="ProbeStreams" /><span>Check the top streams before playback</span></label>
+                            <div class="p2p-desc">Opening a title's page briefly starts the top releases in the background and reads their video, audio and subtitle tracks, so they show in the Version menu. Uses some bandwidth on every title page you open.</div>
+                            <div class="inputContainer"><input is="emby-input" type="number" min="1" max="5" data-key="ProbeStreamCount" data-type="int" label="How many top streams to check" /></div>
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">aspect_ratio</span>Resolution</h3>
@@ -484,8 +497,8 @@
                     div.setAttribute('data-id', src.Id);
                     div.innerHTML =
                         '<div class="p2p-source-line">' +
-                        '<label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="src-enabled" /><span><b>' + esc(src.Name) + '</b> <span class="p2p-muted">' + esc(src.Description) + '</span></span></label>' +
-                        '<a href="#" class="p2p-muted src-edit">change address</a>' +
+                        '<label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="src-enabled" /><span><span class="p2p-src-name">' + esc(src.Name) + '</span><span class="p2p-src-desc">' + esc(src.Description) + '</span></span></label>' +
+                        '<a href="#" class="src-edit">change address</a>' +
                         '</div>' +
                         '<div class="src-url-row" style="display:none"><input is="emby-input" type="text" class="src-url" label="Address (leave blank for default)" /></div>';
                     div.querySelector('.src-enabled').checked = !!src.Enabled;
@@ -721,17 +734,21 @@
                     el.innerHTML = '<p class="p2p-muted">No active torrents. Play something, or add a magnet below.</p>';
                     return;
                 }
-                var html = '<table><thead><tr><th>Name</th><th>State</th><th>Progress</th><th>Down / Up</th><th>Seeds / Peers</th><th></th></tr></thead><tbody>';
+                var html = '<table><thead><tr><th>Name</th><th>State</th><th>Progress</th><th class="p2p-nowrap">Speed</th><th class="p2p-nowrap">Seeds / Peers</th><th></th></tr></thead><tbody>';
                 data.Torrents.forEach(function (t) {
-                    var files = (t.Files || []).filter(function (f) { return f.IsVideo; }).map(function (f) {
-                        return '<div><a href="' + esc(f.StreamUrl) + '" target="_blank" rel="noopener">' + esc(f.Path) + '</a> (' + size(f.Length) + ')' +
-                            ' <a href="#" class="p2p-strm" data-hash="' + esc(t.InfoHash) + '" data-index="' + f.Index + '">[make .strm]</a></div>';
+                    var videos = (t.Files || []).filter(function (f) { return f.IsVideo; });
+                    var files = videos.map(function (f) {
+                        var name = videos.length > 1 ? '<span class="p2p-muted">' + esc(f.Path.split(/[\\/]/).pop()) + '</span>' : '';
+                        return name + '<span class="p2p-muted">' + size(f.Length) + '</span>' +
+                            '<a class="p2p-link" href="' + esc(f.StreamUrl) + '" target="_blank" rel="noopener">Open stream</a>' +
+                            '<a href="#" class="p2p-link p2p-strm" data-hash="' + esc(t.InfoHash) + '" data-index="' + f.Index + '">Add to library</a>';
                     }).join('');
-                    html += '<tr><td>' + esc(t.Name) + (files ? '<div class="p2p-files">' + files + '</div>' : '') + '</td>' +
-                        '<td>' + esc(t.State) + (t.ActiveStreams ? ' (streaming)' : '') + '</td>' +
-                        '<td>' + t.Progress + '%</td>' +
-                        '<td>' + t.DownloadKbps + ' / ' + t.UploadKbps + ' KB/s</td>' +
-                        '<td>' + t.Seeds + ' / ' + t.Peers + '</td>' +
+                    var pct = Math.max(0, Math.min(100, t.Progress || 0));
+                    html += '<tr><td><div class="p2p-tname">' + esc(t.Name) + '</div>' + (files ? '<div class="p2p-files">' + files + '</div>' : '') + '</td>' +
+                        '<td>' + esc(t.State) + (t.ActiveStreams ? '<div class="p2p-muted">streaming</div>' : '') + '</td>' +
+                        '<td class="p2p-nowrap">' + pct + '%<div class="p2p-bar"><span style="width:' + pct + '%"></span></div></td>' +
+                        '<td class="p2p-nowrap">&darr; ' + t.DownloadKbps + ' KB/s<br>&uarr; ' + t.UploadKbps + ' KB/s</td>' +
+                        '<td class="p2p-nowrap">' + t.Seeds + ' / ' + t.Peers + '</td>' +
                         '<td><button is="emby-button" type="button" class="raised p2p-remove" data-hash="' + esc(t.InfoHash) + '"><span>Remove</span></button></td></tr>';
                 });
                 el.innerHTML = html + '</tbody></table>';

@@ -70,20 +70,20 @@ public class P2PStreamController : ControllerBase
     [HttpGet("play/{token}/movie/{tmdbId:int}")]
     [HttpHead("play/{token}/movie/{tmdbId:int}")]
     [AllowAnonymous]
-    public Task<IActionResult> PlayMovie(string token, int tmdbId, [FromQuery] string? release = null)
-        => PlayAsync(token, new MediaRequest { Kind = MediaKind.Movie, TmdbId = tmdbId }, release);
+    public Task<IActionResult> PlayMovie(string token, int tmdbId, [FromQuery] string? release = null, [FromQuery] bool probe = false)
+        => PlayAsync(token, new MediaRequest { Kind = MediaKind.Movie, TmdbId = tmdbId }, release, probe);
 
     [HttpGet("play/{token}/imdb/{imdbId}")]
     [HttpHead("play/{token}/imdb/{imdbId}")]
     [AllowAnonymous]
-    public Task<IActionResult> PlayImdb(string token, string imdbId, [FromQuery] string? release = null)
-        => PlayAsync(token, new MediaRequest { Kind = MediaKind.Movie, ImdbId = imdbId }, release);
+    public Task<IActionResult> PlayImdb(string token, string imdbId, [FromQuery] string? release = null, [FromQuery] bool probe = false)
+        => PlayAsync(token, new MediaRequest { Kind = MediaKind.Movie, ImdbId = imdbId }, release, probe);
 
     [HttpGet("play/{token}/tv/{tmdbId:int}/{season:int}/{episode:int}")]
     [HttpHead("play/{token}/tv/{tmdbId:int}/{season:int}/{episode:int}")]
     [AllowAnonymous]
-    public Task<IActionResult> PlayEpisode(string token, int tmdbId, int season, int episode, [FromQuery] string? release = null)
-        => PlayAsync(token, new MediaRequest { Kind = MediaKind.Episode, TmdbId = tmdbId, Season = season, Episode = episode }, release);
+    public Task<IActionResult> PlayEpisode(string token, int tmdbId, int season, int episode, [FromQuery] string? release = null, [FromQuery] bool probe = false)
+        => PlayAsync(token, new MediaRequest { Kind = MediaKind.Episode, TmdbId = tmdbId, Season = season, Episode = episode }, release, probe);
 
     [HttpGet("stream/{token}/{infoHash}/{fileIndex:int}")]
     [HttpHead("stream/{token}/{infoHash}/{fileIndex:int}")]
@@ -408,7 +408,7 @@ public class P2PStreamController : ControllerBase
         return start >= 0 && start <= end && start < length;
     }
 
-    private async Task<IActionResult> PlayAsync(string token, MediaRequest req, string? release)
+    private async Task<IActionResult> PlayAsync(string token, MediaRequest req, string? release, bool probe = false)
     {
         if (!TokenValid(token))
         {
@@ -418,7 +418,7 @@ public class P2PStreamController : ControllerBase
         ResolvedStream resolved;
         try
         {
-            resolved = await _resolver.ResolveAsync(req, release, HttpContext.RequestAborted).ConfigureAwait(false);
+            resolved = await _resolver.ResolveAsync(req, release, HttpContext.RequestAborted, remember: !probe).ConfigureAwait(false);
         }
         catch (StreamNotFoundException ex)
         {
@@ -482,20 +482,21 @@ public class P2PStreamController : ControllerBase
         var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
         try
         {
-            await using var lease = await session.OpenAsync(file, HttpContext.RequestAborted).ConfigureAwait(false);
-            lease.Stream.Seek(start, SeekOrigin.Begin);
+            var aborted = HttpContext.RequestAborted;
+            await using var lease = await session.OpenAsync(file, aborted).ConfigureAwait(false);
+            lease.Position = start;
 
             var remaining = end - start + 1;
             var sinceTouch = Stopwatch.StartNew();
             while (remaining > 0)
             {
-                var read = await lease.Stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), lease.Token).ConfigureAwait(false);
+                var read = await lease.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), aborted).ConfigureAwait(false);
                 if (read == 0)
                 {
                     break;
                 }
 
-                await Response.Body.WriteAsync(buffer.AsMemory(0, read), lease.Token).ConfigureAwait(false);
+                await Response.Body.WriteAsync(buffer.AsMemory(0, read), aborted).ConfigureAwait(false);
                 remaining -= read;
 
                 if (sinceTouch.Elapsed > TimeSpan.FromSeconds(10))
@@ -504,14 +505,21 @@ public class P2PStreamController : ControllerBase
                     sinceTouch.Restart();
                 }
             }
+
+            if (remaining > 0)
+            {
+                HttpContext.Abort(); // ended early: close the connection rather than send a short body
+            }
         }
         catch (OperationCanceledException)
         {
-            // Client went away, or a newer request (seek) took over the stream.
+            // Client went away (ffprobe and ffmpeg routinely close connections early)
+            HttpContext.Abort();
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
-            _logger.LogDebug("Stream ended: {Message}", ex.Message);
+            _logger.LogDebug("Stream ended: {Message}", ex.Message); // torrent removed, or the connection dropped
+            HttpContext.Abort();
         }
         finally
         {

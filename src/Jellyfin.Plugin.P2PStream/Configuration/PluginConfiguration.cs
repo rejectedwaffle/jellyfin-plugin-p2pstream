@@ -130,6 +130,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets how many releases the Version menu lists.</summary>
     public int StreamPickerMax { get; set; } = 15;
 
+    /// <summary>Gets or sets a value indicating whether the top releases are checked in advance so their tracks show in the Version menu (Gelato-style).</summary>
+    public bool ProbeStreams { get; set; } = true;
+
+    /// <summary>Gets or sets how many of the top releases are checked in advance.</summary>
+    public int ProbeStreamCount { get; set; } = 2;
+
     // ---- Catalog ----
     public bool CatalogEnabled { get; set; }
 

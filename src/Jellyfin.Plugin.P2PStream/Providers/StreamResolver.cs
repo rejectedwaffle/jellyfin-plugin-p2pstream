@@ -20,6 +20,9 @@ public sealed class StreamResolver
     // Release id to the torrent it turned into, so repeated requests for a chosen stream (probe, ffmpeg, seeks) don't refetch it.
     private readonly ConcurrentDictionary<string, (string InfoHash, int FileIndex)> _started = new();
 
+    // A version chosen in the Version menu, played the next time the title's normal source is requested.
+    private readonly ConcurrentDictionary<string, string> _pinned = new();
+
     public StreamResolver(TorrentEngine engine, TorznabClient torznab, StreamOptions options, ResolutionCache cache, ILogger<StreamResolver> logger)
     {
         _engine = engine;
@@ -29,8 +32,19 @@ public sealed class StreamResolver
         _logger = logger;
     }
 
+    /// <summary>Plays <paramref name="releaseId"/> the next time this title is played through its normal source.</summary>
+    public void Pin(MediaRequest req, string releaseId) => _pinned[req.Key] = releaseId;
+
+    /// <summary>True if the title currently plays this release (so its saved track info is still right).</summary>
+    public bool IsCurrentPick(MediaRequest req, string releaseId) =>
+        _started.TryGetValue(releaseId, out var s) && _cache.TryGet(req.Key, out var e) && e.InfoHash == s.InfoHash;
+
+    /// <summary>The release Auto currently plays, if one is remembered.</summary>
+    public string? CurrentPickTitle(MediaRequest req) => _cache.TryGet(req.Key, out var e) ? e.Title : null;
+
     /// <param name="releaseId">A release picked in the Version menu, or null for Auto (best match).</param>
-    public async Task<ResolvedStream> ResolveAsync(MediaRequest req, string? releaseId, CancellationToken ct)
+    /// <param name="remember">False for background checks, which must not change Auto's remembered pick.</param>
+    public async Task<ResolvedStream> ResolveAsync(MediaRequest req, string? releaseId, CancellationToken ct, bool remember = true)
     {
         // ffmpeg and clients often fire several requests at once. Only one of them searches or starts a torrent.
         var gate = _locks.GetOrAdd(req.Key, _ => new SemaphoreSlim(1, 1));
@@ -39,7 +53,19 @@ public sealed class StreamResolver
         {
             if (releaseId is not null)
             {
-                return await ResolveChosenAsync(req, releaseId, ct).ConfigureAwait(false);
+                return await ResolveChosenAsync(req, releaseId, remember, ct).ConfigureAwait(false);
+            }
+
+            if (_pinned.TryRemove(req.Key, out var pinned))
+            {
+                try
+                {
+                    return await ResolveChosenAsync(req, pinned, remember: true, ct).ConfigureAwait(false);
+                }
+                catch (StreamNotFoundException ex)
+                {
+                    _logger.LogWarning("Chosen version failed ({Message}); falling back to Auto", ex.Message);
+                }
             }
 
             var cached = await TryCachedAsync(req, ct).ConfigureAwait(false);
@@ -57,7 +83,7 @@ public sealed class StreamResolver
             var tries = Math.Max(1, Plugin.Instance!.Configuration.CandidatesToTry);
             foreach (var release in releases.Take(tries))
             {
-                var started = await TryStartAsync(req, release, ct).ConfigureAwait(false);
+                var started = await TryStartAsync(req, release, remember: true, ct).ConfigureAwait(false);
                 if (started is not null)
                 {
                     return started;
@@ -106,13 +132,18 @@ public sealed class StreamResolver
         return videos.OrderByDescending(x => x.File.Length).First().Index;
     }
 
-    private async Task<ResolvedStream> ResolveChosenAsync(MediaRequest req, string releaseId, CancellationToken ct)
+    private async Task<ResolvedStream> ResolveChosenAsync(MediaRequest req, string releaseId, bool remember, CancellationToken ct)
     {
         if (_started.TryGetValue(releaseId, out var known))
         {
             var session = await _engine.GetOrRestoreAsync(known.InfoHash, ct).ConfigureAwait(false);
             if (session is not null && known.FileIndex < session.Manager.Files.Count)
             {
+                if (remember)
+                {
+                    _cache.Set(req.Key, known.InfoHash, known.FileIndex, session.Manager.Torrent?.Name ?? releaseId);
+                }
+
                 return new ResolvedStream(session, known.FileIndex);
             }
         }
@@ -120,11 +151,11 @@ public sealed class StreamResolver
         var releases = await _options.GetAsync(req, ct).ConfigureAwait(false);
         var chosen = releases.FirstOrDefault(r => StreamOptions.IdFor(r) == releaseId)
             ?? throw new StreamNotFoundException("That stream is no longer listed. Reopen the title to refresh the list, or use Auto.");
-        return await TryStartAsync(req, chosen, ct).ConfigureAwait(false)
+        return await TryStartAsync(req, chosen, remember, ct).ConfigureAwait(false)
             ?? throw new StreamNotFoundException($"Couldn't start \"{chosen.Title}\" (no peers, or no matching video file). Try another version.");
     }
 
-    private async Task<ResolvedStream?> TryStartAsync(MediaRequest req, ReleaseCandidate release, CancellationToken ct)
+    private async Task<ResolvedStream?> TryStartAsync(MediaRequest req, ReleaseCandidate release, bool remember, CancellationToken ct)
     {
         try
         {
@@ -135,7 +166,11 @@ public sealed class StreamResolver
             if (index >= 0)
             {
                 // Remember it: Auto uses this release next time, and repeat requests skip the lookup.
-                _cache.Set(req.Key, source.InfoHash, index, release.Title);
+                if (remember)
+                {
+                    _cache.Set(req.Key, source.InfoHash, index, release.Title);
+                }
+
                 _started[StreamOptions.IdFor(release)] = (source.InfoHash, index);
                 return new ResolvedStream(session, index);
             }

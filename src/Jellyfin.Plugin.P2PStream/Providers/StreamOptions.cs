@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Jellyfin.Plugin.P2PStream.Catalog;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.P2PStream.Providers;
@@ -20,6 +21,7 @@ public sealed class StreamOptions
     private readonly ILogger<StreamOptions> _logger;
     private readonly ConcurrentDictionary<string, (DateTime At, List<ReleaseCandidate> Releases)> _cache = new();
     private readonly ConcurrentDictionary<string, Task<List<ReleaseCandidate>>> _inflight = new();
+    private readonly ConcurrentDictionary<string, ProbeInfo> _probes = new();
 
     public StreamOptions(SourceHub sources, TmdbClient tmdb, ILogger<StreamOptions> logger)
     {
@@ -91,6 +93,11 @@ public sealed class StreamOptions
         return search.WaitAsync(ct);
     }
 
+    /// <summary>Tracks found by checking a release in advance (shown in the Version menu).</summary>
+    public bool TryGetProbe(string releaseId, out ProbeInfo info) => _probes.TryGetValue(releaseId, out info!);
+
+    public void SetProbe(string releaseId, ProbeInfo info) => _probes[releaseId] = info;
+
     /// <summary>Forgets the list for a title (e.g. after its release went stale).</summary>
     public void Invalidate(MediaRequest request) => _cache.TryRemove(request.Key, out _);
 
@@ -144,3 +151,6 @@ public sealed class StreamOptions
         }
     }
 }
+
+/// <summary>What checking a release found: its tracks, length and bitrate.</summary>
+public sealed record ProbeInfo(IReadOnlyList<MediaStream> Streams, long? RunTimeTicks, int? Bitrate);

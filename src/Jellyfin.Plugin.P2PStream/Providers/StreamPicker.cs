@@ -1,10 +1,14 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.MediaInfo;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.P2PStream.Providers;
@@ -57,8 +61,11 @@ public static partial class StreamPicker
         return true;
     }
 
-    /// <summary>One media source per release, copied from the item's own .strm source so Jellyfin treats it the same way.</summary>
-    public static List<MediaSourceInfo> BuildSources(BaseItem item, string strmUrl, IEnumerable<ReleaseCandidate> releases)
+    /// <summary>
+    /// One media source per release, copied from the item's own .strm source so Jellyfin treats it the same way.
+    /// Releases checked in advance get their real tracks; the rest have none until they've played.
+    /// </summary>
+    public static List<MediaSourceInfo> BuildSources(BaseItem item, string strmUrl, IEnumerable<ReleaseCandidate> releases, StreamOptions? options = null)
     {
         var template = item.GetMediaSources(false).FirstOrDefault();
         var templateJson = template is null ? null : JsonSerializer.Serialize(template);
@@ -75,6 +82,17 @@ public static partial class StreamPicker
             source.Protocol = MediaProtocol.Http;
             source.IsRemote = true;
             source.MediaStreams = [];
+            source.DefaultAudioStreamIndex = null;
+            source.DefaultSubtitleStreamIndex = null;
+            if (options is not null && options.TryGetProbe(id, out var probe))
+            {
+                source.MediaStreams = probe.Streams;
+                source.RunTimeTicks = probe.RunTimeTicks ?? source.RunTimeTicks;
+                source.Bitrate = probe.Bitrate;
+                source.DefaultAudioStreamIndex = (probe.Streams.FirstOrDefault(s => s.Type == MediaStreamType.Audio && s.IsDefault)
+                    ?? probe.Streams.FirstOrDefault(s => s.Type == MediaStreamType.Audio))?.Index;
+            }
+
             list.Add(source);
         }
 
@@ -86,39 +104,90 @@ public static partial class StreamPicker
 }
 
 /// <summary>
-/// Offers each release as a playable version when playback starts, so the version chosen on the title's page plays that release.
-/// Jellyfin discovers this class automatically.
+/// Gelato-style "check streams before playback": reads the tracks of a title's top releases in the background
+/// (via Jellyfin's own ffprobe), so the Version menu can show them. Checks never change Auto's remembered pick.
 /// </summary>
-public sealed class StreamPickerSourceProvider : IMediaSourceProvider
+public sealed class StreamProber
 {
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromMinutes(3);
     private readonly StreamOptions _options;
-    private readonly ILogger<StreamPickerSourceProvider> _logger;
+    private readonly IServiceProvider _services;
+    private readonly ILogger<StreamProber> _logger;
+    private readonly ConcurrentDictionary<string, byte> _running = new();
+    private readonly SemaphoreSlim _oneAtATime = new(1, 1);
 
-    public StreamPickerSourceProvider(StreamOptions options, ILogger<StreamPickerSourceProvider> logger)
+    public StreamProber(StreamOptions options, IServiceProvider services, ILogger<StreamProber> logger)
     {
         _options = options;
+        _services = services;
         _logger = logger;
     }
 
-    public async Task<IEnumerable<MediaSourceInfo>> GetMediaSources(BaseItem item, CancellationToken cancellationToken)
+    /// <summary>Starts checking the title's top releases that haven't been checked yet. Returns immediately.</summary>
+    public void ProbeTopInBackground(BaseItem item, string strmUrl, IReadOnlyList<ReleaseCandidate> releases)
     {
-        if (Plugin.Instance?.Configuration.StreamPicker != true || !StreamPicker.TryGetRequest(item, out var url, out var request))
+        var c = Plugin.Instance?.Configuration;
+        if (c?.ProbeStreams != true)
         {
-            return [];
+            return;
         }
 
-        try
+        var todo = releases.Take(Math.Clamp(c.ProbeStreamCount, 1, 5))
+            .Where(r => !_options.TryGetProbe(StreamOptions.IdFor(r), out _) && _running.TryAdd(StreamOptions.IdFor(r), 0))
+            .ToList();
+        if (todo.Count == 0)
         {
-            var releases = await _options.GetAsync(request, cancellationToken).ConfigureAwait(false);
-            return StreamPicker.BuildSources(item, url, releases);
+            return;
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+
+        _ = Task.Run(async () =>
         {
-            _logger.LogWarning("Could not list streams for {Item}: {Message}", item.Name, ex.Message);
-            return [];
-        }
+            foreach (var release in todo)
+            {
+                var id = StreamOptions.IdFor(release);
+                try
+                {
+                    await _oneAtATime.WaitAsync().ConfigureAwait(false); // one check at a time across the server
+                    try
+                    {
+                        await ProbeAsync(item, strmUrl, release, id).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _oneAtATime.Release();
+                    }
+                }
+                finally
+                {
+                    _running.TryRemove(id, out _);
+                }
+            }
+        });
     }
 
-    public Task<ILiveStream> OpenMediaSource(string openToken, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
-        => throw new NotSupportedException("P2P Stream versions are plain HTTP streams and need no opening");
+    private async Task ProbeAsync(BaseItem item, string strmUrl, ReleaseCandidate release, string id)
+    {
+        var encoder = _services.GetService<IMediaEncoder>();
+        if (encoder is null)
+        {
+            return;
+        }
+
+        var source = StreamPicker.BuildSources(item, strmUrl, [release])[0];
+        source.Path += "&probe=1"; // tells the play endpoint not to remember this release
+        using var timeout = new CancellationTokenSource(ProbeTimeout);
+        try
+        {
+            var info = await encoder.GetMediaInfo(new MediaInfoRequest { MediaSource = source, MediaType = DlnaProfileType.Video, ExtractChapters = false }, timeout.Token).ConfigureAwait(false);
+            if (info.MediaStreams is { Count: > 0 })
+            {
+                _options.SetProbe(id, new ProbeInfo(info.MediaStreams, info.RunTimeTicks, info.Bitrate));
+                _logger.LogInformation("Checked {Release}: {Count} tracks", release.Title, info.MediaStreams.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation("Could not check {Release}: {Message}", release.Title, ex.Message);
+        }
+    }
 }

@@ -41,6 +41,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         _storeDir = Path.Combine(plugin.DataFolderPath, "torrents");
         Directory.CreateDirectory(_storeDir);
         Directory.CreateDirectory(plugin.DownloadPath);
+        SweepLeftovers();
 
         _engine = new ClientEngine(BuildSettings());
         plugin.ConfigurationChanged += OnConfigurationChanged;
@@ -148,6 +149,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
 
             var session = new TorrentSession(source.InfoHash, manager);
             _sessions[source.InfoHash] = session;
+            Track(manager);
             _logger.LogInformation("Added torrent {Name} ({Hash})", manager.Torrent?.Name, source.InfoHash);
             return session;
         }
@@ -202,7 +204,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             return false;
         }
 
-        session.CancelActiveStream();
+        session.Close();
         await RemoveManagerAsync(session.Manager, deleteData).ConfigureAwait(false);
         return true;
     }
@@ -310,6 +312,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             }
 
             await engine.RemoveAsync(manager, deleteData ? RemoveMode.DownloadedDataOnly : RemoveMode.KeepAllData).ConfigureAwait(false);
+            Untrack(Hash(manager));
         }
         catch (Exception ex)
         {
@@ -318,6 +321,141 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         finally
         {
             _engineLock.Release();
+        }
+    }
+
+    // ---- Leftover cleanup ----
+    // Torrents are normally deleted when idle, evicted, or on shutdown. If Jellyfin crashes or is killed, that never
+    // happens, and after a restart the engine no longer knows those files. So every added torrent's files are recorded
+    // in downloads.json, removed from it when the torrent is removed, and anything still listed at startup is deleted.
+    // Only recorded paths are deleted, never anything else in the download folder.
+
+    private static string ManifestPath => Path.Combine(Plugin.Instance!.DataFolderPath, "downloads.json");
+
+    private readonly object _manifestLock = new();
+
+    private Dictionary<string, List<string>> LoadManifest()
+    {
+        try
+        {
+            if (File.Exists(ManifestPath))
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, List<string>>>(File.ReadAllText(ManifestPath)) ?? [];
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Could not read {Path}: {Message}", ManifestPath, ex.Message);
+        }
+
+        return [];
+    }
+
+    private void SaveManifest(Dictionary<string, List<string>> manifest)
+    {
+        try
+        {
+            File.WriteAllText(ManifestPath, System.Text.Json.JsonSerializer.Serialize(manifest));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Could not write {Path}: {Message}", ManifestPath, ex.Message);
+        }
+    }
+
+    private void Track(TorrentManager manager)
+    {
+        var paths = manager.Files
+            .SelectMany(f => new[] { f.FullPath, f.DownloadCompleteFullPath, f.DownloadIncompleteFullPath })
+            .Where(p => !string.IsNullOrEmpty(p))
+            .Distinct()
+            .ToList();
+        if (manager.Files.Count > 1 && !string.IsNullOrEmpty(manager.ContainingDirectory))
+        {
+            paths.Add(manager.ContainingDirectory); // folder of a multi-file torrent, removed once empty
+        }
+
+        lock (_manifestLock)
+        {
+            var manifest = LoadManifest();
+            manifest[Hash(manager)] = paths;
+            SaveManifest(manifest);
+        }
+    }
+
+    private void Untrack(string hash)
+    {
+        lock (_manifestLock)
+        {
+            var manifest = LoadManifest();
+            if (manifest.Remove(hash))
+            {
+                SaveManifest(manifest);
+            }
+        }
+    }
+
+    private void SweepLeftovers()
+    {
+        lock (_manifestLock)
+        {
+            var manifest = LoadManifest();
+            if (manifest.Count == 0)
+            {
+                return;
+            }
+
+            if (Config.KeepFilesAfterPlayback)
+            {
+                SaveManifest([]); // the user wants downloads kept; just forget them
+                return;
+            }
+
+            long freed = 0;
+            var files = 0;
+            foreach (var path in manifest.Values.SelectMany(p => p))
+            {
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        freed += new FileInfo(path).Length;
+                        File.Delete(path);
+                        files++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Could not delete leftover {Path}: {Message}", path, ex.Message);
+                }
+            }
+
+            // Then empty folders, deepest first.
+            foreach (var dir in manifest.Values.SelectMany(p => p).Where(Directory.Exists).OrderByDescending(d => d.Length))
+            {
+                try
+                {
+                    foreach (var sub in Directory.GetDirectories(dir, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length))
+                    {
+                        if (!Directory.EnumerateFileSystemEntries(sub).Any())
+                        {
+                            Directory.Delete(sub);
+                        }
+                    }
+
+                    if (!Directory.EnumerateFileSystemEntries(dir).Any())
+                    {
+                        Directory.Delete(dir);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Could not remove leftover folder {Path}: {Message}", dir, ex.Message);
+                }
+            }
+
+            SaveManifest([]);
+            _logger.LogInformation("Deleted {Files} leftover download files ({Megabytes} MB) from an unclean shutdown", files, freed / (1024 * 1024));
         }
     }
 

@@ -129,7 +129,7 @@ public sealed partial class X1337Provider : SearchProvider
 
     public override string Name => "1337x";
 
-    public override string Description => "Movies & TV · English (often blocks bots, so a mirror address may be needed)";
+    public override string Description => "Movies & TV · English · may need a mirror address";
 
     public override string DefaultUrl => "https://1337x.to";
 

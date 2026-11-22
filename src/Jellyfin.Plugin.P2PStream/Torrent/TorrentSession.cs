@@ -1,18 +1,45 @@
+using System.Reflection;
 using MonoTorrent;
 using MonoTorrent.Client;
+using MonoTorrent.PiecePicking;
+using MonoTorrent.Streaming;
 
 namespace Jellyfin.Plugin.P2PStream.Torrent;
 
 /// <summary>
-/// One active torrent. MonoTorrent allows a single open stream per torrent, so a new
-/// request pre-empts the previous one (a seek or a fresh ffmpeg probe always wins).
+/// One active torrent, readable by any number of readers at once. Jellyfin opens several connections to a stream
+/// together (a probe, the playback ffmpeg, a subtitle extractor, seeks), and MonoTorrent's own stream allows only one.
+/// So each reader waits for its own pieces, flushes MonoTorrent's write cache, and reads them through MonoTorrent's
+/// disk manager. A small steering policy points the streaming piece picker at the data readers need:
+/// readers moving forward advance the download window, and a reader waiting for data elsewhere can pull the window
+/// to itself, rate-limited, without cancelling requests, so readers in different places can't thrash it.
 /// </summary>
 public sealed class TorrentSession
 {
-    private readonly SemaphoreSlim _streamGate = new(1, 1);
-    private readonly object _ctsLock = new();
-    private CancellationTokenSource? _activeCts;
+    /// <summary>How often the download window may jump between distant parts of the file.</summary>
+    private static readonly TimeSpan MinJumpInterval = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    /// Pieces after the window start that count as "already being fetched in order". It matches MonoTorrent's
+    /// StreamingPieceRequester, which fetches 15 high-priority then 30 low-priority pieces from the window start.
+    /// </summary>
+    private const int NearPieces = 30;
+
+    // Internal in MonoTorrent 3.0.2 (checked against its source). If a future version renames these, steering or the
+    // direct read is skipped/falls back instead of breaking.
+    private static readonly PropertyInfo? RequesterProperty =
+        typeof(StreamProvider).GetProperty("PieceRequester", BindingFlags.NonPublic | BindingFlags.Instance);
+
+    private static readonly MethodInfo? DiskRead =
+        typeof(DiskManager).GetMethod("ReadAsync", BindingFlags.NonPublic | BindingFlags.Instance, [typeof(ITorrentManagerFile), typeof(long), typeof(Memory<byte>)]);
+
+    private readonly SemaphoreSlim _setup = new(1, 1);
+    private readonly object _steerLock = new();
+    private ITorrentManagerFile? _file;
+    private int _windowPiece = -1;
+    private DateTime _lastJump = DateTime.MinValue;
     private int _activeStreams;
+    private volatile bool _closed;
 
     public TorrentSession(string infoHash, TorrentManager manager)
     {
@@ -29,150 +56,196 @@ public sealed class TorrentSession
 
     public int ActiveStreams => Volatile.Read(ref _activeStreams);
 
+    private IStreamingPieceRequester? Requester => Manager.StreamProvider is { } p ? RequesterProperty?.GetValue(p) as IStreamingPieceRequester : null;
+
     public void Touch() => LastAccess = DateTime.UtcNow;
 
-    public void CancelActiveStream()
+    /// <summary>Opens a reader on the file. Any number of readers can be open at once. Dispose the lease when done.</summary>
+    public async Task<StreamLease> OpenAsync(ITorrentManagerFile file, CancellationToken ct)
     {
-        lock (_ctsLock)
-        {
-            _activeCts?.Cancel();
-        }
-    }
-
-    /// <summary>
-    /// Opens the file for streaming, cancelling any reader currently holding it.
-    /// Dispose the returned lease to release the stream.
-    /// </summary>
-    public async Task<StreamLease> OpenAsync(ITorrentManagerFile file, CancellationToken requestToken)
-    {
-        CancelActiveStream();
-        await _streamGate.WaitAsync(requestToken).ConfigureAwait(false);
-
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(requestToken);
-        lock (_ctsLock)
-        {
-            _activeCts = cts;
-        }
-
+        await _setup.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (Manager.Files.Any(f => f != file && f.Priority != Priority.DoNotDownload))
+            ObjectDisposedException.ThrowIf(_closed, this);
+            if (_file != file)
             {
-                foreach (var other in Manager.Files.Where(f => f != file))
+                // Only the file being watched is downloaded.
+                foreach (var other in Manager.Files.Where(f => f != file && f.Priority != Priority.DoNotDownload))
                 {
                     await Manager.SetFilePriorityAsync(other, Priority.DoNotDownload).ConfigureAwait(false);
                 }
+
+                if (file.Priority == Priority.DoNotDownload)
+                {
+                    await Manager.SetFilePriorityAsync(file, Priority.Normal).ConfigureAwait(false);
+                }
+
+                _file = file;
+                lock (_steerLock)
+                {
+                    _windowPiece = -1;
+                }
             }
 
-            if (file.Priority == Priority.DoNotDownload)
-            {
-                await Manager.SetFilePriorityAsync(file, Priority.Normal).ConfigureAwait(false);
-            }
-
-            var stream = await CreateStreamAsync(file, cts.Token).ConfigureAwait(false);
             Interlocked.Increment(ref _activeStreams);
             Touch();
-            return new StreamLease(this, stream, cts);
+            return new StreamLease(this, file);
         }
-        catch
+        finally
         {
-            ReleaseCore(cts);
-            throw;
+            _setup.Release();
+        }
+    }
+
+    /// <summary>The torrent is being removed. Open readers fail with ObjectDisposedException.</summary>
+    public void Close() => _closed = true;
+
+    internal async Task<int> ReadAtAsync(ITorrentManagerFile file, long position, Memory<byte> buffer, CancellationToken ct)
+    {
+        var torrent = Manager.Torrent ?? throw new InvalidOperationException("Torrent metadata missing");
+        var fileStart = file.OffsetInTorrent;
+        var first = torrent.ByteOffsetToPieceIndex(fileStart + position);
+
+        // Wait for the first piece, steering the download here if it's somewhere new.
+        while (!Manager.Bitfield[first])
+        {
+            ObjectDisposedException.ThrowIf(_closed, this);
+            Steer(file, position, waiting: true);
+            await Task.Delay(100, ct).ConfigureAwait(false);
+        }
+
+        // Read as far as the downloaded pieces go (up to the buffer size).
+        var last = Math.Min(torrent.ByteOffsetToPieceIndex(fileStart + position + buffer.Length - 1), file.EndPieceIndex);
+        var lastAvailable = first;
+        while (lastAvailable < last && Manager.Bitfield[lastAvailable + 1])
+        {
+            lastAvailable++;
+        }
+
+        var availableEnd = Math.Min((long)(lastAvailable + 1) * torrent.PieceLength - fileStart, file.Length);
+        var count = (int)Math.Min(buffer.Length, availableEnd - position);
+        var slice = buffer[..count];
+
+        ObjectDisposedException.ThrowIf(_closed, this);
+        var disk = Manager.Engine!.DiskManager;
+        await disk.FlushAsync(Manager, first, lastAvailable).ConfigureAwait(false); // pieces may still sit in the write cache
+        await ReadFromDiskAsync(disk, file, position, slice, ct).ConfigureAwait(false);
+
+        Steer(file, position + count, waiting: false);
+        Touch();
+        return count;
+    }
+
+    internal void Release()
+    {
+        Interlocked.Decrement(ref _activeStreams);
+        Touch();
+    }
+
+    private static async Task ReadFromDiskAsync(DiskManager disk, ITorrentManagerFile file, long position, Memory<byte> buffer, CancellationToken ct)
+    {
+        if (DiskRead?.Invoke(disk, [file, position, buffer]) is Task<bool> read)
+        {
+            if (!await read.ConfigureAwait(false))
+            {
+                throw new IOException("Could not read the requested data from the torrent");
+            }
+
+            return;
+        }
+
+        // Fallback: read the file directly (it was just flushed). MonoTorrent keeps it open, so share everything.
+        using var handle = File.OpenHandle(file.FullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
+        var done = 0;
+        while (done < buffer.Length)
+        {
+            var n = await RandomAccess.ReadAsync(handle, buffer[done..], position + done, ct).ConfigureAwait(false);
+            if (n == 0)
+            {
+                throw new IOException("Unexpected end of torrent file");
+            }
+
+            done += n;
         }
     }
 
     /// <summary>
-    /// Disposes a stream MonoTorrent still counts as open although nobody holds it. This happens when
-    /// CreateStreamAsync is cancelled mid-prebuffer: MonoTorrent has already registered the stream and never
-    /// releases it, so every later CreateStreamAsync throws "You must Dispose the previous stream".
-    /// Only called while holding the stream gate, so any open stream at that point is an orphan.
+    /// Points the streaming piece picker at <paramref name="position"/>. Moving forward within the current window is
+    /// always allowed (that's normal playback). Jumping elsewhere only happens for a reader that's waiting, at most
+    /// once per <see cref="MinJumpInterval"/>. ReadToPosition moves the window without cancelling requests already sent.
     /// </summary>
-    internal static bool ReleaseOrphanedStream(MonoTorrent.Streaming.StreamProvider provider)
+    private void Steer(ITorrentManagerFile file, long position, bool waiting)
     {
-        if (ActiveStreamProperty?.GetValue(provider) is Stream orphan)
-        {
-            orphan.Dispose(); // idempotent if it was already disposed
-            return true;
-        }
-
-        return false;
-    }
-
-    // StreamProvider.ActiveStream is internal in MonoTorrent 3.0.2. Null if a future version renames it, which only skips the cleanup.
-    private static readonly System.Reflection.PropertyInfo? ActiveStreamProperty =
-        typeof(MonoTorrent.Streaming.StreamProvider).GetProperty("ActiveStream", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-    private async Task<Stream> CreateStreamAsync(ITorrentManagerFile file, CancellationToken ct)
-    {
-        var provider = Manager.StreamProvider!;
-        ReleaseOrphanedStream(provider);
-        try
-        {
-            // No prebuffer: it's the cancellable wait that orphans streams, and reads block until data arrives anyway.
-            return await provider.CreateStreamAsync(file, prebuffer: false, ct).ConfigureAwait(false);
-        }
-        catch (InvalidOperationException) when (ReleaseOrphanedStream(provider))
-        {
-            return await provider.CreateStreamAsync(file, prebuffer: false, ct).ConfigureAwait(false);
-        }
-    }
-
-    internal void Release(CancellationTokenSource cts)
-    {
-        Interlocked.Decrement(ref _activeStreams);
-        ReleaseCore(cts);
-    }
-
-    private void ReleaseCore(CancellationTokenSource cts)
-    {
-        lock (_ctsLock)
-        {
-            if (ReferenceEquals(_activeCts, cts))
-            {
-                _activeCts = null;
-            }
-        }
-
-        cts.Dispose();
-        Touch();
-        _streamGate.Release();
-    }
-}
-
-public sealed class StreamLease : IAsyncDisposable
-{
-    private readonly TorrentSession _session;
-    private readonly CancellationTokenSource _cts;
-    private int _disposed;
-
-    internal StreamLease(TorrentSession session, Stream stream, CancellationTokenSource cts)
-    {
-        _session = session;
-        Stream = stream;
-        _cts = cts;
-    }
-
-    public Stream Stream { get; }
-
-    /// <summary>Gets a token cancelled when the client disconnects or a newer request takes over.</summary>
-    public CancellationToken Token => _cts.Token;
-
-    public void Touch() => _session.Touch();
-
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        var requester = Requester;
+        if (requester is null || position >= file.Length)
         {
             return;
         }
 
-        try
+        var piece = Manager.Torrent!.ByteOffsetToPieceIndex(file.OffsetInTorrent + position);
+        lock (_steerLock)
         {
-            await Stream.DisposeAsync().ConfigureAwait(false);
+            if (piece == _windowPiece)
+            {
+                return;
+            }
+
+            var forward = _windowPiece >= 0 && piece > _windowPiece && piece <= _windowPiece + NearPieces;
+            if (!forward)
+            {
+                if (!waiting || DateTime.UtcNow - _lastJump < MinJumpInterval)
+                {
+                    return;
+                }
+
+                _lastJump = DateTime.UtcNow;
+            }
+
+            requester.ReadToPosition(file, position);
+            _windowPiece = piece;
         }
-        finally
+    }
+}
+
+/// <summary>One reader of a torrent file, with its own position.</summary>
+public sealed class StreamLease : IAsyncDisposable
+{
+    private readonly TorrentSession _session;
+    private readonly ITorrentManagerFile _file;
+    private int _disposed;
+
+    internal StreamLease(TorrentSession session, ITorrentManagerFile file)
+    {
+        _session = session;
+        _file = file;
+    }
+
+    public long Length => _file.Length;
+
+    public long Position { get; set; }
+
+    public void Touch() => _session.Touch();
+
+    public async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct)
+    {
+        if (Position >= Length || buffer.IsEmpty)
         {
-            _session.Release(_cts);
+            return 0;
         }
+
+        var max = (int)Math.Min(buffer.Length, Length - Position);
+        var read = await _session.ReadAtAsync(_file, Position, buffer[..max], ct).ConfigureAwait(false);
+        Position += read;
+        return read;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+        {
+            _session.Release();
+        }
+
+        return ValueTask.CompletedTask;
     }
 }

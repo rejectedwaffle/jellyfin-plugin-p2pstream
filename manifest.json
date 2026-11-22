@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.5.0.0",
+                             "changelog":  "Choosing a version now plays it. Several readers per stream (probe, playback, subtitles no longer knock each other off). Gelato-style check of the top streams\u0027 tracks. Leftover downloads from crashes are cleaned up at startup. More readable Torrents and Sources tabs.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.5.0.0/p2pstream_0.5.0.0.zip",
+                             "checksum":  "52f6449a6e4fd24ba6f39bed30f17188",
+                             "timestamp":  "2026-11-22T08:40:33Z"
+                         },
+                         {
                              "version":  "0.4.0.0",
                              "changelog":  "Available streams picker (Elementum-style): a title\u0027s releases appear in Jellyfin\u0027s Version menu with resolution, size, seeds, quality and source. Auto (best match) stays the default; the stream you pick is remembered.",
                              "targetAbi":  "12.4.0.0",

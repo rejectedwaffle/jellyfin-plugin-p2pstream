@@ -1,49 +1,85 @@
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.P2PStream.Providers;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.P2PStream.Api;
 
 /// <summary>
-/// Adds the available streams to a title's page, as Jellyfin's Version menu: "Auto (best match)" first, then each release.
-/// It waits a few seconds for the search the first time. After that the list is cached and appears instantly.
+/// The Elementum-style stream picker, built on Jellyfin's Version menu:
+/// <list type="bullet">
+/// <item>Title pages: the releases are added as versions ("Auto (best match)" first), and the top ones are checked in the background.</item>
+/// <item>Playback: if the playback request names one of those versions, that release is remembered for the title and the
+/// request is switched to the title's normal source, which Jellyfin plays reliably. The play endpoint then serves the chosen release.</item>
+/// </list>
 /// </summary>
 public sealed partial class StreamPickerFilter : IAsyncActionFilter
 {
-    private static readonly TimeSpan Budget = TimeSpan.FromSeconds(8);
-    private readonly StreamOptions _options;
-    private readonly ILibraryManager _libraryManager;
+    private static readonly TimeSpan PageBudget = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan PlayBudget = TimeSpan.FromSeconds(30);
 
-    public StreamPickerFilter(StreamOptions options, ILibraryManager libraryManager)
+    private readonly StreamOptions _options;
+    private readonly StreamResolver _resolver;
+    private readonly StreamProber _prober;
+    private readonly ILibraryManager _libraryManager;
+    private readonly IServiceProvider _services;
+    private readonly ILogger<StreamPickerFilter> _logger;
+
+    public StreamPickerFilter(StreamOptions options, StreamResolver resolver, StreamProber prober, ILibraryManager libraryManager, IServiceProvider services, ILogger<StreamPickerFilter> logger)
     {
         _options = options;
+        _resolver = resolver;
+        _prober = prober;
         _libraryManager = libraryManager;
+        _services = services;
+        _logger = logger;
     }
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        var executed = await next().ConfigureAwait(false);
-        try
+        var http = context.HttpContext;
+        var path = http.Request.Path.Value ?? string.Empty;
+        var enabled = Plugin.Instance?.Configuration.StreamPicker == true;
+
+        if (enabled && PlaybackInfoPath().IsMatch(path))
         {
-            await AddVersionsAsync(context.HttpContext, executed).ConfigureAwait(false);
+            try
+            {
+                await UseChosenVersionAsync(context).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning("Could not apply the chosen version: {Message}", ex.Message);
+            }
         }
-        catch (Exception)
+
+        var executed = await next().ConfigureAwait(false);
+
+        if (enabled && HttpMethods.IsGet(http.Request.Method) && ItemPath().IsMatch(path))
         {
-            // Never break a title's page because of the plugin.
+            try
+            {
+                await AddVersionsAsync(http, executed).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Never break a title's page because of the plugin.
+            }
         }
     }
 
+    // ---------------- title page: list the versions ----------------
     private async Task AddVersionsAsync(HttpContext http, ActionExecutedContext executed)
     {
-        if (Plugin.Instance?.Configuration.StreamPicker != true
-            || !HttpMethods.IsGet(http.Request.Method)
-            || !ItemPath().IsMatch(http.Request.Path.Value ?? string.Empty)
-            || executed.Result is not ObjectResult { Value: BaseItemDto dto }
-            || dto.MediaSources is not { Length: > 0 })
+        if (executed.Result is not ObjectResult { Value: BaseItemDto dto } || dto.MediaSources is not { Length: > 0 })
         {
             return;
         }
@@ -58,7 +94,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         {
             try
             {
-                releases = await _options.GetAsync(request, http.RequestAborted).WaitAsync(Budget, http.RequestAborted).ConfigureAwait(false);
+                releases = await _options.GetAsync(request, http.RequestAborted).WaitAsync(PageBudget, http.RequestAborted).ConfigureAwait(false);
             }
             catch (TimeoutException)
             {
@@ -71,12 +107,90 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             return;
         }
 
+        _prober.ProbeTopInBackground(item, url, releases);
+
         var auto = dto.MediaSources[0];
-        auto.Name = "Auto (best match)";
-        dto.MediaSources = new[] { auto }.Concat(StreamPicker.BuildSources(item, url, releases)).ToArray();
+        var current = _resolver.CurrentPickTitle(request);
+        auto.Name = current is null ? "Auto (best match)" : "Auto (best match) — now: " + (current.Length > 70 ? current[..67] + "..." : current);
+        dto.MediaSources = new[] { auto }.Concat(StreamPicker.BuildSources(item, url, releases, _options)).ToArray();
         dto.MediaSourceCount = dto.MediaSources.Length;
+    }
+
+    // ---------------- playback: honour the chosen version ----------------
+    private async Task UseChosenVersionAsync(ActionExecutingContext context)
+    {
+        if (!context.ActionArguments.TryGetValue("itemId", out var idArg) || idArg is not Guid itemId)
+        {
+            return;
+        }
+
+        // The chosen version arrives as a query parameter, in the request body, or both.
+        var bodies = context.ActionArguments.Values.Where(v => v?.GetType().GetProperty("MediaSourceId") is { PropertyType: var t } && t == typeof(string)).ToList();
+        var chosen = context.ActionArguments.TryGetValue("mediaSourceId", out var q) ? q as string : null;
+        chosen ??= bodies.Select(b => b!.GetType().GetProperty("MediaSourceId")!.GetValue(b) as string).FirstOrDefault(s => !string.IsNullOrEmpty(s));
+        if (string.IsNullOrEmpty(chosen))
+        {
+            return; // Auto
+        }
+
+        var item = _libraryManager.GetItemById(itemId);
+        if (item is null || !StreamPicker.TryGetRequest(item, out _, out var request))
+        {
+            return;
+        }
+
+        var staticId = item.Id.ToString("N");
+        if (string.Equals(chosen, staticId, StringComparison.OrdinalIgnoreCase))
+        {
+            return; // Auto
+        }
+
+        if (!_options.TryGetCached(request, out var releases))
+        {
+            releases = await _options.GetAsync(request, context.HttpContext.RequestAborted).WaitAsync(PlayBudget).ConfigureAwait(false);
+        }
+
+        var release = releases.FirstOrDefault(r => StreamOptions.IdFor(r) == chosen);
+        if (release is null)
+        {
+            return; // not one of ours
+        }
+
+        // A different release than last time: forget the saved tracks so Jellyfin reads the new release's tracks.
+        if (!_resolver.IsCurrentPick(request, chosen))
+        {
+            ClearSavedTracks(item);
+        }
+
+        _resolver.Pin(request, chosen);
+        _logger.LogInformation("Playing chosen version {Release} for {Item}", release.Title, item.Name);
+
+        // Play through the title's normal source; the play endpoint now serves the chosen release.
+        if (context.ActionArguments.ContainsKey("mediaSourceId"))
+        {
+            context.ActionArguments["mediaSourceId"] = staticId;
+        }
+
+        foreach (var body in bodies)
+        {
+            body!.GetType().GetProperty("MediaSourceId")!.SetValue(body, staticId);
+        }
+    }
+
+    private void ClearSavedTracks(BaseItem item)
+    {
+        var repository = _services.GetService<IMediaStreamRepository>();
+        if (repository is null)
+        {
+            return;
+        }
+
+        repository.SaveMediaStreams(item.Id, Array.Empty<MediaStream>(), CancellationToken.None);
     }
 
     [GeneratedRegex(@"/Items/[0-9a-fA-F-]{32,36}$")]
     private static partial Regex ItemPath();
+
+    [GeneratedRegex(@"/Items/[0-9a-fA-F-]{32,36}/PlaybackInfo$", RegexOptions.IgnoreCase)]
+    private static partial Regex PlaybackInfoPath();
 }
