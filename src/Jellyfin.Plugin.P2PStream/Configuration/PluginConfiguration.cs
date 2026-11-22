@@ -1,0 +1,168 @@
+using MediaBrowser.Model.Plugins;
+
+namespace Jellyfin.Plugin.P2PStream.Configuration;
+
+public class TorznabIndexer
+{
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the Torznab endpoint, e.g. http://prowlarr:9696/1/api or http://jackett:9117/api/v2.0/indexers/all/results/torznab.</summary>
+    public string Url { get; set; } = string.Empty;
+
+    public string ApiKey { get; set; } = string.Empty;
+
+    public bool Enabled { get; set; } = true;
+}
+
+/// <summary>
+/// One row of the Catalogs table (Gelato-style): which TMDB list goes into which library.
+/// </summary>
+public class CatalogEntry
+{
+    /// <summary>Gets or sets the catalog id, e.g. "movie:trending", "tv:popular" or "list:8312:movie".</summary>
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets a value indicating whether the catalog is imported (synced on schedule).</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether a Jellyfin collection is kept in step with the catalog.</summary>
+    public bool Collection { get; set; }
+
+    public int MaxItems { get; set; } = 100;
+
+    /// <summary>Gets or sets the catalog folder (under the catalog path) this catalog writes to. Add a library with that folder to see it; blank uses the default folder.</summary>
+    public string Library { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Settings for one built-in search source (see Providers/BuiltIn).
+/// </summary>
+public class BuiltInSource
+{
+    public string Id { get; set; } = string.Empty;
+
+    public bool Enabled { get; set; }
+
+    /// <summary>Gets or sets the site address. Editable because these sites change domains.</summary>
+    public string BaseUrl { get; set; } = string.Empty;
+}
+
+public class PluginConfiguration : BasePluginConfiguration
+{
+    // ---- Access ----
+
+    /// <summary>Gets or sets the secret embedded in .strm URLs so ffmpeg/clients can stream without a Jellyfin session.</summary>
+    public string StreamToken { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the base URL written into .strm files. Must be reachable by every client (LAN IP or public URL), e.g. http://192.168.1.10:8096.</summary>
+    public string PublicBaseUrl { get; set; } = string.Empty;
+
+    // ---- Engine ----
+    public int ListenPort { get; set; } = 55125;
+
+    public string DownloadPath { get; set; } = string.Empty;
+
+    public bool KeepFilesAfterPlayback { get; set; }
+
+    public int IdleTimeoutMinutes { get; set; } = 15;
+
+    public int MaxActiveTorrents { get; set; } = 3;
+
+    public int MaxDownloadKbps { get; set; }
+
+    public int MaxUploadKbps { get; set; }
+
+    public bool EnablePortForwarding { get; set; } = true;
+
+    public int MetadataTimeoutSeconds { get; set; } = 60;
+
+    // ---- Providers ----
+
+    /// <summary>Gets or sets the built-in sources. Missing ids fall back to the defaults in BuiltInSourceDefaults.</summary>
+    public BuiltInSource[] Sources { get; set; } = [];
+
+    public TorznabIndexer[] Indexers { get; set; } = [];
+
+    public int MinSeeders { get; set; } = 3;
+
+    /// <summary>Gets or sets the preferred resolution: 2160, 1080, 720 or 480.</summary>
+    public int PreferredResolution { get; set; } = 1080;
+
+    /// <summary>Gets or sets the allowed resolutions (2160, 1440, 1080, 720, 480, 240). Releases with no resolution in the name are always allowed.</summary>
+    public int[] AllowedResolutions { get; set; } = [2160, 1440, 1080, 720, 480];
+
+    /// <summary>Gets or sets the allowed release types (see ReleaseRanker.ReleaseTypes). Unrecognised releases are always allowed.</summary>
+    public string[] AllowedReleaseTypes { get; set; } = ["bluray", "webdl", "hdrip", "hdtv", "dvdrip", "dvdscr", "screener"];
+
+    // Size ranges in GB (0 max = no limit).
+    public int MinSizeGb { get; set; }
+
+    public int MaxSizeGb { get; set; } = 30;
+
+    public int SeasonMinSizeGb { get; set; }
+
+    public int SeasonMaxSizeGb { get; set; } = 100;
+
+    public int EpisodeMinSizeGb { get; set; }
+
+    public int EpisodeMaxSizeGb { get; set; } = 10;
+
+    /// <summary>Gets or sets comma separated words; releases must contain all of them.</summary>
+    public string RequiredKeywords { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets comma separated words; releases containing any are skipped.</summary>
+    public string ExcludedKeywords { get; set; } = string.Empty;
+
+    // ---- Proxy (searches and .torrent downloads; not peer traffic) ----
+
+    /// <summary>Gets or sets the proxy address, e.g. socks5://127.0.0.1:1080 or http://proxy:8080. Empty means no proxy.</summary>
+    public string ProxyUrl { get; set; } = string.Empty;
+
+    public string ProxyUser { get; set; } = string.Empty;
+
+    public string ProxyPassword { get; set; } = string.Empty;
+
+    public int CandidatesToTry { get; set; } = 3;
+
+    // ---- Catalog ----
+    public bool CatalogEnabled { get; set; }
+
+    public string TmdbApiKey { get; set; } = string.Empty;
+
+    public string CatalogPath { get; set; } = string.Empty;
+
+    public string Language { get; set; } = "en-US";
+
+    public string[] MovieLists { get; set; } = ["trending", "popular"];
+
+    public string[] ShowLists { get; set; } = ["trending", "popular"];
+
+    public int CatalogPages { get; set; } = 2;
+
+    /// <summary>Gets or sets comma separated TMDB list ids (your own curated lists).</summary>
+    public string CustomTmdbListIds { get; set; } = string.Empty;
+
+    public bool PruneCatalog { get; set; } = true;
+
+    public int CatalogSyncHours { get; set; } = 24;
+
+    /// <summary>Gets or sets a value indicating whether the one-time 0.3.0 library cleanup has run (see LibrarySetup).</summary>
+    public bool LegacyLibraryCleanupDone { get; set; }
+
+    /// <summary>Gets or sets the Catalogs table rows. Missing rows fall back to defaults (and legacy MovieLists/ShowLists).</summary>
+    public CatalogEntry[] Catalogs { get; set; } = [];
+
+    // ---- Jellyfin search ----
+
+    /// <summary>Gets or sets the catalog folder that movies added by search go into (add a library with it).</summary>
+    public string SearchMovieLibrary { get; set; } = "P2P Movies";
+
+    /// <summary>Gets or sets the catalog folder that shows added by search go into (add a library with it).</summary>
+    public string SearchShowLibrary { get; set; } = "P2P Shows";
+
+    /// <summary>Gets or sets a value indicating whether Jellyfin searches also look up TMDB and add matches to the library.</summary>
+    public bool SearchIntegration { get; set; } = true;
+
+    /// <summary>Gets or sets how long titles added by search are kept if they aren't on a synced list (0 = forever).</summary>
+    public int SearchImportDays { get; set; } = 30;
+}

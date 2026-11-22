@@ -1,0 +1,20 @@
+[
+    {
+        "guid":  "fb38a8c4-7fa6-48e6-9c52-c093e7263aff",
+        "name":  "P2P Stream",
+        "description":  "Stream torrents straight into Jellyfin. Built-in torrent sources (no extra software), TMDB catalogs as libraries, search for any movie or show from the Jellyfin search bar, and Burst-style quality filters.",
+        "overview":  "Stream torrents on demand, Elementum-style.",
+        "owner":  "rejectedwaffle",
+        "category":  "General",
+        "versions":  [
+                         {
+                             "version":  "0.3.2.0",
+                             "changelog":  "Gelato-style settings page (tabs, catalogs table, New library folders, unsaved-changes bar); built-in sources incl. KickAss, BT4G, 1337x; Jellyfin search integration; Burst-style quality filters.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.3.2.0/p2pstream_0.3.2.0.zip",
+                             "checksum":  "c8bfa6aabfd07f36c998bf75af3af5a3",
+                             "timestamp":  "2026-11-22T07:35:48Z"
+                         }
+                     ]
+    }
+]

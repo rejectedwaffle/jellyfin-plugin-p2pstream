@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>P2P Stream</title>
+</head>
+<body>
+<div id="P2PStreamConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary" style="max-width:none">
+            <style>
+                #P2PStreamConfigPage .p2p-tabs { display: flex; flex-wrap: wrap; gap: .25em; border-bottom: 1px solid rgba(128,128,128,.3); margin: .5em 0 1.25em; }
+                #P2PStreamConfigPage .p2p-tab-btn { background: none; border: 0; border-bottom: 3px solid transparent; color: inherit; opacity: .75; padding: .7em 1em; font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: .4em; }
+                #P2PStreamConfigPage .p2p-tab-btn:hover { opacity: 1; }
+                #P2PStreamConfigPage .p2p-tab-btn.active { opacity: 1; border-bottom-color: #00a4dc; color: #00a4dc; }
+                #P2PStreamConfigPage .p2p-tab-btn .material-icons { font-size: 1.2em; }
+                #P2PStreamConfigPage .p2p-panel { display: none; }
+                #P2PStreamConfigPage .p2p-panel.active { display: block; }
+                #P2PStreamConfigPage .p2p-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(24em, 1fr)); gap: 1em; align-items: start; }
+                #P2PStreamConfigPage .p2p-card { background: rgba(128,128,128,.08); border: 1px solid rgba(128,128,128,.25); border-radius: 8px; padding: 1em 1.25em; }
+                #P2PStreamConfigPage .p2p-card.wide { grid-column: 1 / -1; }
+                #P2PStreamConfigPage .p2p-card h3 { display: flex; align-items: center; gap: .5em; margin: 0 0 .5em; font-size: 1.1em; font-weight: 500; }
+                #P2PStreamConfigPage .p2p-card h3 .material-icons { color: #00a4dc; font-size: 1.2em; }
+                #P2PStreamConfigPage .p2p-muted { opacity: .7; font-size: .9em; }
+                #P2PStreamConfigPage .p2p-row { display: flex; gap: .75em; align-items: flex-end; flex-wrap: wrap; }
+                #P2PStreamConfigPage .p2p-row > .inputContainer, #P2PStreamConfigPage .p2p-row > .selectContainer { flex: 1 1 10em; }
+                #P2PStreamConfigPage .checkboxContainer { margin-bottom: .2em; }
+                #P2PStreamConfigPage .p2p-desc { opacity: .7; font-size: .88em; margin: 0 0 1em 2.6em; }
+                #P2PStreamConfigPage table { width: 100%; border-collapse: collapse; font-size: .92em; }
+                #P2PStreamConfigPage th, #P2PStreamConfigPage td { text-align: left; padding: .45em .5em; border-bottom: 1px solid rgba(128,128,128,.22); vertical-align: middle; }
+                #P2PStreamConfigPage th { font-weight: 600; }
+                #P2PStreamConfigPage .p2p-files { font-size: .85em; opacity: .85; margin-top: .3em; }
+                #P2PStreamConfigPage .p2p-files a, #P2PStreamConfigPage code { word-break: break-all; }
+                #P2PStreamConfigPage .p2p-tag { display: inline-block; padding: .1em .55em; border-radius: 1em; background: rgba(128,128,128,.25); font-size: .8em; }
+                #P2PStreamConfigPage .p2p-plain { background: rgba(128,128,128,.15); color: inherit; border: 1px solid rgba(128,128,128,.4); border-radius: 4px; padding: .35em .5em; font: inherit; }
+                #P2PStreamConfigPage .p2p-plain option { background: #202020; color: #fff; }
+                #P2PStreamConfigPage .p2p-round { width: 2.2em; height: 2.2em; border-radius: 50%; border: 0; background: #00a4dc; color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+                #P2PStreamConfigPage .p2p-round .material-icons { font-size: 1.25em; }
+                #P2PStreamConfigPage .p2p-cat td .checkboxContainer { margin: 0; }
+                #P2PStreamConfigPage .p2p-source { border-bottom: 1px solid rgba(128,128,128,.2); padding: .2em 0; }
+                #P2PStreamConfigPage .p2p-source-line { display: flex; align-items: center; justify-content: space-between; gap: 1em; }
+                #P2PStreamConfigPage .p2p-source-line .checkboxContainer { margin: 0; }
+                #P2PStreamConfigPage .src-url-row { padding: 0 0 .5em 2.6em; }
+                #P2PStreamConfigPage .p2p-indexer { border: 1px solid rgba(128,128,128,.3); border-radius: 6px; padding: .6em .9em; margin-bottom: .6em; }
+                #P2PStreamConfigPage .p2p-checks { columns: 2; }
+                #P2PStreamConfigPage .p2p-savebar { position: fixed; right: 2em; bottom: 2em; z-index: 999; display: flex; align-items: center; gap: .9em; padding: .45em .45em .45em 1.1em; background: #252525; color: #eee; border: 1px solid rgba(255,255,255,.12); border-radius: 2em; box-shadow: 0 6px 24px rgba(0,0,0,.5); font-weight: 600; opacity: 0; transform: translateY(1em); pointer-events: none; transition: opacity .15s, transform .15s; }
+                #P2PStreamConfigPage .p2p-savebar.show { opacity: 1; transform: none; pointer-events: auto; }
+                #P2PStreamConfigPage .p2p-savebar .p2p-dot { width: .6em; height: .6em; border-radius: 50%; background: #e5a00d; box-shadow: 0 0 0 3px rgba(229,160,13,.25); }
+                #P2PStreamConfigPage .p2p-savebar .p2p-savebtn { margin: 0; border-radius: 2em; min-width: 7em; padding: .6em 1.6em; }
+                #P2PStreamConfigPage .p2p-nolib { color: #e5a00d; }
+                #P2PStreamConfigPage .cat-hint { font-size: .8em; margin-top: .2em; }
+                #P2PStreamConfigPage .cat-hint a, #P2PStreamConfigPage .p2p-folder-status a { color: #00a4dc; }
+                #P2PStreamConfigPage .p2p-modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+                #P2PStreamConfigPage .p2p-modal-box { background: #202020; color: #eee; border-radius: 8px; padding: 1.25em 1.5em; width: min(30em, 92vw); box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+                #P2PStreamConfigPage .p2p-modal-box label { display: block; margin: .5em 0 .3em; }
+                #P2PStreamConfigPage .p2p-modal-buttons { display: flex; justify-content: flex-end; gap: .5em; margin-top: 1em; }
+                #P2PStreamConfigPage .p2p-folder-status { font-size: .88em; margin: .2em 0 .8em; }
+                #P2PStreamConfigPage .p2p-warn { border-left: 3px solid #e5a00d; padding: .4em .8em; margin: .5em 0 1em; background: rgba(229,160,13,.1); }
+            </style>
+
+            <h2 class="sectionTitle">P2P Stream</h2>
+
+            <div class="p2p-tabs" id="p2pTabs">
+                <button type="button" class="p2p-tab-btn" data-tab="torrents"><span class="material-icons">cloud_download</span>Torrents</button>
+                <button type="button" class="p2p-tab-btn" data-tab="sources"><span class="material-icons">travel_explore</span>Sources</button>
+                <button type="button" class="p2p-tab-btn" data-tab="catalogs"><span class="material-icons">video_library</span>Catalogs</button>
+                <button type="button" class="p2p-tab-btn" data-tab="search"><span class="material-icons">search</span>Search</button>
+                <button type="button" class="p2p-tab-btn" data-tab="quality"><span class="material-icons">high_quality</span>Quality</button>
+                <button type="button" class="p2p-tab-btn" data-tab="engine"><span class="material-icons">tune</span>Engine</button>
+                <button type="button" class="p2p-tab-btn" data-tab="access"><span class="material-icons">vpn_key</span>Access</button>
+            </div>
+
+            <form id="P2PStreamConfigForm">
+
+                <!-- ============================== TORRENTS ============================== -->
+                <section class="p2p-panel" data-panel="torrents">
+                    <div class="p2p-grid">
+                        <div class="p2p-card wide">
+                            <h3><span class="material-icons">downloading</span>Active torrents</h3>
+                            <div id="p2pStatus"><p class="p2p-muted">Loading...</p></div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">link</span>Add a torrent</h3>
+                            <p class="p2p-muted">Paste a magnet link or a .torrent URL. Its video files get a stream link, and "make .strm" puts one in your library (the <code>Added</code> folder).</p>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="text" id="p2pMagnet" label="Magnet link or .torrent URL" /></div>
+                                <button is="emby-button" type="button" class="raised button-submit" id="p2pAdd"><span>Add</span></button>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">cached</span>Remembered picks</h3>
+                            <p class="p2p-muted">After a title plays once, the torrent that worked is remembered so replays start instantly. Clear this if a title keeps picking a bad release.</p>
+                            <button is="emby-button" type="button" class="raised" id="p2pClearCache"><span>Forget cached picks</span></button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============================== SOURCES ============================== -->
+                <section class="p2p-panel" data-panel="sources">
+                    <div class="p2p-grid">
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">public</span>Built-in sources</h3>
+                            <p class="p2p-muted">Where the plugin looks for torrents when you press play. These run inside the plugin, so there's nothing to install. Use "change address" if a site moves to a new domain.</p>
+                            <div id="p2pSources"><p class="p2p-muted">Loading...</p></div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">manage_search</span>Test search</h3>
+                            <p class="p2p-muted">Searches every enabled source. Save first if you just changed sources.</p>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="text" id="p2pSearchQuery" label="Search for" /></div>
+                                <button is="emby-button" type="button" class="raised" id="p2pSearch"><span>Search</span></button>
+                            </div>
+                            <div id="p2pSearchResults"></div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">vpn_lock</span>Proxy</h3>
+                            <p class="p2p-muted">Optional. Used for searches and .torrent downloads, which helps if a site is blocked where you are. Torrent peer traffic doesn't go through it.</p>
+                            <div class="inputContainer"><input is="emby-input" type="text" data-key="ProxyUrl" label="Proxy address (e.g. socks5://127.0.0.1:1080)" autocomplete="off" /></div>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="text" data-key="ProxyUser" label="Login" autocomplete="off" /></div>
+                                <div class="inputContainer"><input is="emby-input" type="password" data-key="ProxyPassword" label="Password" autocomplete="new-password" /></div>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">dns</span>Torznab indexers (optional)</h3>
+                            <p class="p2p-muted">For Prowlarr or Jackett users. Not needed if you use the built-in sources.</p>
+                            <div id="p2pIndexers"></div>
+                            <button is="emby-button" type="button" class="raised" id="p2pAddIndexer"><span>Add indexer</span></button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============================== CATALOGS ============================== -->
+                <section class="p2p-panel" data-panel="catalogs">
+                    <div class="p2p-grid">
+                        <div class="p2p-card wide">
+                            <h3><span class="material-icons">video_library</span>Catalogs</h3>
+                            <p class="p2p-muted">Turn on a catalog to import its titles. Each catalog writes into a folder; add a library with that folder in Dashboard &gt; Libraries (pick "New library..." to make a folder for one). Shows get all their aired episodes, so a big catalog takes a while.</p>
+                            <div id="p2pCatWarn"></div>
+                            <div class="p2p-row" style="margin-bottom:.5em">
+                                <input type="text" id="p2pCatFilter" class="p2p-plain" placeholder="Search catalogs by name or type" style="flex:1" />
+                                <button is="emby-button" type="button" class="raised" id="p2pCatRefresh"><span>Refresh</span></button>
+                            </div>
+                            <div id="p2pCatalogs"><p class="p2p-muted">Loading...</p></div>
+                            <div style="text-align:right;margin-top:.75em">
+                                <button is="emby-button" type="button" class="raised button-submit" id="p2pImportAll"><span>Import all</span></button>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">key</span>TMDB</h3>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="TmdbApiKey" label="TMDB API key or read access token" />
+                                <div class="fieldDescription">Free from themoviedb.org, under Settings, then API. Needed for catalogs, search and looking up titles when you press play.</div>
+                            </div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="Language" label="Language (e.g. en-US)" />
+                                <div class="fieldDescription">Language for titles and folder names.</div>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">playlist_add</span>Your TMDB lists</h3>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="CustomTmdbListIds" label="TMDB list ids (comma separated)" />
+                                <div class="fieldDescription">The number in a list's URL on themoviedb.org. Each list appears in the table as a movie row and a show row. Save, then click Refresh.</div>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">schedule</span>Sync</h3>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="number" min="1" data-key="CatalogSyncHours" data-type="int" label="Re-sync every (hours)" />
+                                <div class="fieldDescription">Runs as the "Sync P2P Stream catalog" scheduled task.</div>
+                            </div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PruneCatalog" /><span>Remove titles that drop off a catalog</span></label>
+                            <div class="p2p-desc">Keeps libraries matching the current lists. Titles added by search are kept for the time set on the Search tab.</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============================== SEARCH ============================== -->
+                <section class="p2p-panel" data-panel="search">
+                    <div class="p2p-grid">
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">search</span>Jellyfin search</h3>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="SearchIntegration" /><span>Find any movie or show from Jellyfin's search bar</span></label>
+                            <div class="p2p-desc">When you search, matching titles from TMDB are added to the folders below, so you can open and play them. A brand-new title can take a few seconds; if it isn't there yet, search again.</div>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="text" data-key="SearchMovieLibrary" label="Folder for movies" /></div>
+                                <div class="inputContainer"><input is="emby-input" type="text" data-key="SearchShowLibrary" label="Folder for shows" /></div>
+                            </div>
+                            <div class="fieldDescription">Add a library for each folder (a Movies library and a Shows library) so search results have somewhere to appear.</div>
+                            <div id="p2pSearchFolderStatus" class="p2p-folder-status"></div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="number" min="0" data-key="SearchImportDays" data-type="int" label="Keep titles added by search for (days, 0 = forever)" />
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">add_circle</span>Add any movie or show</h3>
+                            <p class="p2p-muted">The manual version of the search above.</p>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="text" id="p2pTmdbQuery" label="Movie or show name" /></div>
+                                <button is="emby-button" type="button" class="raised" id="p2pTmdbSearch"><span>Find</span></button>
+                            </div>
+                            <div id="p2pTmdbResults"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============================== QUALITY ============================== -->
+                <section class="p2p-panel" data-panel="quality">
+                    <div class="p2p-grid">
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">aspect_ratio</span>Resolution</h3>
+                            <div class="selectContainer">
+                                <select is="emby-select" data-key="PreferredResolution" data-type="int" label="Preferred resolution">
+                                    <option value="2160">2160p (4K)</option>
+                                    <option value="1440">1440p (2K)</option>
+                                    <option value="1080">1080p</option>
+                                    <option value="720">720p</option>
+                                    <option value="480">480p</option>
+                                </select>
+                                <div class="fieldDescription">Tried first. If there's none, the closest lower resolution, then higher.</div>
+                            </div>
+                            <p class="p2p-muted">Allowed. Releases whose name doesn't say are always allowed.</p>
+                            <div data-list="AllowedResolutions" data-type="int" class="p2p-checks">
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="2160" /><span>4K/2160p</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="1440" /><span>2K/1440p</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="1080" /><span>1080p</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="720" /><span>720p</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="480" /><span>480p</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="240" /><span>240p</span></label>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">movie_filter</span>Video quality</h3>
+                            <p class="p2p-muted">Allowed release types. Releases whose name doesn't say are always allowed.</p>
+                            <div data-list="AllowedReleaseTypes" class="p2p-checks">
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="bluray" /><span>BRRip/BDRip/BluRay</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="webdl" /><span>WEB-DL/WEBRip</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="hdrip" /><span>HDRip</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="hdtv" /><span>HDTV</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="dvdrip" /><span>DVDRip</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="dvdscr" /><span>DVDScr</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="screener" /><span>Screener/SCR</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="3d" /><span>3D</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="telesync" /><span>TeleSync/TS/TC</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="cam" /><span>Cam/HDCam</span></label>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">sd_storage</span>Size (GB)</h3>
+                            <p class="p2p-muted">Releases outside these ranges are skipped. A maximum of 0 means no limit.</p>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="MinSizeGb" data-type="int" label="Movies: min" /></div>
+                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="MaxSizeGb" data-type="int" label="Movies: max" /></div>
+                            </div>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="EpisodeMinSizeGb" data-type="int" label="Episodes: min" /></div>
+                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="EpisodeMaxSizeGb" data-type="int" label="Episodes: max" /></div>
+                            </div>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="SeasonMinSizeGb" data-type="int" label="Season packs: min" /></div>
+                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="SeasonMaxSizeGb" data-type="int" label="Season packs: max" /></div>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">filter_alt</span>Filtering</h3>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="MinSeeders" data-type="int" label="Minimum seeders" /></div>
+                                <div class="inputContainer"><input is="emby-input" type="number" min="1" max="10" data-key="CandidatesToTry" data-type="int" label="Releases to try" /></div>
+                            </div>
+                            <div class="fieldDescription" style="margin-bottom:1em">0 seeders allows results without seeds. "Releases to try": if one won't start, the next best is tried, up to this many.</div>
+                            <div class="inputContainer"><input is="emby-input" type="text" data-key="RequiredKeywords" label="Required keywords (comma separated, all must appear)" /></div>
+                            <div class="inputContainer"><input is="emby-input" type="text" data-key="ExcludedKeywords" label="Excluded keywords (comma separated)" /></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============================== ENGINE ============================== -->
+                <section class="p2p-panel" data-panel="engine">
+                    <div class="p2p-grid">
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">lan</span>Connection</h3>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="number" min="1" max="65535" data-key="ListenPort" data-type="int" label="Listen port" />
+                                <div class="fieldDescription">Forward this port (TCP and UDP) on your router for much better speeds.</div>
+                            </div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="EnablePortForwarding" /><span>Forward the port automatically (UPnP / NAT-PMP)</span></label>
+                            <div class="p2p-desc">Works if your router allows it.</div>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="MaxDownloadKbps" data-type="int" label="Max download (KB/s, 0 = unlimited)" /></div>
+                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="MaxUploadKbps" data-type="int" label="Max upload (KB/s, 0 = unlimited)" /></div>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">timer</span>Torrents</h3>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="number" min="1" data-key="MaxActiveTorrents" data-type="int" label="Max active torrents" />
+                                <div class="fieldDescription">When full, the least recently used torrent is removed.</div>
+                            </div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="number" min="1" data-key="IdleTimeoutMinutes" data-type="int" label="Remove idle torrents after (minutes)" />
+                            </div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="number" min="10" data-key="MetadataTimeoutSeconds" data-type="int" label="Give up on a release after (seconds)" />
+                                <div class="fieldDescription">How long to wait for peers to send a torrent's file list before trying the next release.</div>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">folder</span>Storage</h3>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="DownloadPath" label="Download folder (blank = plugin data folder)" />
+                            </div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="KeepFilesAfterPlayback" /><span>Keep downloaded files after torrents are removed</span></label>
+                            <div class="p2p-desc">Off: files are deleted when a torrent is removed, so the disk doesn't fill up.</div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="CatalogPath" label="Catalog folder (blank = plugin data folder)" />
+                                <div class="fieldDescription">Where the .strm files for catalog and search libraries are written.</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============================== ACCESS ============================== -->
+                <section class="p2p-panel" data-panel="access">
+                    <div class="p2p-grid">
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">language</span>Addresses</h3>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="PublicBaseUrl" label="Public base URL" />
+                                <div class="fieldDescription">The address every device uses to reach Jellyfin, e.g. <code>http://192.168.1.10:8096</code> (include your base path if you use one). It's written into every .strm file, so after changing it, run "Import all" on the Catalogs tab.</div>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">password</span>Stream token</h3>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="StreamToken" label="Stream token" />
+                                <div class="fieldDescription">A secret in the stream links that lets players stream without a Jellyfin login. Treat it like a password. After changing it, run "Import all" so the links are rewritten.</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Floating bar (like Gelato's): appears as soon as a setting changes, disappears once saved. -->
+                <div class="p2p-savebar" id="p2pSaveBar" role="status">
+                    <span class="p2p-dot"></span><span>Unsaved changes</span>
+                    <button is="emby-button" type="submit" class="raised button-submit p2p-savebtn"><span>Save</span></button>
+                </div>
+            </form>
+
+            <div id="p2pModal" class="p2p-modal" style="display:none">
+                <div class="p2p-modal-box">
+                    <h3 style="margin:0 0 .5em">New library</h3>
+                    <div id="p2pModalStep1">
+                        <label for="p2pNewName">Library name:</label>
+                        <input type="text" id="p2pNewName" class="p2p-plain" style="width:100%;box-sizing:border-box" />
+                        <p class="p2p-muted">Jellyfin needs a folder for a new library, so P2P Stream creates the folder first. You add the library with it in the next step.</p>
+                        <div class="p2p-modal-buttons">
+                            <button is="emby-button" type="button" class="raised" id="p2pNewCancel"><span>Cancel</span></button>
+                            <button is="emby-button" type="button" class="raised button-submit" id="p2pNewCreate"><span>Create folder</span></button>
+                        </div>
+                    </div>
+                    <div id="p2pModalStep2" style="display:none">
+                        <label for="p2pNewPath">Folder for the library:</label>
+                        <div class="p2p-row" style="align-items:center">
+                            <input type="text" id="p2pNewPath" class="p2p-plain" readonly style="flex:1" />
+                            <button is="emby-button" type="button" class="raised" id="p2pNewCopy"><span>Copy</span></button>
+                        </div>
+                        <ol class="p2p-muted" style="padding-left:1.2em">
+                            <li>Select <b>Save</b> on this page.</li>
+                            <li>In <b>Dashboard &gt; Libraries</b>, add a library with this folder.</li>
+                        </ol>
+                        <p class="p2p-muted">Once the library exists, it shows up here under its name.</p>
+                        <div class="p2p-modal-buttons">
+                            <button is="emby-button" type="button" class="raised button-submit" id="p2pNewDone"><span>Done</span></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var pluginId = 'fb38a8c4-7fa6-48e6-9c52-c093e7263aff';
+            var page = document.querySelector('#P2PStreamConfigPage');
+            var statusTimer = null;
+            var catalogData = null;
+
+            // ---------- helpers ----------
+            function esc(s) {
+                return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+                });
+            }
+
+            function size(bytes) {
+                if (!bytes) { return '-'; }
+                var u = ['B', 'KB', 'MB', 'GB', 'TB'], i = 0;
+                while (bytes >= 1024 && i < u.length - 1) { bytes /= 1024; i++; }
+                return bytes.toFixed(i > 1 ? 1 : 0) + ' ' + u[i];
+            }
+
+            function api(type, path, body) {
+                var opts = { type: type, url: ApiClient.getUrl(path) };
+                if (body !== undefined) { opts.data = JSON.stringify(body); opts.contentType = 'application/json'; }
+                if (type === 'GET' || (type === 'POST' && body !== undefined)) { opts.dataType = 'json'; }
+                return ApiClient.ajax(opts);
+            }
+
+            function toast(msg) {
+                if (window.Dashboard && Dashboard.alert) { Dashboard.alert(msg); } else { alert(msg); }
+            }
+
+            // Turns a failed request (a fetch Response) or a JS error into readable text.
+            function explain(err) {
+                if (err && typeof err.text === 'function') {
+                    return err.text().then(function (t) {
+                        var msg = t;
+                        try { var j = JSON.parse(t); msg = j.detail || j.title || j.message || t; } catch (x) { /* not JSON */ }
+                        return 'HTTP ' + err.status + (msg ? ': ' + String(msg).slice(0, 300) : '');
+                    }, function () { return 'HTTP ' + err.status; });
+                }
+                return Promise.resolve(err && err.message ? err.message : String(err));
+            }
+
+            function store(key, value) { try { localStorage.setItem(key, value); } catch (x) { /* storage unavailable */ } }
+            function recall(key) { try { return localStorage.getItem(key); } catch (x) { return null; } }
+
+            // ---------- tabs ----------
+            function showTab(name) {
+                page.querySelectorAll('.p2p-tab-btn').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === name); });
+                page.querySelectorAll('.p2p-panel').forEach(function (p) { p.classList.toggle('active', p.getAttribute('data-panel') === name); });
+                store('p2pstream.tab', name);
+            }
+            page.querySelector('#p2pTabs').addEventListener('click', function (e) {
+                var b = e.target.closest('.p2p-tab-btn');
+                if (b) { showTab(b.getAttribute('data-tab')); }
+            });
+
+            // ---------- indexers ----------
+            function indexerRow(ix) {
+                var div = document.createElement('div');
+                div.className = 'p2p-indexer';
+                div.innerHTML =
+                    '<div class="inputContainer"><input is="emby-input" type="text" class="ix-name" label="Name" /></div>' +
+                    '<div class="inputContainer"><input is="emby-input" type="text" class="ix-url" label="Torznab URL" /></div>' +
+                    '<div class="inputContainer"><input is="emby-input" type="text" class="ix-key" label="API key" /></div>' +
+                    '<div class="p2p-row" style="justify-content:space-between">' +
+                    '<label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="ix-enabled" /><span>Enabled</span></label>' +
+                    '<button is="emby-button" type="button" class="raised ix-remove"><span>Remove</span></button>' +
+                    '</div>';
+                div.querySelector('.ix-name').value = ix.Name || '';
+                div.querySelector('.ix-url').value = ix.Url || '';
+                div.querySelector('.ix-key').value = ix.ApiKey || '';
+                div.querySelector('.ix-enabled').checked = ix.Enabled !== false;
+                div.querySelector('.ix-remove').addEventListener('click', function () { div.remove(); setDirty(true); });
+                page.querySelector('#p2pIndexers').appendChild(div);
+            }
+
+            function readIndexers() {
+                return Array.prototype.map.call(page.querySelectorAll('#p2pIndexers .p2p-indexer'), function (d) {
+                    return {
+                        Name: d.querySelector('.ix-name').value.trim(),
+                        Url: d.querySelector('.ix-url').value.trim(),
+                        ApiKey: d.querySelector('.ix-key').value.trim(),
+                        Enabled: d.querySelector('.ix-enabled').checked
+                    };
+                }).filter(function (i) { return i.Url; });
+            }
+
+            // ---------- built-in sources ----------
+            function renderSources(list) {
+                var el = page.querySelector('#p2pSources');
+                el.innerHTML = '';
+                list.forEach(function (src) {
+                    var div = document.createElement('div');
+                    div.className = 'p2p-source';
+                    div.setAttribute('data-id', src.Id);
+                    div.innerHTML =
+                        '<div class="p2p-source-line">' +
+                        '<label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="src-enabled" /><span><b>' + esc(src.Name) + '</b> <span class="p2p-muted">' + esc(src.Description) + '</span></span></label>' +
+                        '<a href="#" class="p2p-muted src-edit">change address</a>' +
+                        '</div>' +
+                        '<div class="src-url-row" style="display:none"><input is="emby-input" type="text" class="src-url" label="Address (leave blank for default)" /></div>';
+                    div.querySelector('.src-enabled').checked = !!src.Enabled;
+                    var url = div.querySelector('.src-url');
+                    var custom = src.BaseUrl && src.BaseUrl !== src.DefaultUrl;
+                    url.value = custom ? src.BaseUrl : '';
+                    url.placeholder = src.DefaultUrl || '';
+                    if (custom) { div.querySelector('.src-url-row').style.display = ''; }
+                    div.querySelector('.src-edit').addEventListener('click', function (e) {
+                        e.preventDefault();
+                        var row = div.querySelector('.src-url-row');
+                        row.style.display = row.style.display === 'none' ? '' : 'none';
+                    });
+                    el.appendChild(div);
+                });
+            }
+
+            function readSources() {
+                return Array.prototype.map.call(page.querySelectorAll('.p2p-source'), function (d) {
+                    return {
+                        Id: d.getAttribute('data-id'),
+                        Enabled: d.querySelector('.src-enabled').checked,
+                        BaseUrl: d.querySelector('.src-url').value.trim()
+                    };
+                });
+            }
+
+            // ---------- catalogs (Gelato-style folders) ----------
+            function same(a, b) { return String(a || '').toLowerCase() === String(b || '').toLowerCase(); }
+            function findFolder(name) { return (catalogData && catalogData.Folders || []).filter(function (f) { return same(f.Name, name); })[0]; }
+            function folderLabel(f) { return f.Library ? f.Library : f.Name + ' (in no library)'; }
+            function folderPath(name) {
+                var root = (catalogData && catalogData.CatalogPath) || '';
+                var sep = root.indexOf('\\') !== -1 ? '\\' : '/';
+                return root.replace(/[\\\/]+$/, '') + sep + name;
+            }
+
+            function copyText(t) {
+                if (navigator.clipboard && window.isSecureContext) { return navigator.clipboard.writeText(t); }
+                var ta = document.createElement('textarea');
+                ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                document.body.appendChild(ta); ta.select();
+                try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
+                return Promise.resolve();
+            }
+
+            function noLibraryHint(path) {
+                return '<span class="p2p-nolib">No library yet:</span> <a href="#" class="p2p-copy" data-path="' + esc(path) + '">Copy folder</a> &middot; <a href="#/dashboard/libraries">Libraries</a>';
+            }
+
+            function renderCatalogs(data) {
+                catalogData = data;
+                page.querySelector('#p2pCatWarn').innerHTML = data.TmdbConfigured ? '' :
+                    '<div class="p2p-warn">Add your TMDB API key below and save. Catalogs come from TMDB.</div>';
+                var html = '<table class="p2p-cat"><thead><tr><th>Name</th><th>Type</th><th>Import</th><th>Collection</th><th>Max items</th><th>Library</th><th></th></tr></thead><tbody>';
+                data.Rows.forEach(function (r) {
+                    var choices = (data.Folders || []).filter(function (f) { return f.IsMovie === null || f.IsMovie === r.IsMovie; });
+                    if (!choices.some(function (f) { return same(f.Name, r.Folder); })) {
+                        choices.push({ Name: r.Folder, Library: r.Library, IsMovie: null, Path: r.FolderPath });
+                    }
+                    var options = choices.map(function (f) {
+                        return '<option value="' + esc(f.Name) + '"' + (same(f.Name, r.Folder) ? ' selected' : '') + '>' + esc(folderLabel(f)) + '</option>';
+                    }).join('') + '<option value="__new__">New library...</option>';
+                    html += '<tr class="p2p-cat-row" data-id="' + esc(r.Id) + '" data-search="' + esc((r.Name + ' ' + (r.IsMovie ? 'movie' : 'series') + ' ' + (r.Library || r.Folder)).toLowerCase()) + '">' +
+                        '<td>' + esc(r.Name) + '</td>' +
+                        '<td><span class="p2p-tag">' + (r.IsMovie ? 'movie' : 'series') + '</span></td>' +
+                        '<td><label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="cat-import"' + (r.Enabled ? ' checked' : '') + ' /><span></span></label></td>' +
+                        '<td><label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="cat-collection"' + (r.Collection ? ' checked' : '') + ' /><span></span></label></td>' +
+                        '<td><input type="number" min="1" max="500" class="p2p-plain cat-max" style="width:5.5em" value="' + (r.MaxItems || 100) + '" /></td>' +
+                        '<td><select class="p2p-plain cat-lib" style="min-width:14em" data-prev="' + esc(r.Folder) + '">' + options + '</select><div class="cat-hint"></div></td>' +
+                        '<td><button type="button" class="p2p-round cat-sync" title="Import this catalog now"><span class="material-icons">sync</span></button></td>' +
+                        '</tr>';
+                });
+                page.querySelector('#p2pCatalogs').innerHTML = html + '</tbody></table>';
+                page.querySelectorAll('.p2p-cat-row').forEach(updateHint);
+                renderSearchFolders(data);
+                filterCatalogs();
+            }
+
+            function updateHint(row) {
+                var name = row.querySelector('.cat-lib').getAttribute('data-prev');
+                var f = findFolder(name);
+                row.querySelector('.cat-hint').innerHTML = f && f.Library ? '' : noLibraryHint(f ? f.Path : folderPath(name));
+            }
+
+            function renderSearchFolders(data) {
+                var labels = ['Movies', 'Shows'];
+                page.querySelector('#p2pSearchFolderStatus').innerHTML = (data.SearchFolders || []).map(function (f, i) {
+                    return '<div><b>' + labels[i] + ':</b> ' + (f.Library ? 'in library "' + esc(f.Library) + '"' : noLibraryHint(f.Path)) + '</div>';
+                }).join('');
+            }
+
+            function readCatalogs() {
+                return Array.prototype.map.call(page.querySelectorAll('.p2p-cat-row'), function (row) {
+                    var sel = row.querySelector('.cat-lib');
+                    return {
+                        Id: row.getAttribute('data-id'),
+                        Enabled: row.querySelector('.cat-import').checked,
+                        Collection: row.querySelector('.cat-collection').checked,
+                        MaxItems: parseInt(row.querySelector('.cat-max').value, 10) || 100,
+                        // data-prev holds the chosen folder; the select may briefly show "New library..." or nothing.
+                        Library: sel.value && sel.value !== '__new__' ? sel.value : sel.getAttribute('data-prev')
+                    };
+                });
+            }
+
+            // Re-draws the table (e.g. after a new folder) without losing unsaved edits.
+            function rerenderCatalogs() {
+                var states = readCatalogs();
+                catalogData.Rows.forEach(function (r) {
+                    var st = states.filter(function (x) { return x.Id === r.Id; })[0];
+                    if (!st) { return; }
+                    var f = findFolder(st.Library);
+                    r.Enabled = st.Enabled; r.Collection = st.Collection; r.MaxItems = st.MaxItems;
+                    r.Folder = st.Library; r.Library = f ? f.Library : null; r.FolderPath = f ? f.Path : folderPath(st.Library);
+                });
+                renderCatalogs(catalogData);
+            }
+
+            function filterCatalogs() {
+                var q = page.querySelector('#p2pCatFilter').value.trim().toLowerCase();
+                page.querySelectorAll('.p2p-cat-row').forEach(function (row) {
+                    row.style.display = !q || row.getAttribute('data-search').indexOf(q) !== -1 ? '' : 'none';
+                });
+            }
+
+            // ---------- "New library..." dialog ----------
+            var modalSelect = null, modalFolder = null;
+            function openNewLibrary(sel) {
+                modalSelect = sel; modalFolder = null;
+                page.querySelector('#p2pModalStep1').style.display = '';
+                page.querySelector('#p2pModalStep2').style.display = 'none';
+                page.querySelector('#p2pNewName').value = '';
+                page.querySelector('#p2pModal').style.display = 'flex';
+                page.querySelector('#p2pNewName').focus();
+            }
+            function closeModal() {
+                if (modalSelect && modalSelect.value === '__new__') { modalSelect.value = modalSelect.getAttribute('data-prev'); }
+                page.querySelector('#p2pModal').style.display = 'none';
+                modalSelect = null;
+            }
+
+            function loadCatalogs() {
+                return api('GET', 'P2PStream/Catalogs').then(renderCatalogs).catch(function (err) {
+                    explain(err).then(function (d) { page.querySelector('#p2pCatalogs').innerHTML = '<p class="p2p-muted">Could not load catalogs: ' + esc(d) + '</p>'; });
+                });
+            }
+
+            // ---------- config load/save ----------
+            function load() {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    page.querySelectorAll('[data-key]').forEach(function (el) {
+                        var v = config[el.getAttribute('data-key')];
+                        if (el.type === 'checkbox') { el.checked = !!v; } else { el.value = v == null ? '' : v; }
+                    });
+                    if (!config.PublicBaseUrl) {
+                        page.querySelector('[data-key="PublicBaseUrl"]').placeholder = window.location.origin;
+                    }
+                    page.querySelectorAll('[data-list]').forEach(function (group) {
+                        var values = (config[group.getAttribute('data-list')] || []).map(String);
+                        group.querySelectorAll('input[type=checkbox]').forEach(function (cb) { cb.checked = values.indexOf(cb.value) !== -1; });
+                    });
+                    page.querySelector('#p2pIndexers').innerHTML = '';
+                    (config.Indexers || []).forEach(indexerRow);
+                    setDirty(false);
+                    Dashboard.hideLoadingMsg();
+                    api('GET', 'P2PStream/Sources').then(renderSources).catch(function () {
+                        page.querySelector('#p2pSources').innerHTML = '<p class="p2p-muted">Could not load sources.</p>';
+                    });
+                    loadCatalogs();
+                }, function (err) {
+                    Dashboard.hideLoadingMsg();
+                    explain(err).then(function (d) { toast('Could not load settings: ' + d); });
+                });
+            }
+
+            // ---------- unsaved-changes bar ----------
+            function setDirty(on) { page.querySelector('#p2pSaveBar').classList.toggle('show', !!on); }
+            // Only real settings count. Search boxes, the magnet field and the catalog filter don't.
+            function isSetting(el) { return el && el.closest && el.closest('[data-key], [data-list], .p2p-source, #p2pIndexers, .p2p-cat-row'); }
+            page.addEventListener('input', function (e) { if (isSetting(e.target)) { setDirty(true); } });
+            page.addEventListener('change', function (e) {
+                if (!isSetting(e.target)) { return; }
+                if (e.target.classList.contains('cat-lib') && e.target.value === '__new__') { return; } // just opened the dialog
+                setDirty(true);
+            });
+
+            // Saves everything on the page. Resolves when saved, rejects with readable text otherwise.
+            function saveConfig() {
+                return ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    page.querySelectorAll('[data-key]').forEach(function (el) {
+                        var key = el.getAttribute('data-key');
+                        if (el.type === 'checkbox') { config[key] = el.checked; }
+                        else if (el.getAttribute('data-type') === 'int') { config[key] = parseInt(el.value, 10) || 0; }
+                        else { config[key] = el.value.trim(); }
+                    });
+                    page.querySelectorAll('[data-list]').forEach(function (group) {
+                        config[group.getAttribute('data-list')] = Array.prototype.filter.call(
+                            group.querySelectorAll('input[type=checkbox]'), function (cb) { return cb.checked; }
+                        ).map(function (cb) { return group.getAttribute('data-type') === 'int' ? parseInt(cb.value, 10) : cb.value; });
+                    });
+                    config.Indexers = readIndexers();
+                    if (page.querySelector('.p2p-source')) { config.Sources = readSources(); }
+                    if (page.querySelector('.p2p-cat-row')) { config.Catalogs = readCatalogs(); }
+                    return ApiClient.updatePluginConfiguration(pluginId, config);
+                }).then(function (result) {
+                    setDirty(false);
+                    return result;
+                }).catch(function (err) {
+                    if (window.console) { console.error('P2P Stream: save failed', err); }
+                    return explain(err).then(function (d) { throw new Error(d); });
+                });
+            }
+
+            page.querySelector('#P2PStreamConfigForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+                saveConfig().then(function () {
+                    Dashboard.hideLoadingMsg();
+                    toast('Settings saved');
+                }, function (err) {
+                    Dashboard.hideLoadingMsg();
+                    toast('Saving failed: ' + err.message);
+                });
+                return false;
+            });
+
+            // ---------- torrents status ----------
+            function renderStatus(data) {
+                var el = page.querySelector('#p2pStatus');
+                if (!data.Torrents || !data.Torrents.length) {
+                    el.innerHTML = '<p class="p2p-muted">No active torrents. Play something, or add a magnet below.</p>';
+                    return;
+                }
+                var html = '<table><thead><tr><th>Name</th><th>State</th><th>Progress</th><th>Down / Up</th><th>Seeds / Peers</th><th></th></tr></thead><tbody>';
+                data.Torrents.forEach(function (t) {
+                    var files = (t.Files || []).filter(function (f) { return f.IsVideo; }).map(function (f) {
+                        return '<div><a href="' + esc(f.StreamUrl) + '" target="_blank" rel="noopener">' + esc(f.Path) + '</a> (' + size(f.Length) + ')' +
+                            ' <a href="#" class="p2p-strm" data-hash="' + esc(t.InfoHash) + '" data-index="' + f.Index + '">[make .strm]</a></div>';
+                    }).join('');
+                    html += '<tr><td>' + esc(t.Name) + (files ? '<div class="p2p-files">' + files + '</div>' : '') + '</td>' +
+                        '<td>' + esc(t.State) + (t.ActiveStreams ? ' (streaming)' : '') + '</td>' +
+                        '<td>' + t.Progress + '%</td>' +
+                        '<td>' + t.DownloadKbps + ' / ' + t.UploadKbps + ' KB/s</td>' +
+                        '<td>' + t.Seeds + ' / ' + t.Peers + '</td>' +
+                        '<td><button is="emby-button" type="button" class="raised p2p-remove" data-hash="' + esc(t.InfoHash) + '"><span>Remove</span></button></td></tr>';
+                });
+                el.innerHTML = html + '</tbody></table>';
+            }
+
+            function refreshStatus() {
+                api('GET', 'P2PStream/Status').then(renderStatus).catch(function () {
+                    page.querySelector('#p2pStatus').innerHTML = '<p class="p2p-muted">Could not load status.</p>';
+                });
+            }
+
+            // ---------- wiring ----------
+            page.querySelector('#p2pAddIndexer').addEventListener('click', function () { indexerRow({ Enabled: true }); setDirty(true); });
+
+            page.querySelector('#p2pAdd').addEventListener('click', function () {
+                var input = page.querySelector('#p2pMagnet');
+                if (!input.value.trim()) { return; }
+                Dashboard.showLoadingMsg();
+                api('POST', 'P2PStream/Torrents', { Uri: input.value.trim() }).then(function () {
+                    input.value = '';
+                    refreshStatus();
+                }).catch(function (err) {
+                    explain(err).then(function (d) { toast('Could not add torrent: ' + d); });
+                }).then(function () { Dashboard.hideLoadingMsg(); });
+            });
+
+            page.querySelector('#p2pStatus').addEventListener('click', function (e) {
+                var rm = e.target.closest('.p2p-remove');
+                if (rm) {
+                    api('DELETE', 'P2PStream/Torrents/' + rm.getAttribute('data-hash') + '?deleteData=true').then(refreshStatus);
+                    return;
+                }
+                var strm = e.target.closest('.p2p-strm');
+                if (strm) {
+                    e.preventDefault();
+                    api('POST', 'P2PStream/Torrents/' + strm.getAttribute('data-hash') + '/Files/' + strm.getAttribute('data-index') + '/Strm', {})
+                        .then(function (r) { toast('Created ' + r.Path); })
+                        .catch(function (err) { explain(err).then(function (d) { toast('Could not create .strm: ' + d); }); });
+                }
+            });
+
+            page.querySelector('#p2pSearch').addEventListener('click', function () {
+                var q = page.querySelector('#p2pSearchQuery').value.trim();
+                var out = page.querySelector('#p2pSearchResults');
+                if (!q) { return; }
+                out.innerHTML = '<p class="p2p-muted">Searching...</p>';
+                api('GET', 'P2PStream/Search?query=' + encodeURIComponent(q)).then(function (data) {
+                    var results = data.Results || [];
+                    var found = data.Found || {};
+                    var summary = '<p class="p2p-muted">Searched: ' + esc((data.Searched || []).join(', ') || 'nothing (no sources enabled)') + '. Found before filters: ' +
+                        esc((data.Searched || []).map(function (n) { return n + ' ' + (found[n] || 0); }).join(', ') || '0') + '.</p>';
+                    if (!results.length) {
+                        var total = Object.keys(found).reduce(function (a, k) { return a + found[k]; }, 0);
+                        out.innerHTML = summary + '<p class="p2p-muted">' + (total ? 'Everything was removed by your Quality settings.' : 'No source had anything for that. Try turning on more sources.') + '</p>';
+                        return;
+                    }
+                    out.innerHTML = summary + '<table><thead><tr><th>Release</th><th>Res</th><th>Size</th><th>Seeds</th><th>Source</th></tr></thead><tbody>' +
+                        results.map(function (r) {
+                            return '<tr><td>' + esc(r.Title) + '</td><td>' + (r.Resolution || '?') + '</td><td>' + size(r.Size) + '</td><td>' + (r.Seeders < 0 ? '?' : r.Seeders) + '</td><td>' + esc(r.Origin) + '</td></tr>';
+                        }).join('') + '</tbody></table>';
+                }).catch(function (err) {
+                    explain(err).then(function (d) { out.innerHTML = '<p class="p2p-muted">Search failed: ' + esc(d) + '</p>'; });
+                });
+            });
+
+            page.querySelector('#p2pTmdbSearch').addEventListener('click', function () {
+                var q = page.querySelector('#p2pTmdbQuery').value.trim();
+                var out = page.querySelector('#p2pTmdbResults');
+                if (!q) { return; }
+                out.innerHTML = '<p class="p2p-muted">Searching TMDB...</p>';
+                api('GET', 'P2PStream/Tmdb/Search?query=' + encodeURIComponent(q)).then(function (results) {
+                    if (!results.length) { out.innerHTML = '<p class="p2p-muted">Nothing found.</p>'; return; }
+                    out.innerHTML = '<table><tbody>' + results.slice(0, 15).map(function (r) {
+                        return '<tr><td>' + esc(r.Title) + (r.Year ? ' (' + r.Year + ')' : '') + '</td><td>' + (r.IsMovie ? 'Movie' : 'Show') + '</td><td>' +
+                            (r.InLibrary ? 'In library' : '<button is="emby-button" type="button" class="raised p2p-addtitle" data-id="' + r.Id + '" data-movie="' + r.IsMovie + '"><span>Add</span></button>') +
+                            '</td></tr>';
+                    }).join('') + '</tbody></table>';
+                }).catch(function (err) {
+                    explain(err).then(function (d) { out.innerHTML = '<p class="p2p-muted">TMDB search failed: ' + esc(d) + '</p>'; });
+                });
+            });
+
+            page.querySelector('#p2pTmdbResults').addEventListener('click', function (e) {
+                var btn = e.target.closest('.p2p-addtitle');
+                if (!btn) { return; }
+                btn.disabled = true;
+                btn.textContent = 'Adding...';
+                api('POST', 'P2PStream/Catalog/Add', { TmdbId: parseInt(btn.getAttribute('data-id'), 10), IsMovie: btn.getAttribute('data-movie') === 'true' })
+                    .then(function () { btn.outerHTML = 'Added'; })
+                    .catch(function (err) {
+                        btn.disabled = false;
+                        btn.textContent = 'Retry';
+                        explain(err).then(function (d) { toast('Could not add: ' + d); });
+                    });
+            });
+
+            // Catalog table: per-row sync saves first, so the sync uses what's on screen.
+            page.querySelector('#p2pCatalogs').addEventListener('click', function (e) {
+                var btn = e.target.closest('.cat-sync');
+                if (!btn) { return; }
+                var row = btn.closest('.p2p-cat-row');
+                row.querySelector('.cat-import').checked = true;
+                btn.disabled = true;
+                saveConfig().then(function () {
+                    return api('POST', 'P2PStream/Catalogs/' + encodeURIComponent(row.getAttribute('data-id')) + '/Sync');
+                }).then(function () {
+                    var f = findFolder(row.querySelector('.cat-lib').value);
+                    toast('Importing "' + row.cells[0].textContent + '". ' + (f && f.Library ? 'Titles appear in "' + f.Library + '" when the import and scan finish.' : 'The folder isn\'t in a library yet: add one in Dashboard > Libraries to see the titles.'));
+                }, function (err) {
+                    toast('Could not start the import: ' + (err.message || err));
+                }).then(function () { btn.disabled = false; });
+            });
+
+            page.querySelector('#p2pCatalogs').addEventListener('change', function (e) {
+                var sel = e.target.closest('.cat-lib');
+                if (!sel) { return; }
+                if (sel.value === '__new__') { openNewLibrary(sel); return; }
+                sel.setAttribute('data-prev', sel.value);
+                updateHint(sel.closest('.p2p-cat-row'));
+            });
+
+            page.addEventListener('click', function (e) {
+                var link = e.target.closest('.p2p-copy');
+                if (!link) { return; }
+                e.preventDefault();
+                var path = link.getAttribute('data-path');
+                copyText(path).then(function () { toast('Copied ' + path); }, function () { toast(path); });
+            });
+
+            page.querySelector('#p2pNewCancel').addEventListener('click', closeModal);
+            page.querySelector('#p2pNewCreate').addEventListener('click', function () {
+                var name = page.querySelector('#p2pNewName').value.trim();
+                if (!name) { return; }
+                api('POST', 'P2PStream/Folders', { Name: name }).then(function (f) {
+                    modalFolder = f;
+                    if (!findFolder(f.Name)) { catalogData.Folders.push(f); }
+                    page.querySelector('#p2pNewPath').value = f.Path;
+                    page.querySelector('#p2pModalStep1').style.display = 'none';
+                    page.querySelector('#p2pModalStep2').style.display = '';
+                }).catch(function (err) { explain(err).then(function (d) { toast('Could not create the folder: ' + d); }); });
+            });
+            page.querySelector('#p2pNewCopy').addEventListener('click', function () {
+                var path = page.querySelector('#p2pNewPath').value;
+                copyText(path).then(function () { toast('Copied ' + path); }, function () { page.querySelector('#p2pNewPath').select(); });
+            });
+            page.querySelector('#p2pNewDone').addEventListener('click', function () {
+                if (modalSelect && modalFolder) {
+                    // The option for the new folder doesn't exist until the table is redrawn, so only record the choice here.
+                    modalSelect.setAttribute('data-prev', modalFolder.Name);
+                    modalSelect.value = '__new__';
+                }
+                page.querySelector('#p2pModal').style.display = 'none';
+                modalSelect = null;
+                rerenderCatalogs();
+                setDirty(true);
+            });
+
+            page.querySelector('#p2pCatFilter').addEventListener('input', filterCatalogs);
+            page.querySelector('#p2pCatRefresh').addEventListener('click', loadCatalogs);
+
+            page.querySelector('#p2pImportAll').addEventListener('click', function () {
+                saveConfig().then(function () {
+                    return api('POST', 'P2PStream/Catalog/Sync');
+                }).then(function () {
+                    toast('Importing all turned-on catalogs. Progress is under Dashboard, then Scheduled Tasks ("Sync P2P Stream catalog").');
+                }, function (err) {
+                    toast('Could not start the import: ' + (err.message || err));
+                });
+            });
+
+            page.querySelector('#p2pClearCache').addEventListener('click', function () {
+                api('POST', 'P2PStream/Cache/Clear', {}).then(function (r) { toast('Forgot ' + r.Removed + ' cached picks.'); });
+            });
+
+            page.addEventListener('pageshow', function () {
+                showTab(recall('p2pstream.tab') || 'catalogs');
+                load();
+                refreshStatus();
+                statusTimer = setInterval(refreshStatus, 3000);
+            });
+            page.addEventListener('pagehide', function () {
+                if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>

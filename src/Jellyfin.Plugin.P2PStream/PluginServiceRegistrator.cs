@@ -1,0 +1,40 @@
+using Jellyfin.Plugin.P2PStream.Catalog;
+using Jellyfin.Plugin.P2PStream.Providers;
+using Jellyfin.Plugin.P2PStream.Providers.BuiltIn;
+using Jellyfin.Plugin.P2PStream.Torrent;
+using MediaBrowser.Controller;
+using MediaBrowser.Controller.Plugins;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Jellyfin.Plugin.P2PStream;
+
+public class PluginServiceRegistrator : IPluginServiceRegistrator
+{
+    public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
+    {
+        serviceCollection.AddSingleton<StreamUrlBuilder>();
+        serviceCollection.AddSingleton<TorrentEngine>();
+        serviceCollection.AddHostedService(sp => sp.GetRequiredService<TorrentEngine>());
+
+        // Sources
+        serviceCollection.AddSingleton<SearchProvider, ArchiveProvider>();
+        serviceCollection.AddSingleton<SearchProvider, YtsProvider>();
+        serviceCollection.AddSingleton<SearchProvider, EztvProvider>();
+        serviceCollection.AddSingleton<SearchProvider, ApibayProvider>();
+        serviceCollection.AddSingleton<SearchProvider, KickassProvider>();
+        serviceCollection.AddSingleton<SearchProvider, X1337Provider>();
+        serviceCollection.AddSingleton<SearchProvider, Bt4gProvider>();
+        serviceCollection.AddSingleton<TorznabClient>();
+        serviceCollection.AddSingleton<SourceHub>();
+        serviceCollection.AddSingleton<ResolutionCache>();
+        serviceCollection.AddSingleton<StreamResolver>();
+
+        // Catalog and search
+        serviceCollection.AddSingleton<TmdbClient>();
+        serviceCollection.AddSingleton<LibrarySetup>();
+        serviceCollection.AddSingleton<CatalogBuilder>();
+        serviceCollection.AddSingleton<SearchImporter>();
+        serviceCollection.Configure<MvcOptions>(o => o.Filters.Add<SearchImportFilter>());
+    }
+}
