@@ -53,3 +53,6 @@ Bump `AssemblyVersion` in the `.csproj` first. Requires the .NET 10 SDK.
 ## Notes
 - You are responsible for what you download and share; uploading (seeding) is part of how BitTorrent works.
 - Some sites block automated searches (for example 1337x with Cloudflare). Use a mirror address or the proxy setting.
+
+## License
+GPL-3.0. See [LICENSE](LICENSE).
