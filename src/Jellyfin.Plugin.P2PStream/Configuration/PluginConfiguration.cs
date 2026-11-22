@@ -146,6 +146,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets a value indicating whether a title's releases are listed in Jellyfin's Version menu (Elementum-style picker).</summary>
     public bool StreamPicker { get; set; } = true;
 
+    /// <summary>Gets or sets a value indicating whether opening a title's page starts loading Auto's release, so playback starts sooner.</summary>
+    public bool PrewarmOnOpen { get; set; } = true;
+
     /// <summary>Gets or sets how many releases the Version menu lists.</summary>
     public int StreamPickerMax { get; set; } = 15;
 

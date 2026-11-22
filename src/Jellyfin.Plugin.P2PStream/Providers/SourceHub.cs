@@ -12,12 +12,14 @@ public sealed class SourceHub
     private readonly TorznabClient _torznab;
     private readonly IReadOnlyList<SearchProvider> _providers;
     private readonly ILogger<SourceHub> _logger;
+    private readonly SourceHealth _health;
 
-    public SourceHub(TorznabClient torznab, IEnumerable<SearchProvider> providers, ILogger<SourceHub> logger)
+    public SourceHub(TorznabClient torznab, IEnumerable<SearchProvider> providers, SourceHealth health, ILogger<SourceHub> logger)
     {
         _torznab = torznab;
         _providers = providers.ToList();
         _logger = logger;
+        _health = health;
     }
 
     public IReadOnlyList<SearchProvider> Providers => _providers;
@@ -56,7 +58,7 @@ public sealed class SourceHub
 
         foreach (var feed in EnabledFeeds)
         {
-            tasks.Add(GuardAsync(string.IsNullOrWhiteSpace(feed.Name) ? feed.Url : feed.Name, () => feedSearch(feed), ct));
+            tasks.Add(GuardAsync(FeedName(feed), () => feedSearch(feed), ct));
         }
 
         var results = (await Task.WhenAll(tasks).ConfigureAwait(false)).SelectMany(r => r).ToList();
@@ -69,14 +71,38 @@ public sealed class SourceHub
             .ToList();
     }
 
+    /// <summary>The name a user-added feed is shown (and its health recorded) under.</summary>
+    public static string FeedName(Configuration.RssSource feed)
+    {
+        if (!string.IsNullOrWhiteSpace(feed.Name))
+        {
+            return feed.Name.Trim();
+        }
+
+        return Uri.TryCreate(feed.Url.Replace("{query}", "x", StringComparison.OrdinalIgnoreCase), UriKind.Absolute, out var u) ? u.Host : feed.Url;
+    }
+
     private async Task<List<ReleaseCandidate>> GuardAsync(string name, Func<Task<List<ReleaseCandidate>>> search, CancellationToken ct)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var recordHere = name != "Torznab"; // Torznab indexers record their own health, one by one
         try
         {
-            return await search().WaitAsync(SourceTimeout, ct).ConfigureAwait(false);
+            var results = await search().WaitAsync(SourceTimeout, ct).ConfigureAwait(false);
+            if (recordHere)
+            {
+                _health.Success(name, results.Count, sw.ElapsedMilliseconds);
+            }
+
+            return results;
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
+            if (recordHere)
+            {
+                _health.Failure(name, ex, sw.ElapsedMilliseconds);
+            }
+
             _logger.LogWarning("Source {Name} failed: {Message}", name, ex.Message);
             return [];
         }

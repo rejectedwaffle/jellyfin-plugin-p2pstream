@@ -232,6 +232,18 @@ public class P2PStreamController : ControllerBase
     public ActionResult<object> GetSources()
         => _sources.Providers.Select(p => new { p.Id, p.Name, p.Description, p.DefaultUrl, p.BaseUrl, p.Enabled }).ToList();
 
+    [HttpGet("Sources/Health")]
+    [Authorize(Policy = AdminPolicy)]
+    public ActionResult<object> GetSourceHealth([FromServices] SourceHealth health)
+        => health.All.ToDictionary(kv => kv.Key, kv => (object)new
+        {
+            kv.Value.Ok,
+            kv.Value.Count,
+            kv.Value.Message,
+            MinutesAgo = (int)(DateTime.UtcNow - kv.Value.At).TotalMinutes,
+            kv.Value.Milliseconds
+        });
+
     [HttpGet("Tmdb/Search")]
     [Authorize(Policy = AdminPolicy)]
     public async Task<ActionResult<object>> SearchTmdb([FromQuery] string query)

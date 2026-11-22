@@ -108,6 +108,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         }
 
         _prober.ProbeTopInBackground(item, url, releases);
+        _resolver.Prewarm(request);
 
         // Auto plays the remembered pick, or else tries the top-ranked release first. Name it, and if that release has been
         // checked, show its tracks on Auto too (Jellyfin otherwise only knows them after Auto has played once).

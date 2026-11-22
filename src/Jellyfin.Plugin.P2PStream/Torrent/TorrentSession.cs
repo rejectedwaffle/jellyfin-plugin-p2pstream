@@ -38,8 +38,12 @@ public sealed class TorrentSession
     private ITorrentManagerFile? _file;
     private int _windowPiece = -1;
     private DateTime _lastJump = DateTime.MinValue;
+    /// <summary>How long a torrent keeps downloading after its last reader leaves.</summary>
+    private static readonly TimeSpan PauseAfter = TimeSpan.FromSeconds(60);
+
     private int _activeStreams;
     private volatile bool _closed;
+    private CancellationTokenSource? _parkCts;
 
     public TorrentSession(string infoHash, TorrentManager manager)
     {
@@ -63,23 +67,25 @@ public sealed class TorrentSession
     /// <summary>Opens a reader on the file. Any number of readers can be open at once. Dispose the lease when done.</summary>
     public async Task<StreamLease> OpenAsync(ITorrentManagerFile file, CancellationToken ct)
     {
+        Interlocked.Exchange(ref _parkCts, null)?.Cancel(); // someone's reading again: don't pause
         await _setup.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(_closed, this);
+
+            // Only the file being read is downloaded. This also resumes a torrent that was paused after nobody read it.
+            foreach (var other in Manager.Files.Where(f => f != file && f.Priority != Priority.DoNotDownload))
+            {
+                await Manager.SetFilePriorityAsync(other, Priority.DoNotDownload).ConfigureAwait(false);
+            }
+
+            if (file.Priority == Priority.DoNotDownload)
+            {
+                await Manager.SetFilePriorityAsync(file, Priority.Normal).ConfigureAwait(false);
+            }
+
             if (_file != file)
             {
-                // Only the file being watched is downloaded.
-                foreach (var other in Manager.Files.Where(f => f != file && f.Priority != Priority.DoNotDownload))
-                {
-                    await Manager.SetFilePriorityAsync(other, Priority.DoNotDownload).ConfigureAwait(false);
-                }
-
-                if (file.Priority == Priority.DoNotDownload)
-                {
-                    await Manager.SetFilePriorityAsync(file, Priority.Normal).ConfigureAwait(false);
-                }
-
                 _file = file;
                 lock (_steerLock)
                 {
@@ -138,8 +144,53 @@ public sealed class TorrentSession
 
     internal void Release()
     {
-        Interlocked.Decrement(ref _activeStreams);
         Touch();
+        if (Interlocked.Decrement(ref _activeStreams) == 0)
+        {
+            SchedulePause();
+        }
+    }
+
+    /// <summary>
+    /// When nobody has read the torrent for <see cref="PauseAfter"/> (you left a title's page after a pre-load or probe,
+    /// or stopped watching), stop downloading the rest. The torrent stays ready; the next reader resumes it.
+    /// </summary>
+    private void SchedulePause()
+    {
+        var cts = new CancellationTokenSource();
+        Interlocked.Exchange(ref _parkCts, cts)?.Cancel();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(PauseAfter, cts.Token).ConfigureAwait(false);
+                await _setup.WaitAsync(cts.Token).ConfigureAwait(false);
+                try
+                {
+                    if (ActiveStreams > 0 || _closed)
+                    {
+                        return;
+                    }
+
+                    foreach (var f in Manager.Files.Where(f => f.Priority != Priority.DoNotDownload))
+                    {
+                        await Manager.SetFilePriorityAsync(f, Priority.DoNotDownload).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    _setup.Release();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // a reader came back
+            }
+            catch (Exception)
+            {
+                // the torrent was removed meanwhile
+            }
+        });
     }
 
     private static async Task ReadFromDiskAsync(DiskManager disk, ITorrentManagerFile file, long position, Memory<byte> buffer, CancellationToken ct)

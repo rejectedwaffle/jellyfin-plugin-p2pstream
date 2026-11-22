@@ -16,16 +16,22 @@
                 #P2PStreamConfigPage .p2p-tab-btn .material-icons { font-size: 1.2em; }
                 #P2PStreamConfigPage .p2p-panel { display: none; }
                 #P2PStreamConfigPage .p2p-panel.active { display: block; }
-                #P2PStreamConfigPage .p2p-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(24em, 1fr)); gap: 1em; align-items: start; }
-                #P2PStreamConfigPage .p2p-card { background: rgba(128,128,128,.08); border: 1px solid rgba(128,128,128,.25); border-radius: 8px; padding: 1em 1.25em; }
-                #P2PStreamConfigPage .p2p-card.wide { grid-column: 1 / -1; }
-                #P2PStreamConfigPage .p2p-card h3 { display: flex; align-items: center; gap: .5em; margin: 0 0 .5em; font-size: 1.1em; font-weight: 500; }
+                #P2PStreamConfigPage .p2p-grid { columns: 20em 3; column-gap: 1em; }
+                #P2PStreamConfigPage .p2p-card { background: rgba(128,128,128,.08); border: 1px solid rgba(128,128,128,.25); border-radius: 8px; padding: .85em 1.1em .4em; margin: 0 0 1em; break-inside: avoid; page-break-inside: avoid; }
+                #P2PStreamConfigPage .p2p-card.wide { column-span: all; padding-bottom: .85em; }
+                #P2PStreamConfigPage .p2p-card h3 { display: flex; align-items: center; gap: .5em; margin: 0 0 .45em; font-size: 1.1em; font-weight: 500; }
+                #P2PStreamConfigPage .p2p-card .inputContainer, #P2PStreamConfigPage .p2p-card .selectContainer { margin-bottom: 1.1em; }
+                #P2PStreamConfigPage .p2p-card .fieldDescription { margin-top: .3em; }
+                #P2PStreamConfigPage .p2p-card > p.p2p-muted { margin: 0 0 .6em; }
+                #P2PStreamConfigPage .p2p-sizes { display: grid; grid-template-columns: auto 1fr 1fr; gap: .4em .6em; align-items: center; margin: .3em 0 .9em; }
+                #P2PStreamConfigPage .p2p-sizes b { font-weight: 600; font-size: .85em; opacity: .75; }
+                #P2PStreamConfigPage .p2p-sizes input { width: 100%; box-sizing: border-box; }
                 #P2PStreamConfigPage .p2p-card h3 .material-icons { color: #00a4dc; font-size: 1.2em; }
                 #P2PStreamConfigPage .p2p-muted { opacity: .7; font-size: .9em; }
                 #P2PStreamConfigPage .p2p-row { display: flex; gap: .75em; align-items: flex-end; flex-wrap: wrap; }
                 #P2PStreamConfigPage .p2p-row > .inputContainer, #P2PStreamConfigPage .p2p-row > .selectContainer { flex: 1 1 10em; }
                 #P2PStreamConfigPage .checkboxContainer { margin-bottom: .2em; }
-                #P2PStreamConfigPage .p2p-desc { opacity: .7; font-size: .88em; margin: 0 0 1em 2.6em; }
+                #P2PStreamConfigPage .p2p-desc { opacity: .7; font-size: .86em; margin: 0 0 .75em 2.6em; }
                 #P2PStreamConfigPage table { width: 100%; border-collapse: collapse; font-size: .92em; }
                 #P2PStreamConfigPage th, #P2PStreamConfigPage td { text-align: left; padding: .45em .5em; border-bottom: 1px solid rgba(128,128,128,.22); vertical-align: middle; }
                 #P2PStreamConfigPage th { font-weight: 600; }
@@ -48,11 +54,16 @@
                 #P2PStreamConfigPage .p2p-source-line .checkboxContainer { margin: 0; flex: 1; }
                 #P2PStreamConfigPage .p2p-src-name { font-weight: 600; }
                 #P2PStreamConfigPage .p2p-src-desc { display: block; font-size: .85em; opacity: .7; margin-top: .1em; }
+                #P2PStreamConfigPage .p2p-src-health { display: block; font-size: .8em; margin-top: .15em; }
+                #P2PStreamConfigPage .p2p-src-health.ok { color: #6cc070; }
+                #P2PStreamConfigPage .p2p-src-health.bad { color: #e5734d; }
                 #P2PStreamConfigPage .src-edit { color: #52b5ff; font-size: .85em; white-space: nowrap; text-decoration: none; padding-top: .3em; }
                 #P2PStreamConfigPage .src-edit:hover { text-decoration: underline; }
                 #P2PStreamConfigPage .src-url-row { padding: 0 0 .5em 2.6em; }
                 #P2PStreamConfigPage .p2p-indexer { border: 1px solid rgba(128,128,128,.3); border-radius: 6px; padding: .6em .9em; margin-bottom: .6em; }
-                #P2PStreamConfigPage .p2p-checks { columns: 2; }
+                #P2PStreamConfigPage .p2p-checks { columns: 2; margin-bottom: .6em; }
+                #P2PStreamConfigPage .p2p-checks.three { columns: 3; }
+                #P2PStreamConfigPage .p2p-checks .checkboxContainer { break-inside: avoid; }
                 #P2PStreamConfigPage .p2p-savebar { position: fixed; right: 2em; bottom: 2em; z-index: 999; display: flex; align-items: center; gap: .9em; padding: .45em .45em .45em 1.1em; background: #252525; color: #eee; border: 1px solid rgba(255,255,255,.12); border-radius: 2em; box-shadow: 0 6px 24px rgba(0,0,0,.5); font-weight: 600; opacity: 0; transform: translateY(1em); pointer-events: none; transition: opacity .15s, transform .15s; }
                 #P2PStreamConfigPage .p2p-savebar.show { opacity: 1; transform: none; pointer-events: auto; }
                 #P2PStreamConfigPage .p2p-savebar .p2p-dot { width: .6em; height: .6em; border-radius: 50%; background: #e5a00d; box-shadow: 0 0 0 3px rgba(229,160,13,.25); }
@@ -156,7 +167,7 @@
                             <h3><span class="material-icons">key</span>TMDB</h3>
                             <div class="inputContainer">
                                 <input is="emby-input" type="text" data-key="TmdbApiKey" label="TMDB API key or read access token" />
-                                <div class="fieldDescription">Free from themoviedb.org, under Settings, then API. Needed for catalogs, search and looking up titles when you press play.</div>
+                                <div class="fieldDescription">Free from themoviedb.org (Settings, then API). Needed for catalogs, search and playback lookups.</div>
                             </div>
                             <div class="inputContainer">
                                 <input is="emby-input" type="text" data-key="Language" label="Language (e.g. en-US)" />
@@ -214,11 +225,13 @@
                         <div class="p2p-card">
                             <h3><span class="material-icons">format_list_bulleted</span>Available streams</h3>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="StreamPicker" /><span>Let me choose the stream</span></label>
-                            <div class="p2p-desc">Opening a title's page lists the releases in Jellyfin's <b>Version</b> menu with resolution, size, seeds, quality and source, like Elementum. "Auto (best match)" stays the default. The first time, the list can take a few seconds; reopen the page if it isn't there yet. The stream you pick is remembered.</div>
+                            <div class="p2p-desc">Lists the releases in a title's <b>Version</b> menu (resolution, size, seeds, source), like Elementum. "Auto" stays the default and your pick is remembered. Reopen the page if the list isn't there yet.</div>
                             <div class="inputContainer"><input is="emby-input" type="number" min="1" max="50" data-key="StreamPickerMax" data-type="int" label="Streams to list" /></div>
-                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="ProbeStreams" /><span>Check the top streams before playback</span></label>
-                            <div class="p2p-desc">Opening a title's page briefly starts the top releases in the background and reads their video, audio and subtitle tracks, so they show in the Version menu. Uses some bandwidth on every title page you open.</div>
-                            <div class="inputContainer"><input is="emby-input" type="number" min="1" max="5" data-key="ProbeStreamCount" data-type="int" label="How many top streams to check" /></div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PrewarmOnOpen" /><span>Start loading when a title's page opens</span></label>
+                            <div class="p2p-desc">Fetches the start and end of Auto's release (about 6 MB) so play starts much sooner. Leave the page and it stops after a minute.</div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="ProbeStreams" /><span>Check the top streams' tracks</span></label>
+                            <div class="p2p-desc">Reads the video, audio and subtitle tracks of the top releases so they show in the Version menu. Uses some bandwidth per title page.</div>
+                            <div class="inputContainer"><input is="emby-input" type="number" min="1" max="5" data-key="ProbeStreamCount" data-type="int" label="Streams to check" /></div>
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">aspect_ratio</span>Resolution</h3>
@@ -232,8 +245,8 @@
                                 </select>
                                 <div class="fieldDescription">Tried first. If there's none, the closest lower resolution, then higher.</div>
                             </div>
-                            <p class="p2p-muted">Allowed. Releases whose name doesn't say are always allowed.</p>
-                            <div data-list="AllowedResolutions" data-type="int" class="p2p-checks">
+                            <p class="p2p-muted">Allowed (releases that don't say are always allowed):</p>
+                            <div data-list="AllowedResolutions" data-type="int" class="p2p-checks three">
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="2160" /><span>4K/2160p</span></label>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="1440" /><span>2K/1440p</span></label>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="1080" /><span>1080p</span></label>
@@ -244,7 +257,7 @@
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">movie_filter</span>Video quality</h3>
-                            <p class="p2p-muted">Allowed release types. Releases whose name doesn't say are always allowed.</p>
+                            <p class="p2p-muted">Allowed release types (releases that don't say are always allowed):</p>
                             <div data-list="AllowedReleaseTypes" class="p2p-checks">
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="bluray" /><span>BRRip/BDRip/BluRay</span></label>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="webdl" /><span>WEB-DL/WEBRip</span></label>
@@ -259,21 +272,21 @@
                             </div>
                         </div>
                         <div class="p2p-card">
-                            <h3><span class="material-icons">sd_storage</span>Size (GB)</h3>
+                            <h3><span class="material-icons">sd_storage</span>Size</h3>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PreferStreamingSizes" /><span>Prefer streaming-friendly sizes</span></label>
-                            <div class="p2p-desc">At the same resolution, well-seeded releases under about 15 GB (4K) or 8 GB (1080p) are tried before huge remuxes, which are slow to start over a torrent (episodes: about 6 GB and 3 GB). The big ones stay in the Version menu.</div>
-                            <p class="p2p-muted">Releases outside these ranges are skipped. A maximum of 0 means no limit.</p>
-                            <div class="p2p-row">
-                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="MinSizeGb" data-type="int" label="Movies: min" /></div>
-                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="MaxSizeGb" data-type="int" label="Movies: max" /></div>
-                            </div>
-                            <div class="p2p-row">
-                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="EpisodeMinSizeGb" data-type="int" label="Episodes: min" /></div>
-                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="EpisodeMaxSizeGb" data-type="int" label="Episodes: max" /></div>
-                            </div>
-                            <div class="p2p-row">
-                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="SeasonMinSizeGb" data-type="int" label="Season packs: min" /></div>
-                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="SeasonMaxSizeGb" data-type="int" label="Season packs: max" /></div>
+                            <div class="p2p-desc">Well-seeded releases under about 15 GB (4K) or 8 GB (1080p) are tried before huge remuxes, which start slowly (episodes: 6 GB and 3 GB). The big ones stay in the Version menu.</div>
+                            <p class="p2p-muted">Releases outside these ranges are skipped. Max 0 = no limit.</p>
+                            <div class="p2p-sizes">
+                                <span></span><b>Min GB</b><b>Max GB</b>
+                                <span>Movies</span>
+                                <input type="number" min="0" class="p2p-plain" data-key="MinSizeGb" data-type="int" aria-label="Movies minimum GB" />
+                                <input type="number" min="0" class="p2p-plain" data-key="MaxSizeGb" data-type="int" aria-label="Movies maximum GB" />
+                                <span>Episodes</span>
+                                <input type="number" min="0" class="p2p-plain" data-key="EpisodeMinSizeGb" data-type="int" aria-label="Episodes minimum GB" />
+                                <input type="number" min="0" class="p2p-plain" data-key="EpisodeMaxSizeGb" data-type="int" aria-label="Episodes maximum GB" />
+                                <span>Season packs</span>
+                                <input type="number" min="0" class="p2p-plain" data-key="SeasonMinSizeGb" data-type="int" aria-label="Season packs minimum GB" />
+                                <input type="number" min="0" class="p2p-plain" data-key="SeasonMaxSizeGb" data-type="int" aria-label="Season packs maximum GB" />
                             </div>
                         </div>
                         <div class="p2p-card">
@@ -307,13 +320,11 @@
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">timer</span>Torrents</h3>
-                            <div class="inputContainer">
-                                <input is="emby-input" type="number" min="1" data-key="MaxActiveTorrents" data-type="int" label="Max active torrents" />
-                                <div class="fieldDescription">When full, the least recently used torrent is removed.</div>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="number" min="1" data-key="MaxActiveTorrents" data-type="int" label="Max active torrents" /></div>
+                                <div class="inputContainer"><input is="emby-input" type="number" min="1" data-key="IdleTimeoutMinutes" data-type="int" label="Remove idle after (min)" /></div>
                             </div>
-                            <div class="inputContainer">
-                                <input is="emby-input" type="number" min="1" data-key="IdleTimeoutMinutes" data-type="int" label="Remove idle torrents after (minutes)" />
-                            </div>
+                            <div class="fieldDescription" style="margin:-.6em 0 1em">When full, the least recently used torrent is removed.</div>
                             <div class="inputContainer">
                                 <input is="emby-input" type="number" min="10" data-key="MetadataTimeoutSeconds" data-type="int" label="Give up on a release after (seconds)" />
                                 <div class="fieldDescription">How long to wait for peers to send a torrent's file list before trying the next release.</div>
@@ -470,6 +481,7 @@
                 page.querySelectorAll('.p2p-tab-btn').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === name); });
                 page.querySelectorAll('.p2p-panel').forEach(function (p) { p.classList.toggle('active', p.getAttribute('data-panel') === name); });
                 store('p2pstream.tab', name);
+                if (name === 'sources') { loadHealth(); }
             }
             page.querySelector('#p2pTabs').addEventListener('click', function (e) {
                 var b = e.target.closest('.p2p-tab-btn');
@@ -490,7 +502,8 @@
                     '<div class="p2p-source-line">' +
                     '<label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="src-enabled"' + (enabled ? ' checked' : '') + ' /><span>' +
                     '<span class="p2p-src-name">' + esc(src.Name || hostOf(src.Url)) + '</span>' +
-                    '<span class="p2p-src-desc">' + (src.Type === 'torznab' ? 'Torznab' : 'RSS feed') + ' · ' + esc(hostOf(src.Url)) + ' · added by you</span></span></label>' +
+                    '<span class="p2p-src-desc">' + (src.Type === 'torznab' ? 'Torznab' : 'RSS feed') + ' · ' + esc(hostOf(src.Url)) + ' · added by you</span>' +
+                    '<span class="p2p-src-health" data-health="' + esc(src.Name || '') + '" data-health-url="' + esc(src.Url || '') + '"></span></span></label>' +
                     '<span class="p2p-nowrap"><a href="#" class="src-edit custom-edit">edit</a> &middot; <a href="#" class="src-edit custom-remove">remove</a></span>' +
                     '</div>';
             }
@@ -537,6 +550,22 @@
                 page.querySelector('#p2pSrcName').focus();
             }
 
+            // ---------- source health ----------
+            var healthData = {};
+            function agoText(m) { return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago'; }
+            function renderHealth() {
+                page.querySelectorAll('[data-health]').forEach(function (el) {
+                    var url = el.getAttribute('data-health-url') || '';
+                    var h = healthData[el.getAttribute('data-health')] || healthData[url] || healthData[hostOf(url)];
+                    if (!h) { el.className = 'p2p-src-health'; el.textContent = ''; return; }
+                    el.className = 'p2p-src-health ' + (h.Ok ? 'ok' : 'bad');
+                    el.textContent = (h.Ok ? '✓ ' + h.Count + ' result' + (h.Count === 1 ? '' : 's') : '✗ ' + h.Message) + ' · last search ' + agoText(h.MinutesAgo);
+                });
+            }
+            function loadHealth() {
+                api('GET', 'P2PStream/Sources/Health').then(function (data) { healthData = data || {}; renderHealth(); }).catch(function () { /* not important */ });
+            }
+
             // ---------- built-in sources ----------
             function renderSources(list) {
                 var el = page.querySelector('#p2pSources');
@@ -547,7 +576,8 @@
                     div.setAttribute('data-id', src.Id);
                     div.innerHTML =
                         '<div class="p2p-source-line">' +
-                        '<label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="src-enabled" /><span><span class="p2p-src-name">' + esc(src.Name) + '</span><span class="p2p-src-desc">' + esc(src.Description) + '</span></span></label>' +
+                        '<label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="src-enabled" /><span><span class="p2p-src-name">' + esc(src.Name) + '</span><span class="p2p-src-desc">' + esc(src.Description) + '</span>' +
+                        '<span class="p2p-src-health" data-health="' + esc(src.Name) + '"></span></span></label>' +
                         '<a href="#" class="src-edit">change address</a>' +
                         '</div>' +
                         '<div class="src-url-row" style="display:none"><input is="emby-input" type="text" class="src-url" label="Address (leave blank for default)" /></div>';
@@ -747,7 +777,7 @@
                     (config.Indexers || []).forEach(function (i) { customRow({ Type: 'torznab', Name: i.Name, Url: i.Url, ApiKey: i.ApiKey, Enabled: i.Enabled }); });
                     setDirty(false);
                     Dashboard.hideLoadingMsg();
-                    api('GET', 'P2PStream/Sources').then(renderSources).catch(function () {
+                    api('GET', 'P2PStream/Sources').then(function (list) { renderSources(list); loadHealth(); }).catch(function () {
                         page.querySelector('#p2pSources').innerHTML = '<p class="p2p-muted">Could not load sources.</p>';
                     });
                     loadCatalogs();
@@ -900,6 +930,7 @@
                 if (!q) { return; }
                 out.innerHTML = '<p class="p2p-muted">Searching...</p>';
                 api('GET', 'P2PStream/Search?query=' + encodeURIComponent(q)).then(function (data) {
+                    loadHealth();
                     var results = data.Results || [];
                     var found = data.Found || {};
                     var base = function (n) { return n.replace(/ \(.*\)$/, ''); };

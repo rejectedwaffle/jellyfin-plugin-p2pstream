@@ -32,6 +32,59 @@ public sealed class StreamResolver
         _logger = logger;
     }
 
+    private readonly ConcurrentDictionary<string, byte> _warming = new();
+
+    /// <summary>
+    /// Starts Auto's release in the background when a title's page opens: adds the torrent (fetching its file list)
+    /// and downloads the start and end of the video, the parts players read first. Pressing play then starts much sooner.
+    /// It's the same release Auto would play, so nothing is wasted if you play it.
+    /// </summary>
+    public void Prewarm(MediaRequest req)
+    {
+        if (Plugin.Instance?.Configuration.PrewarmOnOpen != true || !_warming.TryAdd(req.Key, 0))
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                var resolved = await ResolveAsync(req, null, timeout.Token).ConfigureAwait(false);
+                var file = resolved.Session.Manager.Files[resolved.FileIndex];
+                await using var lease = await resolved.Session.OpenAsync(file, timeout.Token).ConfigureAwait(false);
+                var buffer = new byte[256 * 1024];
+                async Task ReadAsync(long from, long bytes)
+                {
+                    lease.Position = Math.Max(0, from);
+                    for (long done = 0; done < bytes;)
+                    {
+                        var n = await lease.ReadAsync(buffer, timeout.Token).ConfigureAwait(false);
+                        if (n == 0)
+                        {
+                            break;
+                        }
+
+                        done += n;
+                    }
+                }
+
+                await ReadAsync(0, 4L << 20).ConfigureAwait(false);                       // headers and first seconds
+                await ReadAsync(file.Length - (2L << 20), 2L << 20).ConfigureAwait(false); // index (MP4 moov / MKV cues)
+                _logger.LogInformation("Pre-loaded {Request} so playback starts sooner", req);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("Pre-load of {Request} stopped: {Message}", req, ex.Message);
+            }
+            finally
+            {
+                _warming.TryRemove(req.Key, out _);
+            }
+        });
+    }
+
     /// <summary>Plays <paramref name="releaseId"/> the next time this title is played through its normal source.</summary>
     public void Pin(MediaRequest req, string releaseId) => _pinned[req.Key] = releaseId;
 

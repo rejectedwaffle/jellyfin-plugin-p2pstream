@@ -25,8 +25,11 @@ public sealed class TorznabClient
 
     private readonly ILogger<TorznabClient> _logger;
 
-    public TorznabClient(ILogger<TorznabClient> logger)
+    private readonly SourceHealth _health;
+
+    public TorznabClient(SourceHealth health, ILogger<TorznabClient> logger)
     {
+        _health = health;
         _logger = logger;
     }
 
@@ -191,13 +194,18 @@ public sealed class TorznabClient
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(25));
+        var name = string.IsNullOrWhiteSpace(indexer.Name) ? indexer.Url : indexer.Name;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var xml = await HttpClients.Default.GetStringAsync(new Uri(url.ToString()), timeout.Token).ConfigureAwait(false);
-            return Parse(xml, string.IsNullOrWhiteSpace(indexer.Name) ? indexer.Url : indexer.Name);
+            var results = Parse(xml, name);
+            _health.Success(name, results.Count, sw.ElapsedMilliseconds);
+            return results;
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
+            _health.Failure(name, ex, sw.ElapsedMilliseconds);
             _logger.LogWarning("Indexer {Name} failed: {Message}", indexer.Name, ex.Message);
             return [];
         }
