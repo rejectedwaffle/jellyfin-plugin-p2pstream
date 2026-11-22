@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using Jellyfin.Plugin.P2PStream.Catalog;
 using Jellyfin.Plugin.P2PStream.Torrent;
 using Microsoft.Extensions.Logging;
 using MonoTorrent.Client;
@@ -7,43 +6,49 @@ using MonoTorrent.Client;
 namespace Jellyfin.Plugin.P2PStream.Providers;
 
 /// <summary>
-/// Turns "play movie X / episode Y" into a running torrent session and file index.
+/// Turns "play movie X / episode Y" (optionally: this exact release) into a running torrent session and file index.
 /// </summary>
 public sealed class StreamResolver
 {
     private readonly TorrentEngine _engine;
     private readonly TorznabClient _torznab;
-    private readonly SourceHub _sources;
+    private readonly StreamOptions _options;
     private readonly ResolutionCache _cache;
-    private readonly TmdbClient _tmdb;
     private readonly ILogger<StreamResolver> _logger;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
 
-    public StreamResolver(TorrentEngine engine, TorznabClient torznab, SourceHub sources, ResolutionCache cache, TmdbClient tmdb, ILogger<StreamResolver> logger)
+    // Release id to the torrent it turned into, so repeated requests for a chosen stream (probe, ffmpeg, seeks) don't refetch it.
+    private readonly ConcurrentDictionary<string, (string InfoHash, int FileIndex)> _started = new();
+
+    public StreamResolver(TorrentEngine engine, TorznabClient torznab, StreamOptions options, ResolutionCache cache, ILogger<StreamResolver> logger)
     {
         _engine = engine;
         _torznab = torznab;
-        _sources = sources;
+        _options = options;
         _cache = cache;
-        _tmdb = tmdb;
         _logger = logger;
     }
 
-    public async Task<ResolvedStream> ResolveAsync(MediaRequest req, CancellationToken ct)
+    /// <param name="releaseId">A release picked in the Version menu, or null for Auto (best match).</param>
+    public async Task<ResolvedStream> ResolveAsync(MediaRequest req, string? releaseId, CancellationToken ct)
     {
-        // ffmpeg and clients often fire several requests at once. Only one of them searches.
+        // ffmpeg and clients often fire several requests at once. Only one of them searches or starts a torrent.
         var gate = _locks.GetOrAdd(req.Key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            if (releaseId is not null)
+            {
+                return await ResolveChosenAsync(req, releaseId, ct).ConfigureAwait(false);
+            }
+
             var cached = await TryCachedAsync(req, ct).ConfigureAwait(false);
             if (cached is not null)
             {
                 return cached;
             }
 
-            await EnrichAsync(req, ct).ConfigureAwait(false);
-            var releases = ReleaseRanker.Rank(await _sources.SearchAsync(req, ct).ConfigureAwait(false), req);
+            var releases = await _options.GetAsync(req, ct).ConfigureAwait(false);
             if (releases.Count == 0)
             {
                 throw new StreamNotFoundException($"No suitable releases found for {req}");
@@ -52,24 +57,10 @@ public sealed class StreamResolver
             var tries = Math.Max(1, Plugin.Instance!.Configuration.CandidatesToTry);
             foreach (var release in releases.Take(tries))
             {
-                try
+                var started = await TryStartAsync(req, release, ct).ConfigureAwait(false);
+                if (started is not null)
                 {
-                    _logger.LogInformation("Trying {Release} from {Origin} ({Seeders} seeders) for {Request}", release.Title, release.Origin, release.Seeders, req);
-                    var source = await _torznab.ToSourceAsync(release, ct).ConfigureAwait(false);
-                    var session = await _engine.AddAsync(source, ct).ConfigureAwait(false);
-                    var index = PickFile(session.Manager, req);
-                    if (index >= 0)
-                    {
-                        _cache.Set(req.Key, source.InfoHash, index, release.Title);
-                        return new ResolvedStream(session, index);
-                    }
-
-                    _logger.LogInformation("No matching video file in {Release}", release.Title);
-                    await _engine.RemoveAsync(source.InfoHash, true).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (!ct.IsCancellationRequested)
-                {
-                    _logger.LogWarning("Candidate {Release} failed: {Message}", release.Title, ex.Message);
+                    return started;
                 }
             }
 
@@ -115,6 +106,51 @@ public sealed class StreamResolver
         return videos.OrderByDescending(x => x.File.Length).First().Index;
     }
 
+    private async Task<ResolvedStream> ResolveChosenAsync(MediaRequest req, string releaseId, CancellationToken ct)
+    {
+        if (_started.TryGetValue(releaseId, out var known))
+        {
+            var session = await _engine.GetOrRestoreAsync(known.InfoHash, ct).ConfigureAwait(false);
+            if (session is not null && known.FileIndex < session.Manager.Files.Count)
+            {
+                return new ResolvedStream(session, known.FileIndex);
+            }
+        }
+
+        var releases = await _options.GetAsync(req, ct).ConfigureAwait(false);
+        var chosen = releases.FirstOrDefault(r => StreamOptions.IdFor(r) == releaseId)
+            ?? throw new StreamNotFoundException("That stream is no longer listed. Reopen the title to refresh the list, or use Auto.");
+        return await TryStartAsync(req, chosen, ct).ConfigureAwait(false)
+            ?? throw new StreamNotFoundException($"Couldn't start \"{chosen.Title}\" (no peers, or no matching video file). Try another version.");
+    }
+
+    private async Task<ResolvedStream?> TryStartAsync(MediaRequest req, ReleaseCandidate release, CancellationToken ct)
+    {
+        try
+        {
+            _logger.LogInformation("Trying {Release} from {Origin} ({Seeders} seeders) for {Request}", release.Title, release.Origin, release.Seeders, req);
+            var source = await _torznab.ToSourceAsync(release, ct).ConfigureAwait(false);
+            var session = await _engine.AddAsync(source, ct).ConfigureAwait(false);
+            var index = PickFile(session.Manager, req);
+            if (index >= 0)
+            {
+                // Remember it: Auto uses this release next time, and repeat requests skip the lookup.
+                _cache.Set(req.Key, source.InfoHash, index, release.Title);
+                _started[StreamOptions.IdFor(release)] = (source.InfoHash, index);
+                return new ResolvedStream(session, index);
+            }
+
+            _logger.LogInformation("No matching video file in {Release}", release.Title);
+            await _engine.RemoveAsync(source.InfoHash, true).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning("Candidate {Release} failed: {Message}", release.Title, ex.Message);
+        }
+
+        return null;
+    }
+
     private async Task<ResolvedStream?> TryCachedAsync(MediaRequest req, CancellationToken ct)
     {
         if (!_cache.TryGet(req.Key, out var entry))
@@ -137,35 +173,5 @@ public sealed class StreamResolver
 
         _cache.Remove(req.Key);
         return null;
-    }
-
-    private async Task EnrichAsync(MediaRequest req, CancellationToken ct)
-    {
-        if (req.TmdbId is not int id || !_tmdb.IsConfigured)
-        {
-            return;
-        }
-
-        try
-        {
-            if (req.Kind == MediaKind.Movie)
-            {
-                var m = await _tmdb.GetMovieAsync(id, TmdbClient.SearchLanguage, ct).ConfigureAwait(false);
-                req.Title ??= m.Title;
-                req.Year ??= m.Year;
-                req.ImdbId ??= m.ImdbId;
-            }
-            else
-            {
-                var s = await _tmdb.GetShowAsync(id, TmdbClient.SearchLanguage, ct).ConfigureAwait(false);
-                req.Title ??= s.Name;
-                req.Year ??= s.Year;
-                req.ImdbId ??= s.ImdbId;
-            }
-        }
-        catch (Exception ex) when (!ct.IsCancellationRequested)
-        {
-            _logger.LogWarning("TMDB lookup failed for {Request}: {Message}", req, ex.Message);
-        }
     }
 }

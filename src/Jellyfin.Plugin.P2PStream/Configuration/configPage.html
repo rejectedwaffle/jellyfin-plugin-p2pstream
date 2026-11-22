@@ -209,6 +209,12 @@
                 <section class="p2p-panel" data-panel="quality">
                     <div class="p2p-grid">
                         <div class="p2p-card">
+                            <h3><span class="material-icons">format_list_bulleted</span>Available streams</h3>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="StreamPicker" /><span>Let me choose the stream</span></label>
+                            <div class="p2p-desc">Opening a title's page lists the releases in Jellyfin's <b>Version</b> menu with resolution, size, seeds, quality and source, like Elementum. "Auto (best match)" stays the default. The first time, the list can take a few seconds; reopen the page if it isn't there yet. The stream you pick is remembered.</div>
+                            <div class="inputContainer"><input is="emby-input" type="number" min="1" max="50" data-key="StreamPickerMax" data-type="int" label="Streams to list" /></div>
+                        </div>
+                        <div class="p2p-card">
                             <h3><span class="material-icons">aspect_ratio</span>Resolution</h3>
                             <div class="selectContainer">
                                 <select is="emby-select" data-key="PreferredResolution" data-type="int" label="Preferred resolution">

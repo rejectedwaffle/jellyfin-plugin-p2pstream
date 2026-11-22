@@ -124,6 +124,12 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public int CandidatesToTry { get; set; } = 3;
 
+    /// <summary>Gets or sets a value indicating whether a title's releases are listed in Jellyfin's Version menu (Elementum-style picker).</summary>
+    public bool StreamPicker { get; set; } = true;
+
+    /// <summary>Gets or sets how many releases the Version menu lists.</summary>
+    public int StreamPickerMax { get; set; } = 15;
+
     // ---- Catalog ----
     public bool CatalogEnabled { get; set; }
 

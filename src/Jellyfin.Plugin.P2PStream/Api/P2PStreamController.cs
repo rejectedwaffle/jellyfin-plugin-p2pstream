@@ -70,20 +70,20 @@ public class P2PStreamController : ControllerBase
     [HttpGet("play/{token}/movie/{tmdbId:int}")]
     [HttpHead("play/{token}/movie/{tmdbId:int}")]
     [AllowAnonymous]
-    public Task<IActionResult> PlayMovie(string token, int tmdbId)
-        => PlayAsync(token, new MediaRequest { Kind = MediaKind.Movie, TmdbId = tmdbId });
+    public Task<IActionResult> PlayMovie(string token, int tmdbId, [FromQuery] string? release = null)
+        => PlayAsync(token, new MediaRequest { Kind = MediaKind.Movie, TmdbId = tmdbId }, release);
 
     [HttpGet("play/{token}/imdb/{imdbId}")]
     [HttpHead("play/{token}/imdb/{imdbId}")]
     [AllowAnonymous]
-    public Task<IActionResult> PlayImdb(string token, string imdbId)
-        => PlayAsync(token, new MediaRequest { Kind = MediaKind.Movie, ImdbId = imdbId });
+    public Task<IActionResult> PlayImdb(string token, string imdbId, [FromQuery] string? release = null)
+        => PlayAsync(token, new MediaRequest { Kind = MediaKind.Movie, ImdbId = imdbId }, release);
 
     [HttpGet("play/{token}/tv/{tmdbId:int}/{season:int}/{episode:int}")]
     [HttpHead("play/{token}/tv/{tmdbId:int}/{season:int}/{episode:int}")]
     [AllowAnonymous]
-    public Task<IActionResult> PlayEpisode(string token, int tmdbId, int season, int episode)
-        => PlayAsync(token, new MediaRequest { Kind = MediaKind.Episode, TmdbId = tmdbId, Season = season, Episode = episode });
+    public Task<IActionResult> PlayEpisode(string token, int tmdbId, int season, int episode, [FromQuery] string? release = null)
+        => PlayAsync(token, new MediaRequest { Kind = MediaKind.Episode, TmdbId = tmdbId, Season = season, Episode = episode }, release);
 
     [HttpGet("stream/{token}/{infoHash}/{fileIndex:int}")]
     [HttpHead("stream/{token}/{infoHash}/{fileIndex:int}")]
@@ -408,7 +408,7 @@ public class P2PStreamController : ControllerBase
         return start >= 0 && start <= end && start < length;
     }
 
-    private async Task<IActionResult> PlayAsync(string token, MediaRequest req)
+    private async Task<IActionResult> PlayAsync(string token, MediaRequest req, string? release)
     {
         if (!TokenValid(token))
         {
@@ -418,7 +418,7 @@ public class P2PStreamController : ControllerBase
         ResolvedStream resolved;
         try
         {
-            resolved = await _resolver.ResolveAsync(req, HttpContext.RequestAborted).ConfigureAwait(false);
+            resolved = await _resolver.ResolveAsync(req, release, HttpContext.RequestAborted).ConfigureAwait(false);
         }
         catch (StreamNotFoundException ex)
         {

@@ -7,6 +7,7 @@ Seeking works, because the engine fetches pieces wherever playback jumps to.
 ## Features
 - **Built-in sources, nothing extra to install:** Internet Archive (public-domain films, on by default), plus KickAss Torrents, BT4G, YTS, EZTV, The Pirate Bay and 1337x, which you switch on yourself. Each has an editable address in case a site moves. Torznab (Prowlarr/Jackett) is supported too.
 - **Catalogs as libraries (Gelato-style):** TMDB lists (Trending, Trending Today, Popular, Top Rated, Now Playing, Upcoming, On The Air, Airing Today) and your own TMDB lists are written as `.strm` folders. Each catalog has Import, Collection, Max items and a target library. Artwork and metadata come from Jellyfin's own TMDB provider.
+- **Available streams picker (Elementum-style):** a title's releases appear in Jellyfin's **Version** menu with resolution, size, seeds, quality and source. Auto (best match) stays the default, and your pick is remembered.
 - **Search for any movie or show** from Jellyfin's search bar, in any client. Matches from TMDB are added to your library.
 - **Burst-style quality filters:** preferred and allowed resolutions, allowed release types (BluRay, WEB-DL, ... TeleSync, Cam), size ranges for movies, episodes and season packs, required and excluded keywords, minimum seeders, and an optional proxy.
 - **Torrent engine** (MonoTorrent): downloads only the file being watched, in playback order, and removes idle torrents.

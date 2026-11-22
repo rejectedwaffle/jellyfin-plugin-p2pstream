@@ -28,6 +28,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<TorznabClient>();
         serviceCollection.AddSingleton<SourceHub>();
         serviceCollection.AddSingleton<ResolutionCache>();
+        serviceCollection.AddSingleton<StreamOptions>();
         serviceCollection.AddSingleton<StreamResolver>();
 
         // Catalog and search
@@ -35,6 +36,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<LibrarySetup>();
         serviceCollection.AddSingleton<CatalogBuilder>();
         serviceCollection.AddSingleton<SearchImporter>();
-        serviceCollection.Configure<MvcOptions>(o => o.Filters.Add<SearchImportFilter>());
+        serviceCollection.Configure<MvcOptions>(o =>
+        {
+            o.Filters.Add<SearchImportFilter>();
+            o.Filters.Add<Api.StreamPickerFilter>(); // Version menu on title pages
+        });
     }
 }
