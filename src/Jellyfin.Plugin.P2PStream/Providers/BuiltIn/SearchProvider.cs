@@ -48,7 +48,7 @@ public abstract class SearchProvider
     /// <summary>
     /// Standard title search: "Title Year" for movies; "Title S01E02" for episodes, falling back to "Title S01" (season packs).
     /// </summary>
-    protected static async Task<List<ReleaseCandidate>> SearchByTitleAsync(MediaRequest request, Func<string, Task<List<ReleaseCandidate>>> query)
+    protected internal static async Task<List<ReleaseCandidate>> SearchByTitleAsync(MediaRequest request, Func<string, Task<List<ReleaseCandidate>>> query)
     {
         if (string.IsNullOrWhiteSpace(request.Title))
         {
@@ -65,7 +65,7 @@ public abstract class SearchProvider
     }
 
     /// <summary>Parses sizes like "1.4 GB", "57.98GB", "700 MiB" into bytes.</summary>
-    protected static long ParseSize(string? text)
+    protected internal static long ParseSize(string? text)
     {
         var m = System.Text.RegularExpressions.Regex.Match(text ?? string.Empty, @"([\d.,]+)\s*([KMGT])i?B", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         if (!m.Success || !double.TryParse(m.Groups[1].Value.Replace(",", string.Empty, StringComparison.Ordinal), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var n))

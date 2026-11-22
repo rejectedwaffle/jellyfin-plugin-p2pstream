@@ -15,6 +15,19 @@ public class TorznabIndexer
 }
 
 /// <summary>
+/// A user-added RSS/Atom search feed source (Settings > Sources > Add source).
+/// </summary>
+public class RssSource
+{
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the search URL with {query} where the search words go.</summary>
+    public string Url { get; set; } = string.Empty;
+
+    public bool Enabled { get; set; } = true;
+}
+
+/// <summary>
 /// One row of the Catalogs table (Gelato-style): which TMDB list goes into which library.
 /// </summary>
 public class CatalogEntry
@@ -82,6 +95,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public BuiltInSource[] Sources { get; set; } = [];
 
     public TorznabIndexer[] Indexers { get; set; } = [];
+
+    /// <summary>Gets or sets user-added RSS feed sources.</summary>
+    public RssSource[] RssSources { get; set; } = [];
 
     public int MinSeeders { get; set; } = 3;
 

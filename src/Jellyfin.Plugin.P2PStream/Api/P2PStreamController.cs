@@ -204,8 +204,10 @@ public class P2PStreamController : ControllerBase
             var searched = _sources.Providers.Where(p => p.Enabled).Select(p => p.Name).ToList();
             if (_torznab.HasIndexers)
             {
-                searched.Add("Torznab indexers");
+                searched.AddRange(Plugin.Instance!.Configuration.Indexers.Where(i => i.Enabled && !string.IsNullOrWhiteSpace(i.Url)).Select(i => string.IsNullOrWhiteSpace(i.Name) ? i.Url : i.Name));
             }
+
+            searched.AddRange(SourceHub.EnabledFeeds.Select(f => string.IsNullOrWhiteSpace(f.Name) ? new Uri(f.Url.Replace("{query}", "x", StringComparison.OrdinalIgnoreCase)).Host : f.Name.Trim()));
 
             var results = await _sources.SearchTextAsync(query, HttpContext.RequestAborted).ConfigureAwait(false);
 

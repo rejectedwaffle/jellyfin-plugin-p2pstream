@@ -109,9 +109,11 @@
                 <section class="p2p-panel" data-panel="sources">
                     <div class="p2p-grid">
                         <div class="p2p-card">
-                            <h3><span class="material-icons">public</span>Built-in sources</h3>
-                            <p class="p2p-muted">Where the plugin looks for torrents when you press play. These run inside the plugin, so there's nothing to install. Use "change address" if a site moves to a new domain.</p>
+                            <h3><span class="material-icons">public</span>Sources</h3>
+                            <p class="p2p-muted">Where the plugin looks for torrents when you press play. The built-in ones run inside the plugin, so there's nothing to install; use "change address" if a site moves to a new domain. Add your own with <b>Add source</b>.</p>
                             <div id="p2pSources"><p class="p2p-muted">Loading...</p></div>
+                            <div id="p2pCustomSources"></div>
+                            <div style="margin-top:.8em"><button is="emby-button" type="button" class="raised" id="p2pAddSource"><span>Add source</span></button></div>
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">manage_search</span>Test search</h3>
@@ -130,12 +132,6 @@
                                 <div class="inputContainer"><input is="emby-input" type="text" data-key="ProxyUser" label="Login" autocomplete="off" /></div>
                                 <div class="inputContainer"><input is="emby-input" type="password" data-key="ProxyPassword" label="Password" autocomplete="new-password" /></div>
                             </div>
-                        </div>
-                        <div class="p2p-card">
-                            <h3><span class="material-icons">dns</span>Torznab indexers (optional)</h3>
-                            <p class="p2p-muted">For Prowlarr or Jackett users. Not needed if you use the built-in sources.</p>
-                            <div id="p2pIndexers"></div>
-                            <button is="emby-button" type="button" class="raised" id="p2pAddIndexer"><span>Add indexer</span></button>
                         </div>
                     </div>
                 </section>
@@ -363,6 +359,31 @@
                 </div>
             </form>
 
+            <div id="p2pSrcModal" class="p2p-modal" style="display:none">
+                <div class="p2p-modal-box">
+                    <h3 id="p2pSrcTitle" style="margin:0 0 .5em">Add source</h3>
+                    <label for="p2pSrcType">Type:</label>
+                    <select id="p2pSrcType" class="p2p-plain" style="width:100%">
+                        <option value="rss">RSS feed (any site with a search feed)</option>
+                        <option value="torznab">Torznab (Prowlarr or Jackett)</option>
+                    </select>
+                    <label for="p2pSrcName">Name:</label>
+                    <input type="text" id="p2pSrcName" class="p2p-plain" style="width:100%;box-sizing:border-box" />
+                    <label for="p2pSrcUrl">Search URL:</label>
+                    <input type="text" id="p2pSrcUrl" class="p2p-plain" style="width:100%;box-sizing:border-box" />
+                    <p class="p2p-muted" id="p2pSrcHelp"></p>
+                    <div id="p2pSrcKeyRow">
+                        <label for="p2pSrcKey">API key:</label>
+                        <input type="text" id="p2pSrcKey" class="p2p-plain" style="width:100%;box-sizing:border-box" autocomplete="off" />
+                    </div>
+                    <p class="p2p-muted">After saving, use <b>Test search</b> to check it finds results.</p>
+                    <div class="p2p-modal-buttons">
+                        <button is="emby-button" type="button" class="raised" id="p2pSrcCancel"><span>Cancel</span></button>
+                        <button is="emby-button" type="button" class="raised button-submit" id="p2pSrcSave"><span>Save</span></button>
+                    </div>
+                </div>
+            </div>
+
             <div id="p2pModal" class="p2p-modal" style="display:none">
                 <div class="p2p-modal-box">
                     <h3 style="margin:0 0 .5em">New library</h3>
@@ -453,35 +474,65 @@
                 if (b) { showTab(b.getAttribute('data-tab')); }
             });
 
-            // ---------- indexers ----------
-            function indexerRow(ix) {
-                var div = document.createElement('div');
-                div.className = 'p2p-indexer';
+            // ---------- sources you added (RSS feeds, Torznab) ----------
+            function hostOf(u) { try { return new URL(String(u).replace(/\{query\}/ig, 'x')).host; } catch (x) { return u || ''; } }
+
+            function setCustomData(div, src) {
+                var box = div.querySelector('.src-enabled');
+                var enabled = box ? box.checked : src.Enabled !== false;
+                div.setAttribute('data-type', src.Type);
+                div.setAttribute('data-name', src.Name || '');
+                div.setAttribute('data-url', src.Url || '');
+                div.setAttribute('data-apikey', src.ApiKey || '');
                 div.innerHTML =
-                    '<div class="inputContainer"><input is="emby-input" type="text" class="ix-name" label="Name" /></div>' +
-                    '<div class="inputContainer"><input is="emby-input" type="text" class="ix-url" label="Torznab URL" /></div>' +
-                    '<div class="inputContainer"><input is="emby-input" type="text" class="ix-key" label="API key" /></div>' +
-                    '<div class="p2p-row" style="justify-content:space-between">' +
-                    '<label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="ix-enabled" /><span>Enabled</span></label>' +
-                    '<button is="emby-button" type="button" class="raised ix-remove"><span>Remove</span></button>' +
+                    '<div class="p2p-source-line">' +
+                    '<label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="src-enabled"' + (enabled ? ' checked' : '') + ' /><span>' +
+                    '<span class="p2p-src-name">' + esc(src.Name || hostOf(src.Url)) + '</span>' +
+                    '<span class="p2p-src-desc">' + (src.Type === 'torznab' ? 'Torznab' : 'RSS feed') + ' · ' + esc(hostOf(src.Url)) + ' · added by you</span></span></label>' +
+                    '<span class="p2p-nowrap"><a href="#" class="src-edit custom-edit">edit</a> &middot; <a href="#" class="src-edit custom-remove">remove</a></span>' +
                     '</div>';
-                div.querySelector('.ix-name').value = ix.Name || '';
-                div.querySelector('.ix-url').value = ix.Url || '';
-                div.querySelector('.ix-key').value = ix.ApiKey || '';
-                div.querySelector('.ix-enabled').checked = ix.Enabled !== false;
-                div.querySelector('.ix-remove').addEventListener('click', function () { div.remove(); setDirty(true); });
-                page.querySelector('#p2pIndexers').appendChild(div);
             }
 
-            function readIndexers() {
-                return Array.prototype.map.call(page.querySelectorAll('#p2pIndexers .p2p-indexer'), function (d) {
-                    return {
-                        Name: d.querySelector('.ix-name').value.trim(),
-                        Url: d.querySelector('.ix-url').value.trim(),
-                        ApiKey: d.querySelector('.ix-key').value.trim(),
-                        Enabled: d.querySelector('.ix-enabled').checked
-                    };
-                }).filter(function (i) { return i.Url; });
+            function customRow(src) {
+                var div = document.createElement('div');
+                div.className = 'p2p-source p2p-custom';
+                setCustomData(div, src);
+                page.querySelector('#p2pCustomSources').appendChild(div);
+            }
+
+            function readCustom(type) {
+                return Array.prototype.filter.call(page.querySelectorAll('#p2pCustomSources .p2p-custom'), function (d) {
+                    return d.getAttribute('data-type') === type;
+                }).map(function (d) {
+                    var src = { Name: d.getAttribute('data-name'), Url: d.getAttribute('data-url'), Enabled: d.querySelector('.src-enabled').checked };
+                    if (type === 'torznab') { src.ApiKey = d.getAttribute('data-apikey'); }
+                    return src;
+                });
+            }
+
+            var srcHelp = {
+                rss: 'The site\'s search feed address, with {query} where the search words go. Example: https://bt4gprx.com/search?q={query}&page=rss. The feed\'s items need magnet or .torrent links.',
+                torznab: 'Prowlarr: http://prowlarr:9696/{id}/api. Jackett: http://jackett:9117/api/v2.0/indexers/all/results/torznab. The API key is in Prowlarr or Jackett\'s settings.'
+            };
+            var editingSource = null;
+
+            function updateSourceForm() {
+                var type = page.querySelector('#p2pSrcType').value;
+                page.querySelector('#p2pSrcHelp').textContent = srcHelp[type];
+                page.querySelector('#p2pSrcKeyRow').style.display = type === 'torznab' ? '' : 'none';
+                page.querySelector('#p2pSrcUrl').placeholder = type === 'torznab' ? 'http://prowlarr:9696/1/api' : 'https://site/search?q={query}&page=rss';
+            }
+
+            function openSourceModal(div) {
+                editingSource = div || null;
+                page.querySelector('#p2pSrcTitle').textContent = div ? 'Edit source' : 'Add source';
+                page.querySelector('#p2pSrcType').value = div ? div.getAttribute('data-type') : 'rss';
+                page.querySelector('#p2pSrcName').value = div ? div.getAttribute('data-name') : '';
+                page.querySelector('#p2pSrcUrl').value = div ? div.getAttribute('data-url') : '';
+                page.querySelector('#p2pSrcKey').value = div ? div.getAttribute('data-apikey') : '';
+                updateSourceForm();
+                page.querySelector('#p2pSrcModal').style.display = 'flex';
+                page.querySelector('#p2pSrcName').focus();
             }
 
             // ---------- built-in sources ----------
@@ -514,7 +565,7 @@
             }
 
             function readSources() {
-                return Array.prototype.map.call(page.querySelectorAll('.p2p-source'), function (d) {
+                return Array.prototype.map.call(page.querySelectorAll('#p2pSources .p2p-source'), function (d) {
                     return {
                         Id: d.getAttribute('data-id'),
                         Enabled: d.querySelector('.src-enabled').checked,
@@ -689,8 +740,9 @@
                         var values = (config[group.getAttribute('data-list')] || []).map(String);
                         group.querySelectorAll('input[type=checkbox]').forEach(function (cb) { cb.checked = values.indexOf(cb.value) !== -1; });
                     });
-                    page.querySelector('#p2pIndexers').innerHTML = '';
-                    (config.Indexers || []).forEach(indexerRow);
+                    page.querySelector('#p2pCustomSources').innerHTML = '';
+                    (config.RssSources || []).forEach(function (f) { customRow({ Type: 'rss', Name: f.Name, Url: f.Url, Enabled: f.Enabled }); });
+                    (config.Indexers || []).forEach(function (i) { customRow({ Type: 'torznab', Name: i.Name, Url: i.Url, ApiKey: i.ApiKey, Enabled: i.Enabled }); });
                     setDirty(false);
                     Dashboard.hideLoadingMsg();
                     api('GET', 'P2PStream/Sources').then(renderSources).catch(function () {
@@ -706,7 +758,7 @@
             // ---------- unsaved-changes bar ----------
             function setDirty(on) { page.querySelector('#p2pSaveBar').classList.toggle('show', !!on); }
             // Only real settings count. Search boxes, the magnet field and the catalog filter don't.
-            function isSetting(el) { return el && el.closest && el.closest('[data-key], [data-list], .p2p-source, #p2pIndexers, .p2p-cat-row, .p2p-search-row'); }
+            function isSetting(el) { return el && el.closest && el.closest('[data-key], [data-list], .p2p-source, .p2p-cat-row, .p2p-search-row'); }
             page.addEventListener('input', function (e) { if (isSetting(e.target)) { setDirty(true); } });
             page.addEventListener('change', function (e) {
                 if (!isSetting(e.target)) { return; }
@@ -728,7 +780,8 @@
                             group.querySelectorAll('input[type=checkbox]'), function (cb) { return cb.checked; }
                         ).map(function (cb) { return group.getAttribute('data-type') === 'int' ? parseInt(cb.value, 10) : cb.value; });
                     });
-                    config.Indexers = readIndexers();
+                    config.Indexers = readCustom('torznab');
+                    config.RssSources = readCustom('rss');
                     if (page.querySelector('.p2p-source')) { config.Sources = readSources(); }
                     if (page.querySelector('.p2p-cat-row')) { config.Catalogs = readCatalogs(); }
                     readSearchFolders().forEach(function (s) { if (s.Folder) { config[s.Key] = s.Folder; } });
@@ -789,7 +842,28 @@
             }
 
             // ---------- wiring ----------
-            page.querySelector('#p2pAddIndexer').addEventListener('click', function () { indexerRow({ Enabled: true }); setDirty(true); });
+            page.querySelector('#p2pAddSource').addEventListener('click', function () { openSourceModal(null); });
+            page.querySelector('#p2pSrcType').addEventListener('change', updateSourceForm);
+            page.querySelector('#p2pSrcCancel').addEventListener('click', function () { page.querySelector('#p2pSrcModal').style.display = 'none'; });
+            page.querySelector('#p2pSrcSave').addEventListener('click', function () {
+                var src = {
+                    Type: page.querySelector('#p2pSrcType').value,
+                    Name: page.querySelector('#p2pSrcName').value.trim(),
+                    Url: page.querySelector('#p2pSrcUrl').value.trim(),
+                    ApiKey: page.querySelector('#p2pSrcKey').value.trim(),
+                    Enabled: true
+                };
+                if (!/^https?:\/\//i.test(src.Url)) { toast('Enter the search URL, starting with http:// or https://'); return; }
+                if (editingSource) { setCustomData(editingSource, src); } else { customRow(src); }
+                page.querySelector('#p2pSrcModal').style.display = 'none';
+                setDirty(true);
+            });
+            page.querySelector('#p2pCustomSources').addEventListener('click', function (e) {
+                var row = e.target.closest('.p2p-custom');
+                if (!row) { return; }
+                if (e.target.closest('.custom-edit')) { e.preventDefault(); openSourceModal(row); }
+                if (e.target.closest('.custom-remove')) { e.preventDefault(); row.remove(); setDirty(true); }
+            });
 
             page.querySelector('#p2pAdd').addEventListener('click', function () {
                 var input = page.querySelector('#p2pMagnet');

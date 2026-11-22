@@ -22,23 +22,28 @@ public sealed class SourceHub
 
     public IReadOnlyList<SearchProvider> Providers => _providers;
 
-    public bool HasSources => _torznab.HasIndexers || _providers.Any(p => p.Enabled);
+    public bool HasSources => _torznab.HasIndexers || _providers.Any(p => p.Enabled) || EnabledFeeds.Count > 0;
+
+    /// <summary>Gets the user-added RSS sources that are switched on.</summary>
+    public static List<Configuration.RssSource> EnabledFeeds =>
+        (Plugin.Instance?.Configuration.RssSources ?? []).Where(f => f.Enabled && !string.IsNullOrWhiteSpace(f.Url)).ToList();
 
     public Task<List<ReleaseCandidate>> SearchAsync(MediaRequest request, CancellationToken ct)
-        => RunAsync(p => p.SearchAsync(request, ct), () => _torznab.SearchAsync(request, ct), request.ToString(), ct);
+        => RunAsync(p => p.SearchAsync(request, ct), () => _torznab.SearchAsync(request, ct), f => RssFeedSource.SearchAsync(f, request, ct), request.ToString(), ct);
 
     public Task<List<ReleaseCandidate>> SearchTextAsync(string query, CancellationToken ct)
-        => RunAsync(p => p.SearchTextAsync(query, ct), () => _torznab.SearchTextAsync(query, ct), query, ct);
+        => RunAsync(p => p.SearchTextAsync(query, ct), () => _torznab.SearchTextAsync(query, ct), f => RssFeedSource.QueryAsync(f, query, ct), query, ct);
 
     private async Task<List<ReleaseCandidate>> RunAsync(
         Func<SearchProvider, Task<List<ReleaseCandidate>>> providerSearch,
         Func<Task<List<ReleaseCandidate>>> torznabSearch,
+        Func<Configuration.RssSource, Task<List<ReleaseCandidate>>> feedSearch,
         string what,
         CancellationToken ct)
     {
         if (!HasSources)
         {
-            throw new StreamNotFoundException("No sources are enabled. Turn on a built-in source (or add a Torznab indexer) on the P2P Stream page.");
+            throw new StreamNotFoundException("No sources are enabled. Turn one on (or add one) on the Sources tab of the P2P Stream page.");
         }
 
         var tasks = _providers.Where(p => p.Enabled)
@@ -47,6 +52,11 @@ public sealed class SourceHub
         if (_torznab.HasIndexers)
         {
             tasks.Add(GuardAsync("Torznab", torznabSearch, ct));
+        }
+
+        foreach (var feed in EnabledFeeds)
+        {
+            tasks.Add(GuardAsync(string.IsNullOrWhiteSpace(feed.Name) ? feed.Url : feed.Name, () => feedSearch(feed), ct));
         }
 
         var results = (await Task.WhenAll(tasks).ConfigureAwait(false)).SelectMany(r => r).ToList();
