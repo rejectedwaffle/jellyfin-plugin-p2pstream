@@ -12,11 +12,13 @@ public static class CatalogDefinitions
     public static readonly IReadOnlyList<CatalogDef> BuiltIn =
     [
         new("movie:trending", "Trending", true, "Trending Movies", "trending", null),
+        new("movie:trending_day", "Trending Today", true, "Trending Today Movies", "trending_day", null),
         new("movie:popular", "Popular", true, "Popular Movies", "popular", null),
         new("movie:top_rated", "Top Rated", true, "Top Rated Movies", "top_rated", null),
         new("movie:now_playing", "Now Playing", true, "Now Playing Movies", "now_playing", null),
         new("movie:upcoming", "Upcoming", true, "Upcoming Movies", "upcoming", null),
         new("tv:trending", "Trending", false, "Trending Shows", "trending", null),
+        new("tv:trending_day", "Trending Today", false, "Trending Today Shows", "trending_day", null),
         new("tv:popular", "Popular", false, "Popular Shows", "popular", null),
         new("tv:top_rated", "Top Rated", false, "Top Rated Shows", "top_rated", null),
         new("tv:on_the_air", "On The Air", false, "On The Air Shows", "on_the_air", null),
