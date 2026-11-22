@@ -158,7 +158,19 @@ public static partial class ReleaseRanker
             }
         }
 
-        return false;
+        return season == 1 && AnimeEpisode(text) == episode;
+    }
+
+    /// <summary>Anime-style episode number ("[Group] Show - 12 (1080p)"), only when there's no SxxEyy/1x02 in the name.</summary>
+    private static int? AnimeEpisode(string text)
+    {
+        if (EpisodeRegex().IsMatch(text) || CrossRegex().IsMatch(text))
+        {
+            return null;
+        }
+
+        var m = AnimeEpisodeRegex().Match(text);
+        return m.Success ? int.Parse(m.Groups["e"].Value, CultureInfo.InvariantCulture) : null;
     }
 
     private static EpisodeMatch MatchEpisodeTitle(string title, int season, int episode)
@@ -171,6 +183,11 @@ public static partial class ReleaseRanker
         if (EpisodeRegex().IsMatch(title) || CrossRegex().IsMatch(title))
         {
             return EpisodeMatch.Wrong; // names some other episode
+        }
+
+        if (AnimeEpisode(title) is int anime)
+        {
+            return season == 1 && anime == episode ? EpisodeMatch.Exact : EpisodeMatch.Wrong;
         }
 
         var range = SeasonRangeRegex().Match(title);
@@ -223,6 +240,9 @@ public static partial class ReleaseRanker
 
     [GeneratedRegex(@"(?<![\dx])(?<s>\d{1,2})x(?<e>\d{2,3})(?!\d)", RegexOptions.IgnoreCase)]
     private static partial Regex CrossRegex();
+
+    [GeneratedRegex(@"\s-\s(?<e>\d{1,3})(?:v\d)?(?=\s|\[|\(|\.|$)")]
+    private static partial Regex AnimeEpisodeRegex();
 
     [GeneratedRegex(@"\bS(?<a>\d{1,2})\s*-\s*S?(?<b>\d{1,2})\b", RegexOptions.IgnoreCase)]
     private static partial Regex SeasonRangeRegex();

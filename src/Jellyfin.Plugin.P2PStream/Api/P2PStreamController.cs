@@ -201,7 +201,8 @@ public class P2PStreamController : ControllerBase
 
         try
         {
-            var searched = _sources.Providers.Where(p => p.Enabled).Select(p => p.Name).ToList();
+            var searched = _sources.Providers.Where(p => p.Enabled && p.SupportsTextSearch).Select(p => p.TextSearchNote is null ? p.Name : $"{p.Name} ({p.TextSearchNote})").ToList();
+            var notForText = _sources.Providers.Where(p => p.Enabled && !p.SupportsTextSearch).Select(p => $"{p.Name} ({p.TextSearchNote})").ToList();
             if (_torznab.HasIndexers)
             {
                 searched.AddRange(Plugin.Instance!.Configuration.Indexers.Where(i => i.Enabled && !string.IsNullOrWhiteSpace(i.Url)).Select(i => string.IsNullOrWhiteSpace(i.Name) ? i.Url : i.Name));
@@ -215,6 +216,7 @@ public class P2PStreamController : ControllerBase
             return new
             {
                 Searched = searched,
+                NotForText = notForText,
                 Found = results.GroupBy(r => r.Origin).ToDictionary(g => g.Key, g => g.Count()),
                 Results = ReleaseRanker.Rank(results, null).Take(50).ToList()
             };

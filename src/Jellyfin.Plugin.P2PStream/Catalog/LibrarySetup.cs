@@ -3,6 +3,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.P2PStream.Catalog;
@@ -20,13 +21,15 @@ public sealed class LibrarySetup
 
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;
+    private readonly IServiceProvider _services;
     private readonly ILogger<LibrarySetup> _logger;
     private readonly object _cleanupLock = new();
 
-    public LibrarySetup(ILibraryManager libraryManager, IFileSystem fileSystem, ILogger<LibrarySetup> logger)
+    public LibrarySetup(ILibraryManager libraryManager, IFileSystem fileSystem, IServiceProvider services, ILogger<LibrarySetup> logger)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
+        _services = services;
         _logger = logger;
     }
 
@@ -122,12 +125,34 @@ public sealed class LibrarySetup
     public Task FullScanAsync(CancellationToken ct) => _libraryManager.ValidateMediaLibrary(new Progress<double>(), ct);
 
     /// <summary>
+    /// The Jellyfin folder item for a library location. FindByPath doesn't return library roots, so this falls back to
+    /// the library's own item and its physical folders.
+    /// </summary>
+    private Folder? FindLibraryFolder(string root)
+    {
+        if (_libraryManager.FindByPath(root, true) is Folder direct)
+        {
+            return direct;
+        }
+
+        var library = _libraryManager.GetVirtualFolders().FirstOrDefault(v => v.Locations.Any(l => SamePath(l, root)));
+        if (library is null || !Guid.TryParse(library.ItemId, out var id) || _libraryManager.GetItemById(id) is not CollectionFolder collection)
+        {
+            return null;
+        }
+
+        return collection.GetPhysicalFolders().FirstOrDefault(f => SamePath(f.Path, root)) ?? (Folder)collection;
+    }
+
+    /// <summary>
     /// Scans only the changed title folders inside a library folder. Returns false if Jellyfin doesn't know the folder yet
     /// (the caller should then do a full scan).
+    /// <paramref name="fast"/>: create the items from their names right away and fetch metadata and images in the
+    /// background (used by search, where speed matters and names are all Jellyfin's search needs).
     /// </summary>
-    public async Task<bool> ScanAsync(string root, IReadOnlyCollection<string> changedDirs, CancellationToken ct)
+    public async Task<bool> ScanAsync(string root, IReadOnlyCollection<string> changedDirs, CancellationToken ct, bool fast = false)
     {
-        if (_libraryManager.FindByPath(root, true) is not Folder libraryFolder)
+        if (FindLibraryFolder(root) is not Folder libraryFolder)
         {
             return false;
         }
@@ -135,9 +160,11 @@ public sealed class LibrarySetup
         var refreshPaths = changedDirs
             .Concat(changedDirs.Where(Directory.Exists).SelectMany(d => Directory.EnumerateFileSystemEntries(d, "*", SearchOption.AllDirectories)))
             .ToArray();
+        var mode = fast ? MetadataRefreshMode.ValidationOnly : MetadataRefreshMode.Default;
         var options = new MetadataRefreshOptions(new DirectoryService(_fileSystem))
         {
-            MetadataRefreshMode = MetadataRefreshMode.Default,
+            MetadataRefreshMode = mode,
+            ImageRefreshMode = mode,
             RefreshPaths = refreshPaths
         };
 
@@ -152,14 +179,42 @@ public sealed class LibrarySetup
             }
         }
 
+        if (fast)
+        {
+            QueueMetadata(changedDirs);
+        }
+
         return true;
+    }
+
+    /// <summary>Queues a normal metadata and image refresh (posters, overviews) for titles that were added quickly.</summary>
+    private void QueueMetadata(IReadOnlyCollection<string> titleDirs)
+    {
+        var providers = _services.GetService<IProviderManager>();
+        if (providers is null)
+        {
+            return;
+        }
+
+        foreach (var dir in titleDirs.Where(Directory.Exists))
+        {
+            var item = _libraryManager.FindByPath(dir, true)
+                ?? (Directory.EnumerateFiles(dir, "*.strm").FirstOrDefault() is string file ? _libraryManager.FindByPath(file, false) : null);
+            if (item is not null)
+            {
+                providers.QueueRefresh(
+                    item.Id,
+                    new MetadataRefreshOptions(new DirectoryService(_fileSystem)) { MetadataRefreshMode = MetadataRefreshMode.Default, ImageRefreshMode = MetadataRefreshMode.Default },
+                    RefreshPriority.High);
+            }
+        }
     }
 
     /// <summary>
     /// Gets a changed folder's titles into Jellyfin: a targeted scan if the folder is in a library, otherwise nothing
     /// (it's logged, and the titles appear once you add the library).
     /// </summary>
-    public async Task ScanIfInLibraryAsync(string root, IReadOnlyCollection<string> changedDirs, int removed, CancellationToken ct)
+    public async Task ScanIfInLibraryAsync(string root, IReadOnlyCollection<string> changedDirs, int removed, CancellationToken ct, bool fast = false)
     {
         if (changedDirs.Count == 0 && removed == 0)
         {
@@ -175,7 +230,7 @@ public sealed class LibrarySetup
 
         try
         {
-            if (!await ScanAsync(root, changedDirs, ct).ConfigureAwait(false))
+            if (!await ScanAsync(root, changedDirs, ct, fast).ConfigureAwait(false))
             {
                 await FullScanAsync(ct).ConfigureAwait(false); // library added but never scanned
             }

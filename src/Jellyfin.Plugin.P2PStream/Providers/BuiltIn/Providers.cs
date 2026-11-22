@@ -85,7 +85,12 @@ public sealed class YtsProvider : SearchProvider
 
     public override string Description => "Movies · English";
 
-    public override string DefaultUrl => "https://yts.mx";
+    public override string DefaultUrl => "https://yts.pw";
+
+    // YTS's API announced its move to movies-api.accel.li; the rest are mirrors serving the same data.
+    public override string[] Mirrors => ["https://movies-api.accel.li", "https://yts.lt", "https://yts.am", "https://yts.ag", "https://yts.mx"];
+
+    public override string? TextSearchNote => "movies only";
 
     public override Task<List<ReleaseCandidate>> SearchAsync(MediaRequest request, CancellationToken ct)
     {
@@ -108,7 +113,7 @@ public sealed class YtsProvider : SearchProvider
 
     private async Task<List<ReleaseCandidate>> QueryAsync(string term, string? imdb, CancellationToken ct)
     {
-        var json = await GetJsonAsync($"{BaseUrl}/api/v2/list_movies.json?limit=50&query_term={Esc(term)}", ct).ConfigureAwait(false);
+        var json = await UseMirrorsAsync((b, t) => GetJsonAsync($"{b}/api/v2/list_movies.json?limit=50&query_term={Esc(term)}", t), ct).ConfigureAwait(false);
         var list = new List<ReleaseCandidate>();
         foreach (var m in json?["data"]?["movies"] as JsonArray ?? [])
         {
@@ -154,6 +159,12 @@ public sealed class EztvProvider : SearchProvider
 
     public override string DefaultUrl => "https://eztvx.to";
 
+    public override string[] Mirrors => ["https://eztv.re", "https://eztv.wf", "https://eztv.tf", "https://eztv.yt"];
+
+    public override bool SupportsTextSearch => false;
+
+    public override string? TextSearchNote => "only searches when you open or play an episode";
+
     public override async Task<List<ReleaseCandidate>> SearchAsync(MediaRequest request, CancellationToken ct)
     {
         if (request.Kind != MediaKind.Episode || string.IsNullOrEmpty(request.ImdbId))
@@ -164,7 +175,8 @@ public sealed class EztvProvider : SearchProvider
         var list = new List<ReleaseCandidate>();
         for (var page = 1; page <= MaxPages; page++)
         {
-            var json = await GetJsonAsync($"{BaseUrl}/api/get-torrents?imdb_id={Esc(ImdbDigits(request.ImdbId!))}&limit=100&page={page}", ct).ConfigureAwait(false);
+            var p = page;
+            var json = await UseMirrorsAsync((b, t) => GetJsonAsync($"{b}/api/get-torrents?imdb_id={Esc(ImdbDigits(request.ImdbId!))}&limit=100&page={p}", t), ct).ConfigureAwait(false);
             var torrents = json?["torrents"] as JsonArray;
             if (torrents is null || torrents.Count == 0)
             {
@@ -247,7 +259,7 @@ public sealed class ApibayProvider : SearchProvider
 
     private async Task<List<(string? Imdb, ReleaseCandidate Release)>> QueryAsync(string q, CancellationToken ct)
     {
-        var json = await GetJsonAsync($"{BaseUrl}/q.php?q={Esc(q)}&cat=200", ct).ConfigureAwait(false);
+        var json = await UseMirrorsAsync((b, t) => GetJsonAsync($"{b}/q.php?q={Esc(q)}&cat=200", t), ct).ConfigureAwait(false);
         var list = new List<(string?, ReleaseCandidate)>();
         foreach (var r in json as JsonArray ?? [])
         {

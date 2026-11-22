@@ -61,9 +61,16 @@ public static partial class RssFeedSource
                 continue; // nothing playable
             }
 
-            var hash = attrs.GetValueOrDefault("infohash") ?? (magnet is not null && HashInMagnet().Match(magnet) is { Success: true } h ? h.Groups[1].Value : null);
+            var hash = attrs.GetValueOrDefault("infohash") ?? Child("infoHash")
+                ?? (magnet is not null && HashInMagnet().Match(magnet) is { Success: true } h ? h.Groups[1].Value : null);
             var size = Long(attrs.GetValueOrDefault("size")) ?? Long((string?)enclosure?.Attribute("length")) ?? Long(Child("size"));
-            var seeders = Long(attrs.GetValueOrDefault("seeders")) ?? (SeedersInText().Match(description) is { Success: true } s ? Long(s.Groups[1].Value) : null);
+            if (size is null && Child("size") is { } sizeText)
+            {
+                size = SearchProvider.ParseSize(sizeText); // e.g. "1.4 GiB"
+            }
+
+            var seeders = Long(attrs.GetValueOrDefault("seeders")) ?? Long(Child("seeders"))
+                ?? (SeedersInText().Match(description) is { Success: true } s ? Long(s.Groups[1].Value) : null);
 
             list.Add(new ReleaseCandidate
             {
@@ -74,7 +81,7 @@ public static partial class RssFeedSource
                 InfoHash = hash?.ToLowerInvariant(),
                 Size = size is > 0 ? size.Value : SearchProvider.ParseSize(description),
                 Seeders = seeders is null ? -1 : (int)seeders.Value,
-                Peers = (int)(Long(attrs.GetValueOrDefault("peers")) ?? 0)
+                Peers = (int)(Long(attrs.GetValueOrDefault("peers")) ?? ((seeders ?? 0) + (Long(Child("leechers")) ?? 0)))
             });
         }
 

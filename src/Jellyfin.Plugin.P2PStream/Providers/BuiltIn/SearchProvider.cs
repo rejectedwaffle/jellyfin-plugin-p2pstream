@@ -20,13 +20,51 @@ public abstract class SearchProvider
 
     public bool Enabled => Setting?.Enabled ?? EnabledByDefault;
 
-    public string BaseUrl
+    /// <summary>Gets backup addresses tried in order when the default address doesn't answer (sites often move or get blocked).</summary>
+    public virtual string[] Mirrors => [];
+
+    /// <summary>Gets a value indicating whether the source can search free text (the Test search). Some only search by IMDb id.</summary>
+    public virtual bool SupportsTextSearch => true;
+
+    /// <summary>Gets a short note shown in the Test search when the source doesn't do text searches.</summary>
+    public virtual string? TextSearchNote => null;
+
+    /// <summary>Gets the address in use: the one you set, else the last address that worked, else the default.</summary>
+    public string BaseUrl => CustomUrl ?? _workingUrl ?? DefaultUrl.TrimEnd('/');
+
+    private string? CustomUrl => Setting?.BaseUrl is { } u && !string.IsNullOrWhiteSpace(u) ? u.Trim().TrimEnd('/') : null;
+
+    private string? _workingUrl;
+
+    /// <summary>
+    /// Runs a request against the source's address. If it doesn't answer, it tries the backup addresses and remembers
+    /// the first that works. An address set with "change address" is always used on its own.
+    /// </summary>
+    protected async Task<T> UseMirrorsAsync<T>(Func<string, CancellationToken, Task<T>> call, CancellationToken ct)
     {
-        get
+        var candidates = CustomUrl is { } custom
+            ? new[] { custom }
+            : new[] { _workingUrl, DefaultUrl.TrimEnd('/') }.Concat(Mirrors.Select(m => m.TrimEnd('/'))).Where(u => u is not null).Distinct().ToArray();
+        Exception? last = null;
+        foreach (var url in candidates)
         {
-            var url = Setting?.BaseUrl;
-            return (string.IsNullOrWhiteSpace(url) ? DefaultUrl : url.Trim()).TrimEnd('/');
+            using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            attempt.CancelAfter(TimeSpan.FromSeconds(12)); // a blocked address can hang; move on
+            try
+            {
+                var result = await call(url!, attempt.Token).ConfigureAwait(false);
+                _workingUrl = url;
+                return result;
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested
+                && ex is HttpRequestException or OperationCanceledException or IOException or InvalidOperationException
+                    or System.Text.Json.JsonException or System.Xml.XmlException)
+            {
+                last = ex;
+            }
         }
+
+        throw last ?? new InvalidOperationException($"{Name}: no address answered");
     }
 
     private BuiltInSource? Setting => Plugin.Instance?.Configuration.Sources.FirstOrDefault(s => string.Equals(s.Id, Id, StringComparison.OrdinalIgnoreCase));

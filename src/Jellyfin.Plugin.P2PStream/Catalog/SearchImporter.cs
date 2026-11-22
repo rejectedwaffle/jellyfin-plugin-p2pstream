@@ -47,8 +47,8 @@ public sealed class SearchImporter
             return;
         }
 
-        var key = term.Trim().ToLowerInvariant();
-        if (key.Length < 3)
+        var normalized = term.Trim().ToLowerInvariant();
+        if (normalized.Length < 3)
         {
             return;
         }
@@ -58,8 +58,10 @@ public sealed class SearchImporter
             _recent.TryRemove(old.Key, out _);
         }
 
-        // The web client sends one request per item type for each search. They all share one import.
-        var entry = _recent.GetOrAdd(key, k => (DateTime.UtcNow, Task.Run(() => RunSearchImportAsync(k))));
+        // The web client sends one request per item type for each search. They all share one import. The key includes
+        // the target folders, so after changing the search libraries the same term imports again straight away.
+        var key = normalized + "|" + MovieLibrary + "|" + ShowLibrary;
+        var entry = _recent.GetOrAdd(key, _ => (DateTime.UtcNow, Task.Run(() => RunSearchImportAsync(normalized))));
         try
         {
             await entry.Task.WaitAsync(budget, ct).ConfigureAwait(false);
@@ -114,10 +116,16 @@ public sealed class SearchImporter
             var good = results.Where(r => r.VoteCount >= MinVotes).ToList();
             var movies = good.Where(r => r.IsMovie).Take(MaxMovies).ToList();
             var shows = good.Where(r => !r.IsMovie).Take(MaxShows).ToList();
-            var added = await ImportAsync(movies, shows, CancellationToken.None).ConfigureAwait(false);
-            if (added.Count > 0)
+            var first = await FirstPassAsync(movies, shows, CancellationToken.None).ConfigureAwait(false);
+            if (first.Added.Count > 0)
             {
-                _logger.LogInformation("Search \"{Term}\" added {Count} titles", term, added.Count);
+                _logger.LogInformation("Search \"{Term}\" added {Count} titles", term, first.Added.Count);
+            }
+
+            if (first.Shows.Count > 0)
+            {
+                // The rest of each show's episodes, after search has its results.
+                _ = Task.Run(() => FinishShowsAsync(first.Shows, first.ShowRoot));
             }
         }
         catch (Exception ex)
@@ -126,23 +134,49 @@ public sealed class SearchImporter
         }
     }
 
+    /// <summary>Manual add: both passes, waiting for the full show.</summary>
     private async Task<List<string>> ImportAsync(List<TmdbItem> movies, List<TmdbItem> shows, CancellationToken ct)
+    {
+        var first = await FirstPassAsync(movies, shows, ct).ConfigureAwait(false);
+        await FinishShowsAsync(first.Shows, first.ShowRoot).ConfigureAwait(false);
+        return first.Added;
+    }
+
+    /// <summary>
+    /// The fast pass that search waits for: movies are written and added to the library first, then each show with just its
+    /// first episode. Items are created from their names immediately; posters and details are fetched in the background.
+    /// </summary>
+    private async Task<(List<string> Added, List<TmdbItem> Shows, string ShowRoot)> FirstPassAsync(List<TmdbItem> movies, List<TmdbItem> shows, CancellationToken ct)
     {
         // Titles already in a folder that's in a library are searchable already. Ones sitting in a folder outside any
         // library (e.g. written before the search library existed) don't count, so they're added where Jellyfin can see them.
         movies = movies.Where(m => !IsVisible(CatalogBuilder.FindExistingAnywhere(true, m.Id))).ToList();
         shows = shows.Where(s => !IsVisible(CatalogBuilder.FindExistingAnywhere(false, s.Id))).ToList();
-        if (movies.Count == 0 && shows.Count == 0)
-        {
-            return [];
-        }
-
         var movieRoot = TargetFolder(movies: true);
         var showRoot = TargetFolder(movies: false);
-        var newMovies = new List<string>();
-        var newShows = new List<string>();
+        if (movies.Count == 0 && shows.Count == 0)
+        {
+            return ([], [], showRoot);
+        }
+
         _libraries.RunLegacyCleanupOnce();
 
+        // Each show's first season (season 0 is specials), looked up in parallel before writing anything.
+        var firstSeasons = await Task.WhenAll(shows.Select(async s =>
+        {
+            try
+            {
+                var info = await _tmdb.GetShowAsync(s.Id, TmdbClient.CatalogLanguage, ct).ConfigureAwait(false);
+                return info.Seasons.Count > 0 ? info.Seasons.Min() : 1;
+            }
+            catch (Exception) when (!ct.IsCancellationRequested)
+            {
+                return 1;
+            }
+        })).ConfigureAwait(false);
+
+        var newMovies = new List<string>();
+        var newShows = new List<string>();
         await _writeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -155,34 +189,70 @@ public sealed class SearchImporter
                     _catalog.MarkSearchImport(dir);
                     newMovies.Add(dir);
                 }
+
+                await _libraries.ScanIfInLibraryAsync(movieRoot, newMovies, 0, ct, fast: true).ConfigureAwait(false);
             }
 
             if (shows.Count > 0)
             {
                 Directory.CreateDirectory(showRoot);
-                foreach (var s in shows)
+                for (var i = 0; i < shows.Count; i++)
                 {
-                    try
-                    {
-                        var (dir, _) = await _catalog.WriteShowAsync(s, showRoot, ct).ConfigureAwait(false);
-                        _catalog.MarkSearchImport(dir);
-                        newShows.Add(dir);
-                    }
-                    catch (Exception ex) when (!ct.IsCancellationRequested)
-                    {
-                        _logger.LogWarning("Could not add show {Name}: {Message}", s.Title, ex.Message);
-                    }
+                    var dir = _catalog.WriteFirstEpisode(shows[i], showRoot, firstSeasons[i]);
+                    _catalog.MarkSearchImport(dir);
+                    newShows.Add(dir);
                 }
-            }
 
-            await _libraries.ScanIfInLibraryAsync(movieRoot, newMovies, 0, ct).ConfigureAwait(false);
-            await _libraries.ScanIfInLibraryAsync(showRoot, newShows, 0, ct).ConfigureAwait(false);
+                await _libraries.ScanIfInLibraryAsync(showRoot, newShows, 0, ct, fast: true).ConfigureAwait(false);
+            }
         }
         finally
         {
             _writeGate.Release();
         }
 
-        return newMovies.Concat(newShows).ToList();
+        return (newMovies.Concat(newShows).ToList(), shows, showRoot);
+    }
+
+    /// <summary>The slow pass: writes the rest of each show's aired episodes and adds them to the library.</summary>
+    private async Task FinishShowsAsync(List<TmdbItem> shows, string showRoot)
+    {
+        if (shows.Count == 0)
+        {
+            return;
+        }
+
+        var changed = new List<string>();
+        foreach (var s in shows)
+        {
+            try
+            {
+                var (dir, written) = await _catalog.WriteShowAsync(s, showRoot, CancellationToken.None).ConfigureAwait(false);
+                if (written > 0)
+                {
+                    changed.Add(dir);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Could not add the episodes of {Name}: {Message}", s.Title, ex.Message);
+            }
+        }
+
+        if (changed.Count == 0)
+        {
+            return;
+        }
+
+        await _writeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await _libraries.ScanIfInLibraryAsync(showRoot, changed, 0, CancellationToken.None, fast: true).ConfigureAwait(false);
+            _logger.LogInformation("Added all episodes for {Count} shows from search", changed.Count);
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
     }
 }

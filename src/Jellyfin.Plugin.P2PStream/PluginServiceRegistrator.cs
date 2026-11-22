@@ -23,7 +23,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<SearchProvider, EztvProvider>();
         serviceCollection.AddSingleton<SearchProvider, ApibayProvider>();
         serviceCollection.AddSingleton<SearchProvider, KickassProvider>();
-        serviceCollection.AddSingleton<SearchProvider, Bt4gProvider>();
+        serviceCollection.AddSingleton<SearchProvider, KnabenProvider>();
+        serviceCollection.AddSingleton<SearchProvider, NyaaProvider>();
         serviceCollection.AddSingleton<TorznabClient>();
         serviceCollection.AddSingleton<SourceHub>();
         serviceCollection.AddSingleton<ResolutionCache>();

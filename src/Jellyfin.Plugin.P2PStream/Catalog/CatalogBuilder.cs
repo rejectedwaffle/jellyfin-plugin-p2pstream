@@ -116,6 +116,17 @@ public sealed partial class CatalogBuilder
         return (dir, changed);
     }
 
+    /// <summary>
+    /// Writes only a show's first episode, so it can appear in search within seconds. The rest follow via WriteShowAsync.
+    /// </summary>
+    public string WriteFirstEpisode(TmdbItem s, string root, int season)
+    {
+        var dir = FindExisting(root, s.Id) ?? Path.Combine(root, $"{DisplayName(s.Title, s.Year)} [tmdbid-{s.Id}]");
+        var file = Path.Combine(dir, $"Season {season:00}", $"{Sanitize(s.Title)} S{season:00}E01.strm");
+        WriteStrm(file, _urls.Episode(s.Id, season, 1));
+        return dir;
+    }
+
     /// <summary>Records that a folder was added by a search, so pruning leaves it alone for SearchImportDays.</summary>
     public void MarkSearchImport(string dir)
     {

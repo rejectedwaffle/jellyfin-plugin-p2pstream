@@ -511,7 +511,7 @@
             }
 
             var srcHelp = {
-                rss: 'The site\'s search feed address, with {query} where the search words go. Example: https://bt4gprx.com/search?q={query}&page=rss. The feed\'s items need magnet or .torrent links.',
+                rss: 'The site\'s search feed address, with {query} where the search words go. Example: https://nyaa.si/?page=rss&q={query} (anime). The feed\'s items need magnet or .torrent links.',
                 torznab: 'Prowlarr: http://prowlarr:9696/{id}/api. Jackett: http://jackett:9117/api/v2.0/indexers/all/results/torznab. The API key is in Prowlarr or Jackett\'s settings.'
             };
             var editingSource = null;
@@ -900,8 +900,10 @@
                 api('GET', 'P2PStream/Search?query=' + encodeURIComponent(q)).then(function (data) {
                     var results = data.Results || [];
                     var found = data.Found || {};
+                    var base = function (n) { return n.replace(/ \(.*\)$/, ''); };
                     var summary = '<p class="p2p-muted">Searched: ' + esc((data.Searched || []).join(', ') || 'nothing (no sources enabled)') + '. Found before filters: ' +
-                        esc((data.Searched || []).map(function (n) { return n + ' ' + (found[n] || 0); }).join(', ') || '0') + '.</p>';
+                        esc((data.Searched || []).map(function (n) { return base(n) + ' ' + (found[base(n)] || 0); }).join(', ') || '0') + '.' +
+                        ((data.NotForText || []).length ? ' Not used for text searches: ' + esc(data.NotForText.join(', ')) + '.' : '') + '</p>';
                     if (!results.length) {
                         var total = Object.keys(found).reduce(function (a, k) { return a + found[k]; }, 0);
                         out.innerHTML = summary + '<p class="p2p-muted">' + (total ? 'Everything was removed by your Quality settings.' : 'No source had anything for that. Try turning on more sources.') + '</p>';
