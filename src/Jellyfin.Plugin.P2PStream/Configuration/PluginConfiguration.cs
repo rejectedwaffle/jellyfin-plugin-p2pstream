@@ -60,6 +60,21 @@ public class BuiltInSource
     public string BaseUrl { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Caps what Auto plays on matching devices. Match is compared (case-insensitive, "contains") with the device name,
+/// its custom name from Dashboard &gt; Devices, and the app name, e.g. "Living Room", "Roku" or "Android TV".
+/// </summary>
+public class DeviceRule
+{
+    public string Match { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the highest resolution Auto plays on the device (0 = any).</summary>
+    public int MaxResolution { get; set; } = 1080;
+
+    /// <summary>Gets or sets the largest file Auto plays on the device, in GB (0 = any).</summary>
+    public int MaxSizeGb { get; set; }
+}
+
 public class PluginConfiguration : BasePluginConfiguration
 {
     // ---- Access ----
@@ -88,6 +103,42 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool EnablePortForwarding { get; set; } = true;
 
     public int MetadataTimeoutSeconds { get; set; } = 60;
+
+    // ---- Privacy ----
+
+    /// <summary>Gets or sets how torrent traffic leaves the server: "direct", "interface" (only through a VPN's network interface) or "proxy".</summary>
+    public string TorrentNetwork { get; set; } = "direct";
+
+    /// <summary>Gets or sets the network interface torrent traffic must use in "interface" mode, e.g. wg0 or tun0 (or its IP address).</summary>
+    public string BindInterface { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets a value indicating whether searches and TMDB lookups also go through the VPN interface in "interface" mode.</summary>
+    public bool SearchesUseInterface { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether a torrent stops (no downloading or sharing) a minute after nobody is watching it.</summary>
+    public bool StopSharingWhenIdle { get; set; } = true;
+
+    /// <summary>Gets or sets the most disk space streaming torrents may use, in GB (0 = no limit). Titles being watched are never removed.</summary>
+    public int MaxDiskGb { get; set; }
+
+    // ---- Per-device quality ----
+
+    /// <summary>Gets or sets rules that cap what Auto plays on matching devices (e.g. a TV that can't handle 4K).</summary>
+    public DeviceRule[] DeviceRules { get; set; } = [];
+
+    // ---- Trakt ----
+
+    /// <summary>Gets or sets the Client ID of the user's Trakt API app (free, trakt.tv/oauth/applications).</summary>
+    public string TraktClientId { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the Client Secret of the Trakt app (only needed to connect an account for a private watchlist).</summary>
+    public string TraktClientSecret { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the Trakt username whose public watchlist is offered as a catalog.</summary>
+    public string TraktUser { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets Trakt lists to offer as catalogs, comma separated: "username/list-slug" or a list URL.</summary>
+    public string TraktLists { get; set; } = string.Empty;
 
     // ---- Providers ----
 
@@ -129,7 +180,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets comma separated words; releases containing any are skipped.</summary>
     public string ExcludedKeywords { get; set; } = string.Empty;
 
-    // ---- Proxy (searches and .torrent downloads; not peer traffic) ----
+    // ---- Proxy (searches and .torrent downloads; torrent traffic too when TorrentNetwork is "proxy") ----
 
     /// <summary>Gets or sets the proxy address, e.g. socks5://127.0.0.1:1080 or http://proxy:8080. Empty means no proxy.</summary>
     public string ProxyUrl { get; set; } = string.Empty;

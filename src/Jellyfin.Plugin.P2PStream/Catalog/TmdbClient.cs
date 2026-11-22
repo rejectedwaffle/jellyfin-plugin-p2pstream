@@ -7,9 +7,23 @@ using Jellyfin.Plugin.P2PStream.Providers;
 
 namespace Jellyfin.Plugin.P2PStream.Catalog;
 
-public sealed record MovieInfo(int Id, string Title, int? Year, string? ImdbId);
+public sealed record MovieInfo(int Id, string Title, int? Year, string? ImdbId)
+{
+    /// <summary>Gets a value indicating whether it's Japanese animation (searched on anime sites with its romaji titles too).</summary>
+    public bool IsAnime { get; init; }
 
-public sealed record ShowInfo(int Id, string Name, int? Year, string? ImdbId, List<int> Seasons);
+    /// <summary>Gets other names it's released under (romaji, alternative English titles). Only filled for anime.</summary>
+    public IReadOnlyList<string> AltTitles { get; init; } = [];
+}
+
+public sealed record ShowInfo(int Id, string Name, int? Year, string? ImdbId, List<int> Seasons)
+{
+    /// <inheritdoc cref="MovieInfo.IsAnime"/>
+    public bool IsAnime { get; init; }
+
+    /// <inheritdoc cref="MovieInfo.AltTitles"/>
+    public IReadOnlyList<string> AltTitles { get; init; } = [];
+}
 
 public sealed record EpisodeInfo(int Number, string Name, DateTime? AirDate);
 
@@ -33,18 +47,70 @@ public sealed class TmdbClient
 
     public async Task<MovieInfo> GetMovieAsync(int id, string language, CancellationToken ct)
     {
-        var j = await GetAsync($"movie/{id}", language, string.Empty, ct).ConfigureAwait(false);
-        return new MovieInfo(id, (string?)j["title"] ?? string.Empty, Year((string?)j["release_date"]), NullIfEmpty((string?)j["imdb_id"]));
+        var j = await GetAsync($"movie/{id}", language, "append_to_response=alternative_titles", ct).ConfigureAwait(false);
+        var title = (string?)j["title"] ?? string.Empty;
+        var anime = IsAnimeNode(j);
+        return new MovieInfo(id, title, Year((string?)j["release_date"]), NullIfEmpty((string?)j["imdb_id"]))
+        {
+            IsAnime = anime,
+            AltTitles = anime ? PickAltTitles(title, (string?)j["original_title"], j["alternative_titles"]?["titles"] as JsonArray) : []
+        };
     }
 
     public async Task<ShowInfo> GetShowAsync(int id, string language, CancellationToken ct)
     {
-        var j = await GetAsync($"tv/{id}", language, "append_to_response=external_ids", ct).ConfigureAwait(false);
+        var j = await GetAsync($"tv/{id}", language, "append_to_response=external_ids,alternative_titles", ct).ConfigureAwait(false);
         var seasons = (j["seasons"] as JsonArray ?? [])
             .Select(s => (int?)s?["season_number"] ?? 0)
             .Where(n => n > 0)
             .ToList();
-        return new ShowInfo(id, (string?)j["name"] ?? string.Empty, Year((string?)j["first_air_date"]), NullIfEmpty((string?)j["external_ids"]?["imdb_id"]), seasons);
+        var name = (string?)j["name"] ?? string.Empty;
+        var anime = IsAnimeNode(j);
+        return new ShowInfo(id, name, Year((string?)j["first_air_date"]), NullIfEmpty((string?)j["external_ids"]?["imdb_id"]), seasons)
+        {
+            IsAnime = anime,
+            AltTitles = anime ? PickAltTitles(name, (string?)j["original_name"], j["alternative_titles"]?["results"] as JsonArray) : []
+        };
+    }
+
+    /// <summary>Japanese animation: original language Japanese and the Animation genre (16).</summary>
+    public static bool IsAnimeNode(JsonNode j) =>
+        (string?)j["original_language"] == "ja" && (j["genres"] as JsonArray ?? []).Any(g => (int?)g?["id"] == 16);
+
+    /// <summary>
+    /// The names anime releases use besides the English title: romaji first (fansub groups name releases
+    /// "Sousou no Frieren - 12"), then other Latin-script titles. Up to three, without the main title.
+    /// </summary>
+    public static IReadOnlyList<string> PickAltTitles(string main, string? original, JsonArray? alternatives)
+    {
+        static bool Latin(string s) => s.Count(char.IsLetter) > 0 && s.Where(char.IsLetter).All(c => c < 0x250);
+        var candidates = new List<(string Title, int Rank)>();
+        foreach (var a in alternatives ?? [])
+        {
+            var title = ((string?)a?["title"])?.Trim();
+            if (string.IsNullOrEmpty(title) || !Latin(title))
+            {
+                continue;
+            }
+
+            var type = ((string?)a!["type"] ?? string.Empty).ToLowerInvariant();
+            var country = (string?)a["iso_3166_1"] ?? string.Empty;
+            var rank = type.Contains("romaji", StringComparison.Ordinal) ? 0 : country == "JP" ? 1 : country is "US" or "GB" ? 2 : 3;
+            candidates.Add((title, rank));
+        }
+
+        if (!string.IsNullOrWhiteSpace(original) && Latin(original))
+        {
+            candidates.Add((original.Trim(), 1));
+        }
+
+        return candidates
+            .OrderBy(c => c.Rank)
+            .Select(c => c.Title)
+            .Where(t => !string.Equals(t, main, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .ToList();
     }
 
     public async Task<List<EpisodeInfo>> GetSeasonAsync(int id, int season, string language, CancellationToken ct)

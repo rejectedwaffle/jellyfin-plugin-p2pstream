@@ -24,6 +24,12 @@ public sealed class MediaRequest
 
     public int? Year { get; set; }
 
+    /// <summary>Gets or sets whether it's anime (true/false once looked up on TMDB, null when unknown).</summary>
+    public bool? IsAnime { get; set; }
+
+    /// <summary>Gets or sets other names it's released under (romaji etc.), used by anime sources.</summary>
+    public IReadOnlyList<string> AltTitles { get; set; } = [];
+
     public int Season { get; init; }
 
     public int Episode { get; init; }

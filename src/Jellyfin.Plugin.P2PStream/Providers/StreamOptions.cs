@@ -104,7 +104,7 @@ public sealed class StreamOptions
     /// <summary>Fills in title, year and IMDb id from TMDB, which the sources need to search.</summary>
     public async Task EnrichAsync(MediaRequest req, CancellationToken ct)
     {
-        if (req.TmdbId is not int id || !_tmdb.IsConfigured || (req.Title is not null && req.ImdbId is not null))
+        if (req.TmdbId is not int id || !_tmdb.IsConfigured || (req.Title is not null && req.ImdbId is not null && req.IsAnime is not null))
         {
             return;
         }
@@ -117,6 +117,8 @@ public sealed class StreamOptions
                 req.Title ??= m.Title;
                 req.Year ??= m.Year;
                 req.ImdbId ??= m.ImdbId;
+                req.IsAnime = m.IsAnime;
+                req.AltTitles = m.AltTitles;
             }
             else
             {
@@ -124,6 +126,8 @@ public sealed class StreamOptions
                 req.Title ??= s.Name;
                 req.Year ??= s.Year;
                 req.ImdbId ??= s.ImdbId;
+                req.IsAnime = s.IsAnime;
+                req.AltTitles = s.AltTitles;
             }
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)

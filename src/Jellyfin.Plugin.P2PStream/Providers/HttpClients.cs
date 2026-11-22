@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 
 namespace Jellyfin.Plugin.P2PStream.Providers;
 
@@ -34,7 +35,8 @@ internal static class HttpClients
     private static void Ensure()
     {
         var c = Plugin.Instance?.Configuration;
-        var key = $"{c?.ProxyUrl}|{c?.ProxyUser}|{c?.ProxyPassword}";
+        var viaVpn = SearchesViaVpn(c);
+        var key = $"{c?.ProxyUrl}|{c?.ProxyUser}|{c?.ProxyPassword}|{viaVpn}";
         if (_default is not null && key == _proxyKey)
         {
             return;
@@ -48,12 +50,16 @@ internal static class HttpClients
             }
 
             // Old clients aren't disposed: requests may still be in flight on them.
-            var proxy = BuildProxy(c?.ProxyUrl, c?.ProxyUser, c?.ProxyPassword);
-            _noRedirect = Create(false, proxy);
-            _default = Create(true, proxy);
+            var proxy = viaVpn ? null : BuildProxy(c?.ProxyUrl, c?.ProxyUser, c?.ProxyPassword);
+            _noRedirect = Create(false, proxy, viaVpn);
+            _default = Create(true, proxy, viaVpn);
             _proxyKey = key;
         }
     }
+
+    /// <summary>In VPN mode, searches and TMDB lookups go through the VPN interface too (unless turned off), with the same kill switch.</summary>
+    private static bool SearchesViaVpn(Configuration.PluginConfiguration? c) =>
+        c is not null && c.SearchesUseInterface && Torrent.NetworkGuard.ConfiguredMode(c) == Torrent.NetworkMode.Interface;
 
     private static IWebProxy? BuildProxy(string? url, string? user, string? password)
     {
@@ -71,16 +77,31 @@ internal static class HttpClients
         return proxy;
     }
 
-    private static HttpClient Create(bool followRedirects, IWebProxy? proxy)
+    private static HttpClient Create(bool followRedirects, IWebProxy? proxy, bool viaVpn)
     {
         var handler = new SocketsHttpHandler
         {
             AllowAutoRedirect = followRedirects,
             AutomaticDecompression = DecompressionMethods.All,
-            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(viaVpn ? 1 : 5),
             UseProxy = proxy is not null,
             Proxy = proxy
         };
+        if (viaVpn)
+        {
+            handler.ConnectCallback = async (context, ct) =>
+            {
+                var s = Torrent.NetworkGuard.Require();
+                if (s.Mode != Torrent.NetworkMode.Interface)
+                {
+                    throw new Torrent.NetworkBlockedException("Waiting for the VPN settings to apply");
+                }
+
+                var socket = await Torrent.NetworkGuard.ConnectTcpAsync(context.DnsEndPoint.Host, context.DnsEndPoint.Port, ct, context.DnsEndPoint.AddressFamily).ConfigureAwait(false);
+                return new NetworkStream(socket, ownsSocket: true);
+            };
+        }
+
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Jellyfin-P2PStream/0.2");
         return client;

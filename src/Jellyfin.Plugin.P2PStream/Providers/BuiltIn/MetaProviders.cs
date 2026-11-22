@@ -94,19 +94,44 @@ public sealed class NyaaProvider : SearchProvider
 
     public override async Task<List<ReleaseCandidate>> SearchAsync(MediaRequest request, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.Title))
+        if (string.IsNullOrWhiteSpace(request.Title) || request.IsAnime == false)
         {
-            return [];
+            return []; // TMDB says it isn't anime: Nyaa won't have it, and a search would only find unrelated anime
         }
+
+        // Fansub releases are usually named by the romaji title ("Sousou no Frieren - 12"), which TMDB lists as an
+        // alternative title, so search the English title and those together.
+        var titles = new[] { request.Title! }.Concat(request.AltTitles).Distinct(StringComparer.OrdinalIgnoreCase).Take(4).ToList();
+        async Task<List<ReleaseCandidate>> SearchAll(Func<string, string> query) =>
+            Merge(await Task.WhenAll(titles.Select(t => QuietAsync(query(t), ct))).ConfigureAwait(false));
 
         if (request.Kind == MediaKind.Movie)
         {
-            return await QueryAsync(request.Title!, ct).ConfigureAwait(false);
+            return await SearchAll(t => t).ConfigureAwait(false);
         }
 
-        var episode = await QueryAsync($"{request.Title} {request.Episode:00}", ct).ConfigureAwait(false);
-        return episode.Count > 0 ? episode : await QueryAsync(request.Title!, ct).ConfigureAwait(false);
+        var episode = await SearchAll(t => $"{t} {request.Episode:00}").ConfigureAwait(false);
+        return episode.Count > 0 ? episode : await SearchAll(t => t).ConfigureAwait(false);
     }
+
+    /// <summary>One title's search; a failure of an extra title doesn't fail the others.</summary>
+    private async Task<List<ReleaseCandidate>> QuietAsync(string query, CancellationToken ct)
+    {
+        try
+        {
+            return await QueryAsync(query, ct).ConfigureAwait(false);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return [];
+        }
+    }
+
+    private static List<ReleaseCandidate> Merge(IEnumerable<List<ReleaseCandidate>> lists) =>
+        lists.SelectMany(l => l)
+            .GroupBy(r => !string.IsNullOrEmpty(r.InfoHash) ? r.InfoHash.ToLowerInvariant() : r.Title, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
 
     public override Task<List<ReleaseCandidate>> SearchTextAsync(string query, CancellationToken ct) => QueryAsync(query, ct);
 

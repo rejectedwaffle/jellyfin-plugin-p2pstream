@@ -26,6 +26,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<SearchProvider, KnabenProvider>();
         serviceCollection.AddSingleton<SearchProvider, NyaaProvider>();
         serviceCollection.AddSingleton<SourceHealth>();
+        serviceCollection.AddSingleton<Catalog.TraktClient>();
         serviceCollection.AddSingleton<TorznabClient>();
         serviceCollection.AddSingleton<SourceHub>();
         serviceCollection.AddSingleton<ResolutionCache>();

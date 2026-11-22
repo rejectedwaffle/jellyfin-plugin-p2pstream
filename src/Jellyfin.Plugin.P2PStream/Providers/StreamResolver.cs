@@ -85,8 +85,46 @@ public sealed class StreamResolver
         });
     }
 
+    // Titles whose remembered pick was chosen by a device rule (e.g. 1080p for the TV), not by ranking or by the user.
+    private readonly ConcurrentDictionary<string, byte> _rulePicks = new();
+
     /// <summary>Plays <paramref name="releaseId"/> the next time this title is played through its normal source.</summary>
-    public void Pin(MediaRequest req, string releaseId) => _pinned[req.Key] = releaseId;
+    /// <param name="byDeviceRule">True when a device rule chose it, so other devices go back to the best match.</param>
+    public void Pin(MediaRequest req, string releaseId, bool byDeviceRule = false)
+    {
+        _pinned[req.Key] = releaseId;
+        if (byDeviceRule)
+        {
+            _rulePicks[req.Key] = 0;
+        }
+        else
+        {
+            _rulePicks.TryRemove(req.Key, out _);
+        }
+    }
+
+    /// <summary>
+    /// A device without limits plays Auto: if the remembered pick only exists because a limited device (a TV capped at
+    /// 1080p) played it, forget it so Auto picks the best release again. Returns true if it did.
+    /// </summary>
+    public bool ForgetDeviceRulePick(MediaRequest req)
+    {
+        if (!_rulePicks.TryRemove(req.Key, out _))
+        {
+            return false;
+        }
+
+        _pinned.TryRemove(req.Key, out _);
+        _cache.Remove(req.Key);
+        return true;
+    }
+
+    /// <summary>The release Auto would play now: the remembered pick if it's in the list, else the top-ranked one.</summary>
+    public ReleaseCandidate? AutoRelease(MediaRequest req, IReadOnlyList<ReleaseCandidate> ranked)
+    {
+        var current = CurrentPickTitle(req);
+        return (current is null ? null : ranked.FirstOrDefault(r => r.Title == current)) ?? ranked.FirstOrDefault();
+    }
 
     /// <summary>True if the title currently plays this release (so its saved track info is still right).</summary>
     public bool IsCurrentPick(MediaRequest req, string releaseId) =>

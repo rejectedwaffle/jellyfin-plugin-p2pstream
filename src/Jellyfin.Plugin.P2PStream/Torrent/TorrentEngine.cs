@@ -21,6 +21,11 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _addLocks = new(StringComparer.OrdinalIgnoreCase);
     private ClientEngine? _engine;
     private Timer? _cleanupTimer;
+    private Timer? _networkTimer;
+
+    // Bytes per "GB" of MaxDiskGb (a field so tests can shrink it).
+    private static long DiskUnitBytes = 1L << 30;
+    private readonly HashSet<string> _stoppedByGuard = new(StringComparer.OrdinalIgnoreCase);
     private string _storeDir = string.Empty;
     private int _stopped;
 
@@ -43,11 +48,16 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         Directory.CreateDirectory(plugin.DownloadPath);
         SweepLeftovers();
 
-        _engine = new ClientEngine(BuildSettings());
+        NetworkGuard.SetLogger(m => _logger.LogInformation("{Message}", m));
+        await NetworkGuard.RefreshAsync(cancellationToken).ConfigureAwait(false);
+
+        // Every connection the engine makes goes through NetworkGuard (VPN binding / proxy / kill switch).
+        _engine = new ClientEngine(BuildSettings(), GuardedFactories.Create());
+        NetworkGuard.Changed += OnNetworkChanged;
         plugin.ConfigurationChanged += OnConfigurationChanged;
         _cleanupTimer = new Timer(_ => _ = CleanupAsync(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
-        _logger.LogInformation("P2P Stream engine started on port {Port}, downloads in {Path}", Config.ListenPort, plugin.DownloadPath);
-        await Task.CompletedTask.ConfigureAwait(false);
+        _networkTimer = new Timer(_ => _ = RefreshNetworkAsync(), null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+        _logger.LogInformation("P2P Stream engine started on port {Port}, downloads in {Path}. {Network}", Config.ListenPort, plugin.DownloadPath, NetworkGuard.State.Message);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -63,6 +73,8 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             Plugin.Instance.ConfigurationChanged -= OnConfigurationChanged;
         }
 
+        NetworkGuard.Changed -= OnNetworkChanged;
+        _networkTimer?.Dispose();
         _cleanupTimer?.Dispose();
         if (_engine is not null)
         {
@@ -96,6 +108,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     public async Task<TorrentSession> AddAsync(TorrentSource source, CancellationToken cancellationToken)
     {
         var engine = _engine ?? throw new InvalidOperationException("Engine not started");
+        NetworkGuard.Require(); // kill switch: nothing starts while the VPN/proxy is unavailable
         var gate = _addLocks.GetOrAdd(source.InfoHash, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -224,19 +237,51 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         var c = Config;
         var plugin = Plugin.Instance!;
         var port = c.ListenPort is > 0 and < 65536 ? c.ListenPort : 55125;
+        var net = NetworkGuard.State;
+        var listen = new Dictionary<string, IPEndPoint>();
+        IPEndPoint? dht = null;
+        switch (net.Mode)
+        {
+            case NetworkMode.Direct:
+                listen["ipv4"] = new IPEndPoint(IPAddress.Any, port);
+                listen["ipv6"] = new IPEndPoint(IPAddress.IPv6Any, port);
+                dht = new IPEndPoint(IPAddress.Any, port);
+                break;
+            case NetworkMode.Interface when net.Ok:
+                // Listen and run DHT only on the VPN's address. (Incoming connections need the VPN's port forwarding;
+                // set the listen port to the port the VPN forwards.)
+                if (net.Address is not null)
+                {
+                    listen["ipv4"] = new IPEndPoint(net.Address, port);
+                    dht = new IPEndPoint(net.Address, port);
+                }
+
+                if (net.Address6 is not null)
+                {
+                    listen["ipv6"] = new IPEndPoint(net.Address6, port);
+                    dht ??= new IPEndPoint(net.Address6, port);
+                }
+
+                break;
+            default:
+                // Proxy mode (a proxy can't accept incoming connections or carry DHT), or blocked: no listener, no DHT.
+                break;
+        }
+
+        var direct = net.Mode == NetworkMode.Direct;
         var b = new EngineSettingsBuilder
         {
             CacheDirectory = Path.Combine(plugin.DataFolderPath, "cache"),
-            AllowPortForwarding = c.EnablePortForwarding,
+            AllowPortForwarding = direct && c.EnablePortForwarding, // UPnP opens the home router's port, which a VPN or proxy doesn't use
+            AllowLocalPeerDiscovery = direct,
             AutoSaveLoadDhtCache = true,
             AutoSaveLoadMagnetLinkMetadata = true,
             AutoSaveLoadFastResume = true,
-            ListenEndPoints = new Dictionary<string, IPEndPoint>
-            {
-                ["ipv4"] = new IPEndPoint(IPAddress.Any, port),
-                ["ipv6"] = new IPEndPoint(IPAddress.IPv6Any, port)
-            },
-            DhtEndPoint = new IPEndPoint(IPAddress.Any, port),
+            ListenEndPoints = listen,
+            DhtEndPoint = dht,
+
+            // Without a listener the announced port would be 0, which some trackers reject; report the usual port.
+            ReportedListenEndPoints = listen.Count == 0 ? new Dictionary<string, IPEndPoint> { ["ipv4"] = new IPEndPoint(IPAddress.Any, port) } : new Dictionary<string, IPEndPoint>(),
             MaximumDownloadRate = Math.Max(0, c.MaxDownloadKbps) * 1024,
             MaximumUploadRate = Math.Max(0, c.MaxUploadKbps) * 1024,
             MaximumConnections = 200,
@@ -257,11 +302,88 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         {
             try
             {
+                await NetworkGuard.RefreshAsync().ConfigureAwait(false); // raises Changed (handled below) if the network settings changed
                 await engine.UpdateSettingsAsync(BuildSettings()).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to apply new engine settings");
+            }
+        });
+    }
+
+    private async Task RefreshNetworkAsync()
+    {
+        try
+        {
+            if (NetworkGuard.ConfiguredMode(Config) != NetworkMode.Direct || NetworkGuard.State.Mode != NetworkMode.Direct)
+            {
+                await NetworkGuard.RefreshAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Network check failed: {Message}", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// The VPN dropped or came back, its address changed, or the mode changed. Rebinds the listeners and DHT, and
+    /// restarts running torrents so no connection made the old way survives. While blocked, torrents stay stopped.
+    /// </summary>
+    private void OnNetworkChanged(NetworkState old, NetworkState now)
+    {
+        var engine = _engine;
+        if (engine is null)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            await _engineLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                var running = engine.Torrents.Where(m => m.State is not (TorrentState.Stopped or TorrentState.Stopping or TorrentState.Error)).ToList();
+                foreach (var m in running)
+                {
+                    await m.StopAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                    lock (_stoppedByGuard)
+                    {
+                        _stoppedByGuard.Add(Hash(m));
+                    }
+                }
+
+                await engine.UpdateSettingsAsync(BuildSettings()).ConfigureAwait(false);
+
+                if (now.Ok)
+                {
+                    List<string> resume;
+                    lock (_stoppedByGuard)
+                    {
+                        resume = _stoppedByGuard.ToList();
+                        _stoppedByGuard.Clear();
+                    }
+
+                    foreach (var m in engine.Torrents.Where(m => resume.Contains(Hash(m))))
+                    {
+                        await m.StartAsync().ConfigureAwait(false);
+                    }
+
+                    _logger.LogInformation("Torrent network changed ({Message}); {Count} torrents reconnected", now.Message, resume.Count);
+                }
+                else
+                {
+                    _logger.LogWarning("Kill switch: {Message} {Count} torrents stopped", now.Message, running.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to apply the network change");
+            }
+            finally
+            {
+                _engineLock.Release();
             }
         });
     }
@@ -276,6 +398,43 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             _logger.LogInformation("Torrent limit reached, evicting {Hash}", victim.InfoHash);
             await RemoveAsync(victim.InfoHash, !Config.KeepFilesAfterPlayback).ConfigureAwait(false);
         }
+
+        await EnforceDiskCapAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Downloaded data of a torrent (whole pieces it has, which is what's on disk).</summary>
+    public static long DiskBytes(TorrentManager m) =>
+        m.HasMetadata && m.Torrent is not null ? (long)m.Bitfield.TrueCount * m.Torrent.PieceLength : 0;
+
+    /// <summary>Gets the total disk space the streaming torrents use.</summary>
+    public long TotalDiskBytes => _sessions.Values.Sum(s => DiskBytes(s.Manager));
+
+    /// <summary>
+    /// Keeps streaming data under MaxDiskGb: removes (and deletes) the least recently used torrents nobody is watching.
+    /// A title being watched is never removed, even if it alone is over the limit.
+    /// </summary>
+    internal async Task EnforceDiskCapAsync()
+    {
+        var capGb = Config.MaxDiskGb;
+        if (capGb <= 0)
+        {
+            return;
+        }
+
+        var cap = capGb * DiskUnitBytes;
+        var used = TotalDiskBytes;
+        foreach (var victim in _sessions.Values.Where(s => s.ActiveStreams == 0).OrderBy(s => s.LastAccess).ToList())
+        {
+            if (used <= cap)
+            {
+                break;
+            }
+
+            var size = DiskBytes(victim.Manager);
+            _logger.LogInformation("Disk limit ({Cap} GB) reached, removing {Name} ({Size} MB)", capGb, victim.Manager.Torrent?.Name ?? victim.InfoHash, size >> 20);
+            await RemoveAsync(victim.InfoHash, true).ConfigureAwait(false);
+            used -= size;
+        }
     }
 
     private async Task CleanupAsync()
@@ -288,6 +447,8 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                 _logger.LogInformation("Torrent {Hash} idle, removing", s.InfoHash);
                 await RemoveAsync(s.InfoHash, !Config.KeepFilesAfterPlayback).ConfigureAwait(false);
             }
+
+            await EnforceDiskCapAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {

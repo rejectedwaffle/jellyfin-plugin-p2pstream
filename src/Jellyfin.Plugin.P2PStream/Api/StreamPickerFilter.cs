@@ -112,12 +112,23 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
 
         // Auto plays the remembered pick, or else tries the top-ranked release first. Name it, and if that release has been
         // checked, show its tracks on Auto too (Jellyfin otherwise only knows them after Auto has played once).
+        // A device with limits (Quality > Per-device limits) gets the best release within them instead.
         var auto = dto.MediaSources[0];
         var current = _resolver.CurrentPickTitle(request);
         var autoRelease = current is null ? releases[0] : releases.FirstOrDefault(r => r.Title == current);
-        auto.Name = current is not null
-            ? "Auto (best match) — now: " + Short(current)
-            : "Auto (best match) — tries first: " + Short(releases[0].Title);
+        var (rule, _) = await DeviceRules.FindAsync(http, _services).ConfigureAwait(false);
+        if (rule is not null && (autoRelease is null || !DeviceRules.Allows(rule, autoRelease)) && DeviceRules.BestWithin(rule, releases) is { } fits)
+        {
+            autoRelease = fits;
+            auto.Name = $"Auto ({DeviceRules.Describe(rule)} on this device) — plays: " + Short(fits.Title);
+        }
+        else
+        {
+            auto.Name = current is not null
+                ? "Auto (best match) — now: " + Short(current)
+                : "Auto (best match) — tries first: " + Short(releases[0].Title);
+        }
+
         if (auto.MediaStreams is not { Count: > 0 } && autoRelease is not null && _options.TryGetProbe(StreamOptions.IdFor(autoRelease), out var probe))
         {
             auto.MediaStreams = probe.Streams;
@@ -144,10 +155,6 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         var bodies = context.ActionArguments.Values.Where(v => v?.GetType().GetProperty("MediaSourceId") is { PropertyType: var t } && t == typeof(string)).ToList();
         var chosen = context.ActionArguments.TryGetValue("mediaSourceId", out var q) ? q as string : null;
         chosen ??= bodies.Select(b => b!.GetType().GetProperty("MediaSourceId")!.GetValue(b) as string).FirstOrDefault(s => !string.IsNullOrEmpty(s));
-        if (string.IsNullOrEmpty(chosen))
-        {
-            return; // Auto
-        }
 
         var item = _libraryManager.GetItemById(itemId);
         if (item is null || !StreamPicker.TryGetRequest(item, out _, out var request))
@@ -156,9 +163,10 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         }
 
         var staticId = item.Id.ToString("N");
-        if (string.Equals(chosen, staticId, StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrEmpty(chosen) || string.Equals(chosen, staticId, StringComparison.OrdinalIgnoreCase))
         {
-            return; // Auto
+            await ApplyDeviceRuleAsync(context, item, request).ConfigureAwait(false); // Auto
+            return;
         }
 
         if (!_options.TryGetCached(request, out var releases))
@@ -198,6 +206,52 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         {
             body!.GetType().GetProperty("MediaSourceId")!.SetValue(body, staticId);
         }
+    }
+
+    /// <summary>
+    /// Auto on a device with limits: play the best release within them (if Auto's usual pick doesn't fit). On a device
+    /// without limits, undo a pick that only a limited device made, so it gets the best match again.
+    /// </summary>
+    private async Task ApplyDeviceRuleAsync(ActionExecutingContext context, BaseItem item, MediaRequest request)
+    {
+        var (rule, device) = await DeviceRules.FindAsync(context.HttpContext, _services).ConfigureAwait(false);
+        if (rule is null)
+        {
+            if (_resolver.ForgetDeviceRulePick(request))
+            {
+                ClearSavedTracks(item);
+                _logger.LogInformation("{Item}: back to the best match on {Device} (the last pick was limited for another device)", item.Name, device?.ToString() ?? "this device");
+            }
+
+            return;
+        }
+
+        if (!_options.TryGetCached(request, out var releases))
+        {
+            releases = await _options.GetAsync(request, context.HttpContext.RequestAborted).WaitAsync(PlayBudget).ConfigureAwait(false);
+        }
+
+        var auto = _resolver.AutoRelease(request, releases);
+        if (auto is null || DeviceRules.Allows(rule, auto))
+        {
+            return; // Auto's pick already fits
+        }
+
+        var fits = DeviceRules.BestWithin(rule, releases);
+        if (fits is null)
+        {
+            _logger.LogInformation("{Item}: no release is {Limit}, so {Device} plays Auto's usual pick", item.Name, DeviceRules.Describe(rule), device);
+            return;
+        }
+
+        var id = StreamOptions.IdFor(fits);
+        if (!_resolver.IsCurrentPick(request, id))
+        {
+            ClearSavedTracks(item);
+        }
+
+        _resolver.Pin(request, id, byDeviceRule: true);
+        _logger.LogInformation("{Item} on {Device}: playing {Release} ({Limit})", item.Name, device, fits.Title, DeviceRules.Describe(rule));
     }
 
     private void ClearSavedTracks(BaseItem item)

@@ -68,10 +68,22 @@ public sealed class TorrentSession
     public async Task<StreamLease> OpenAsync(ITorrentManagerFile file, CancellationToken ct)
     {
         Interlocked.Exchange(ref _parkCts, null)?.Cancel(); // someone's reading again: don't pause
+        NetworkGuard.Require(); // kill switch
         await _setup.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(_closed, this);
+
+            // Stopped after nobody watched it for a minute (or by the kill switch, now lifted): start again.
+            while (Manager.State == TorrentState.Stopping)
+            {
+                await Task.Delay(50, ct).ConfigureAwait(false);
+            }
+
+            if (Manager.State is TorrentState.Stopped or TorrentState.Paused or TorrentState.Error)
+            {
+                await Manager.StartAsync().ConfigureAwait(false);
+            }
 
             // Only the file being read is downloaded. This also resumes a torrent that was paused after nobody read it.
             foreach (var other in Manager.Files.Where(f => f != file && f.Priority != Priority.DoNotDownload))
@@ -153,7 +165,8 @@ public sealed class TorrentSession
 
     /// <summary>
     /// When nobody has read the torrent for <see cref="PauseAfter"/> (you left a title's page after a pre-load or probe,
-    /// or stopped watching), stop downloading the rest. The torrent stays ready; the next reader resumes it.
+    /// or stopped watching), stop downloading the rest, and (StopSharingWhenIdle) stop sharing too. The torrent stays
+    /// ready; the next reader resumes it.
     /// </summary>
     private void SchedulePause()
     {
@@ -175,6 +188,12 @@ public sealed class TorrentSession
                     foreach (var f in Manager.Files.Where(f => f.Priority != Priority.DoNotDownload))
                     {
                         await Manager.SetFilePriorityAsync(f, Priority.DoNotDownload).ConfigureAwait(false);
+                    }
+
+                    // Share only while watching: stop the torrent completely (no uploading, no peer connections).
+                    if (Plugin.Instance?.Configuration.StopSharingWhenIdle != false && Manager.State is not (TorrentState.Stopped or TorrentState.Stopping))
+                    {
+                        await Manager.StopAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
                     }
                 }
                 finally

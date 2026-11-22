@@ -136,6 +136,8 @@ public class P2PStreamController : ControllerBase
         return new
         {
             Torrents = torrents,
+            Network = new { Mode = Torrent.NetworkGuard.State.Mode.ToString(), Torrent.NetworkGuard.State.Ok, Torrent.NetworkGuard.State.Message },
+            DiskMb = _engine.TotalDiskBytes >> 20,
             BaseUrl = _urls.BaseUrl(Request),
             CatalogPath = Plugin.Instance!.CatalogPath,
             DownloadPath = Plugin.Instance.DownloadPath
@@ -232,6 +234,78 @@ public class P2PStreamController : ControllerBase
     public ActionResult<object> GetSources()
         => _sources.Providers.Select(p => new { p.Id, p.Name, p.Description, p.DefaultUrl, p.BaseUrl, p.Enabled }).ToList();
 
+    /// <summary>Whether Trakt is set up and an account connected (or a sign-in is waiting for its code).</summary>
+    [HttpGet("Trakt")]
+    [Authorize(Policy = AdminPolicy)]
+    public ActionResult<object> GetTrakt([FromServices] TraktClient trakt)
+    {
+        var tokens = trakt.LoadTokens();
+        var pending = trakt.Pending;
+        return new
+        {
+            Configured = TraktClient.IsConfigured,
+            HasSecret = TraktClient.ClientSecret.Length > 0,
+            Connected = tokens is not null,
+            tokens?.User,
+            Pending = pending is null ? null : new { pending.UserCode, pending.VerificationUrl, MinutesLeft = (int)Math.Ceiling((pending.Expires - DateTime.UtcNow).TotalMinutes) },
+            Error = trakt.LastError
+        };
+    }
+
+    /// <summary>Starts connecting a Trakt account: returns the code to enter at trakt.tv/activate.</summary>
+    [HttpPost("Trakt/Connect")]
+    [Authorize(Policy = AdminPolicy)]
+    public async Task<ActionResult<object>> ConnectTrakt([FromServices] TraktClient trakt)
+    {
+        try
+        {
+            var login = await trakt.StartLoginAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+            return new { login.UserCode, login.VerificationUrl };
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException)
+        {
+            return Problem(ex.Message, statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
+
+    [HttpPost("Trakt/Disconnect")]
+    [Authorize(Policy = AdminPolicy)]
+    public IActionResult DisconnectTrakt([FromServices] TraktClient trakt)
+    {
+        trakt.Disconnect();
+        return NoContent();
+    }
+
+    /// <summary>Known devices, for the per-device limits table.</summary>
+    [HttpGet("Devices")]
+    [Authorize(Policy = AdminPolicy)]
+    public ActionResult<object> GetDevices([FromServices] MediaBrowser.Controller.Devices.IDeviceManager devices)
+    {
+        var list = devices.GetDevicesForUser(null).Items
+            .Select(d => new { Name = string.IsNullOrWhiteSpace(d.CustomName) ? d.Name : d.CustomName, App = d.AppName, d.LastUserName, d.DateLastActivity })
+            .OrderByDescending(d => d.DateLastActivity)
+            .ToList();
+        return list;
+    }
+
+    /// <summary>How torrent traffic leaves the server right now, and the network interfaces to choose from.</summary>
+    [HttpGet("Network")]
+    [Authorize(Policy = AdminPolicy)]
+    public async Task<ActionResult<object>> GetNetwork()
+    {
+        var state = await Torrent.NetworkGuard.RefreshAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+        return new
+        {
+            Mode = state.Mode.ToString(),
+            state.Ok,
+            state.Message,
+            DeviceBinding = Torrent.NetworkGuard.DeviceBindingWorks,
+            IsLinux = OperatingSystem.IsLinux(),
+            Interfaces = Torrent.NetworkGuard.ListInterfaces(),
+            DiskMb = _engine.TotalDiskBytes >> 20
+        };
+    }
+
     [HttpGet("Sources/Health")]
     [Authorize(Policy = AdminPolicy)]
     public ActionResult<object> GetSourceHealth([FromServices] SourceHealth health)
@@ -289,10 +363,12 @@ public class P2PStreamController : ControllerBase
     public async Task<ActionResult<object>> GetCatalogs()
     {
         _libraries.RunLegacyCleanupOnce();
-        var defs = await CatalogDefinitions.GetAllAsync(_tmdb, HttpContext.RequestAborted).ConfigureAwait(false);
+        var trakt = HttpContext.RequestServices.GetService(typeof(TraktClient)) as TraktClient;
+        var defs = await CatalogDefinitions.GetAllAsync(_tmdb, HttpContext.RequestAborted, trakt).ConfigureAwait(false);
         return new
         {
             TmdbConfigured = _tmdb.IsConfigured,
+            TraktConfigured = TraktClient.IsConfigured,
             Syncing = _catalog.IsSyncing,
             CatalogPath = Plugin.Instance!.CatalogPath,
             Folders = _libraries.ListFolders(),
@@ -305,7 +381,7 @@ public class P2PStreamController : ControllerBase
             {
                 var e = CatalogDefinitions.Effective(d);
                 var folder = _libraries.Describe(CatalogBuilder.FolderFor(e.Library));
-                return new { d.Id, d.Name, d.IsMovie, d.DefaultFolder, e.Enabled, e.Collection, e.MaxItems, Folder = folder.Name, FolderPath = folder.Path, folder.Library };
+                return new { d.Id, d.Name, d.IsMovie, d.Source, d.DefaultFolder, e.Enabled, e.Collection, e.MaxItems, Folder = folder.Name, FolderPath = folder.Path, folder.Library };
             }).ToList()
         };
     }

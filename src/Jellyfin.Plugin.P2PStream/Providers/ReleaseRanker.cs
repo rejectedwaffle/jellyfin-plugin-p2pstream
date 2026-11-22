@@ -192,7 +192,19 @@ public static partial class ReleaseRanker
             }
         }
 
-        return season == 1 && AnimeEpisode(text) == episode;
+        return AnimeEpisode(text) == episode && AnimeSeasonMatches(text, season);
+    }
+
+    /// <summary>
+    /// Anime names give the season as "S2 - 05", "Season 2 - 05" or "2nd Season - 05", or not at all (then it's the
+    /// first season, or the show numbers episodes straight through).
+    /// </summary>
+    private static bool AnimeSeasonMatches(string text, int season)
+    {
+        var marked = SeasonRegex().Matches(text).Select(m => int.Parse(m.Groups["s"].Value, CultureInfo.InvariantCulture))
+            .Concat(OrdinalSeasonRegex().Matches(text).Select(m => int.Parse(m.Groups["s"].Value, CultureInfo.InvariantCulture)))
+            .ToList();
+        return marked.Count == 0 ? season == 1 : marked.Contains(season);
     }
 
     /// <summary>Anime-style episode number ("[Group] Show - 12 (1080p)"), only when there's no SxxEyy/1x02 in the name.</summary>
@@ -221,7 +233,7 @@ public static partial class ReleaseRanker
 
         if (AnimeEpisode(title) is int anime)
         {
-            return season == 1 && anime == episode ? EpisodeMatch.Exact : EpisodeMatch.Wrong;
+            return anime == episode && AnimeSeasonMatches(title, season) ? EpisodeMatch.Exact : EpisodeMatch.Wrong;
         }
 
         var range = SeasonRangeRegex().Match(title);
@@ -283,6 +295,9 @@ public static partial class ReleaseRanker
 
     [GeneratedRegex(@"(?:\bS(?<s>\d{1,2})\b|\bSeason[ ._]?(?<s>\d{1,2})\b)", RegexOptions.IgnoreCase)]
     private static partial Regex SeasonRegex();
+
+    [GeneratedRegex(@"\b(?<s>\d{1,2})(?:st|nd|rd|th)[ ._]Season\b", RegexOptions.IgnoreCase)]
+    private static partial Regex OrdinalSeasonRegex();
 
     private enum EpisodeMatch
     {

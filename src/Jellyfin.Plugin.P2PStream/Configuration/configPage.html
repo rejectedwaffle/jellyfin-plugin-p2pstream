@@ -76,6 +76,13 @@
                 #P2PStreamConfigPage .p2p-modal-box label { display: block; margin: .5em 0 .3em; }
                 #P2PStreamConfigPage .p2p-modal-buttons { display: flex; justify-content: flex-end; gap: .5em; margin-top: 1em; }
                 #P2PStreamConfigPage .p2p-folder-status { font-size: .88em; margin: .2em 0 .8em; }
+                #P2PStreamConfigPage .p2p-netstatus { font-size: .88em; margin: .2em 0 .8em; padding: .45em .7em; border-radius: 6px; }
+                #P2PStreamConfigPage .p2p-netstatus.ok { background: rgba(108,192,112,.12); color: #8fd18f; }
+                #P2PStreamConfigPage .p2p-netstatus.bad { background: rgba(229,115,77,.14); color: #f08d6a; }
+                #P2PStreamConfigPage .p2p-netstatus:empty { display: none; }
+                #P2PStreamConfigPage .p2p-rules td { padding: .3em .35em; }
+                #P2PStreamConfigPage .p2p-rules input.p2p-plain, #P2PStreamConfigPage .p2p-rules select.p2p-plain { width: 100%; box-sizing: border-box; }
+                #P2PStreamConfigPage .p2p-trakt-code { font-size: 1.6em; font-weight: 700; letter-spacing: .12em; color: #00a4dc; }
                 #P2PStreamConfigPage .p2p-warn { border-left: 3px solid #e5a00d; padding: .4em .8em; margin: .5em 0 1em; background: rgba(229,160,13,.1); }
             </style>
 
@@ -135,15 +142,6 @@
                             </div>
                             <div id="p2pSearchResults"></div>
                         </div>
-                        <div class="p2p-card">
-                            <h3><span class="material-icons">vpn_lock</span>Proxy</h3>
-                            <p class="p2p-muted">Optional. Used for searches and .torrent downloads, which helps if a site is blocked where you are. Torrent peer traffic doesn't go through it.</p>
-                            <div class="inputContainer"><input is="emby-input" type="text" data-key="ProxyUrl" label="Proxy address (e.g. socks5://127.0.0.1:1080)" autocomplete="off" /></div>
-                            <div class="p2p-row">
-                                <div class="inputContainer"><input is="emby-input" type="text" data-key="ProxyUser" label="Login" autocomplete="off" /></div>
-                                <div class="inputContainer"><input is="emby-input" type="password" data-key="ProxyPassword" label="Password" autocomplete="new-password" /></div>
-                            </div>
-                        </div>
                     </div>
                 </section>
 
@@ -180,6 +178,21 @@
                                 <input is="emby-input" type="text" data-key="CustomTmdbListIds" label="TMDB list ids (comma separated)" />
                                 <div class="fieldDescription">The number in a list's URL on themoviedb.org. Each list appears in the table as a movie row and a show row. Save, then click Refresh.</div>
                             </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">playlist_play</span>Trakt</h3>
+                            <p class="p2p-muted">Adds Trakt's trending, popular, anticipated and box office lists to the table, plus a watchlist and any lists you name. Create a free API app at <a class="p2p-link" href="https://trakt.tv/oauth/applications/new" target="_blank" rel="noopener">trakt.tv/oauth/applications</a> (redirect URI: <code>urn:ietf:wg:oauth:2.0:oob</code>) and paste its Client ID.</p>
+                            <div class="inputContainer"><input is="emby-input" type="text" data-key="TraktClientId" label="Client ID" autocomplete="off" /></div>
+                            <div class="inputContainer"><input is="emby-input" type="text" data-key="TraktUser" label="Trakt username (for a public watchlist)" autocomplete="off" /></div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="TraktLists" label="Trakt lists (comma separated)" autocomplete="off" />
+                                <div class="fieldDescription">A list's address, e.g. https://trakt.tv/users/someone/lists/best-of, or someone/best-of. Save, then click Refresh in the table.</div>
+                            </div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="password" data-key="TraktClientSecret" label="Client Secret (only to connect your account)" autocomplete="new-password" />
+                                <div class="fieldDescription">Connecting your account adds your private watchlist and recommendations.</div>
+                            </div>
+                            <div id="p2pTrakt"></div>
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">schedule</span>Sync</h3>
@@ -232,6 +245,13 @@
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="ProbeStreams" /><span>Check the top streams' tracks</span></label>
                             <div class="p2p-desc">Reads the video, audio and subtitle tracks of the top releases so they show in the Version menu. Uses some bandwidth per title page.</div>
                             <div class="inputContainer"><input is="emby-input" type="number" min="1" max="5" data-key="ProbeStreamCount" data-type="int" label="Streams to check" /></div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">devices</span>Per-device limits</h3>
+                            <p class="p2p-muted">Caps what <b>Auto</b> plays on a device, e.g. a TV that can't handle 4K. "Device" matches the device's name, its name in Dashboard &gt; Devices, or the app. Picking a version in the Version menu always plays that version.</p>
+                            <table class="p2p-rules"><thead><tr><th>Device</th><th>Max resolution</th><th>Max GB</th><th></th></tr></thead><tbody id="p2pRules"></tbody></table>
+                            <datalist id="p2pDeviceList"></datalist>
+                            <div style="margin:.6em 0 .8em"><button is="emby-button" type="button" class="raised" id="p2pAddRule"><span>Add a device</span></button></div>
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">aspect_ratio</span>Resolution</h3>
@@ -306,6 +326,35 @@
                 <section class="p2p-panel" data-panel="engine">
                     <div class="p2p-grid">
                         <div class="p2p-card">
+                            <h3><span class="material-icons">shield</span>Privacy</h3>
+                            <div class="selectContainer">
+                                <select is="emby-select" data-key="TorrentNetwork" id="p2pNetMode" label="Torrent traffic">
+                                    <option value="direct">Direct (normal)</option>
+                                    <option value="interface">Only through a VPN (network interface)</option>
+                                    <option value="proxy">Only through the proxy</option>
+                                </select>
+                            </div>
+                            <div id="p2pNetIface">
+                                <div class="inputContainer">
+                                    <input is="emby-input" type="text" data-key="BindInterface" id="p2pBindIface" list="p2pIfaceList" label="VPN network interface (e.g. wg0, tun0)" autocomplete="off" />
+                                    <datalist id="p2pIfaceList"></datalist>
+                                    <div class="fieldDescription" id="p2pIfaceHint"></div>
+                                </div>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="SearchesUseInterface" /><span>Send searches through the VPN too</span></label>
+                            </div>
+                            <div class="p2p-desc" id="p2pNetHelp"></div>
+                            <div id="p2pNetStatus" class="p2p-netstatus"></div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">vpn_lock</span>Proxy</h3>
+                            <p class="p2p-muted">Searches and .torrent downloads use it whenever it's set (helps if a site is blocked where you are). Torrent traffic uses it only with "Only through the proxy" above.</p>
+                            <div class="inputContainer"><input is="emby-input" type="text" data-key="ProxyUrl" label="Proxy address (e.g. socks5://127.0.0.1:1080)" autocomplete="off" /></div>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="text" data-key="ProxyUser" label="Login" autocomplete="off" /></div>
+                                <div class="inputContainer"><input is="emby-input" type="password" data-key="ProxyPassword" label="Password" autocomplete="new-password" /></div>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
                             <h3><span class="material-icons">lan</span>Connection</h3>
                             <div class="inputContainer">
                                 <input is="emby-input" type="number" min="1" max="65535" data-key="ListenPort" data-type="int" label="Listen port" />
@@ -329,11 +378,17 @@
                                 <input is="emby-input" type="number" min="10" data-key="MetadataTimeoutSeconds" data-type="int" label="Give up on a release after (seconds)" />
                                 <div class="fieldDescription">How long to wait for peers to send a torrent's file list before trying the next release.</div>
                             </div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="StopSharingWhenIdle" /><span>Share only while watching</span></label>
+                            <div class="p2p-desc">A torrent stops completely (no uploading, no connections) a minute after nobody is watching it, and starts again when you play it.</div>
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">folder</span>Storage</h3>
                             <div class="inputContainer">
                                 <input is="emby-input" type="text" data-key="DownloadPath" label="Download folder (blank = plugin data folder)" />
+                            </div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="number" min="0" data-key="MaxDiskGb" data-type="int" label="Disk space limit (GB, 0 = no limit)" />
+                                <div class="fieldDescription" id="p2pDiskHint">When streaming data goes over this, the least recently watched torrents are removed. A title being watched is never removed.</div>
                             </div>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="KeepFilesAfterPlayback" /><span>Keep downloaded files after torrents are removed</span></label>
                             <div class="p2p-desc">Off: files are deleted when a torrent is removed, so the disk doesn't fill up.</div>
@@ -482,6 +537,7 @@
                 page.querySelectorAll('.p2p-panel').forEach(function (p) { p.classList.toggle('active', p.getAttribute('data-panel') === name); });
                 store('p2pstream.tab', name);
                 if (name === 'sources') { loadHealth(); }
+                if (name === 'engine') { loadNetwork(); }
             }
             page.querySelector('#p2pTabs').addEventListener('click', function (e) {
                 var b = e.target.closest('.p2p-tab-btn');
@@ -549,6 +605,92 @@
                 page.querySelector('#p2pSrcModal').style.display = 'flex';
                 page.querySelector('#p2pSrcName').focus();
             }
+
+            // ---------- privacy (network mode, VPN interface) ----------
+            var netHelp = {
+                direct: 'Torrents connect normally.',
+                'interface': 'Every torrent connection (peers, trackers, DHT, web seeds) is tied to the VPN\'s network interface. If the VPN drops, torrents stop until it\'s back: nothing goes out any other way. Pick the interface the VPN creates inside the Jellyfin machine or container.',
+                proxy: 'Peers and trackers go through the proxy below (SOCKS5 is best: it also carries UDP trackers). DHT and incoming connections are off. If the proxy stops answering, torrents stop.'
+            };
+            function updateNetForm() {
+                var mode = page.querySelector('#p2pNetMode').value || 'direct';
+                page.querySelector('#p2pNetIface').style.display = mode === 'interface' ? '' : 'none';
+                page.querySelector('#p2pNetHelp').textContent = netHelp[mode] || '';
+            }
+            page.querySelector('#p2pNetMode').addEventListener('change', updateNetForm);
+            function renderNetwork(n) {
+                var el = page.querySelector('#p2pNetStatus');
+                el.className = 'p2p-netstatus ' + (n.Ok ? 'ok' : 'bad');
+                el.textContent = (n.Ok ? '✓ ' : '✗ ') + n.Message;
+                var list = page.querySelector('#p2pIfaceList');
+                list.innerHTML = (n.Interfaces || []).filter(function (i) { return i.Up; }).map(function (i) {
+                    return '<option value="' + esc(i.Name) + '">' + esc((i.LooksLikeVpn ? 'VPN? ' : '') + i.Description + ' ' + (i.Addresses || []).join(', ')) + '</option>';
+                }).join('');
+                var vpns = (n.Interfaces || []).filter(function (i) { return i.Up && i.LooksLikeVpn; }).map(function (i) { return i.Name; });
+                page.querySelector('#p2pIfaceHint').textContent = (vpns.length ? 'Looks like a VPN: ' + vpns.join(', ') + '. ' : 'No VPN interface found on this machine. ') +
+                    (n.IsLinux && !n.DeviceBinding ? 'This system doesn\'t allow binding to the device directly, so the VPN must route its own address (a full-tunnel VPN, or a policy rule).' : '');
+                var disk = page.querySelector('#p2pDiskHint');
+                if (disk && n.DiskMb != null) { disk.textContent = 'Streaming data now: ' + (n.DiskMb >= 1024 ? (n.DiskMb / 1024).toFixed(1) + ' GB' : n.DiskMb + ' MB') + '. Over the limit, the least recently watched torrents are removed; a title being watched never is.'; }
+            }
+            function loadNetwork() { api('GET', 'P2PStream/Network').then(renderNetwork).catch(function () { /* older server */ }); }
+
+            // ---------- per-device limits ----------
+            var resOptions = [[0, 'Any'], [2160, '4K'], [1440, '1440p'], [1080, '1080p'], [720, '720p'], [480, '480p']];
+            function ruleRow(r) {
+                r = r || { Match: '', MaxResolution: 1080, MaxSizeGb: 0 };
+                var tr = document.createElement('tr');
+                tr.className = 'p2p-rule-row';
+                tr.innerHTML = '<td><input type="text" class="p2p-plain rule-match" list="p2pDeviceList" placeholder="e.g. Living Room TV" value="' + esc(r.Match || '') + '" /></td>' +
+                    '<td><select class="p2p-plain rule-res">' + resOptions.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === (r.MaxResolution || 0) ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></td>' +
+                    '<td><input type="number" min="0" class="p2p-plain rule-size" style="width:4.5em" value="' + (r.MaxSizeGb || 0) + '" title="0 = any size" /></td>' +
+                    '<td><a href="#" class="src-edit rule-remove">remove</a></td>';
+                page.querySelector('#p2pRules').appendChild(tr);
+            }
+            function readRules() {
+                return Array.prototype.map.call(page.querySelectorAll('.p2p-rule-row'), function (tr) {
+                    return { Match: tr.querySelector('.rule-match').value.trim(), MaxResolution: parseInt(tr.querySelector('.rule-res').value, 10) || 0, MaxSizeGb: parseInt(tr.querySelector('.rule-size').value, 10) || 0 };
+                }).filter(function (r) { return r.Match; });
+            }
+            page.querySelector('#p2pAddRule').addEventListener('click', function () { ruleRow(); setDirty(true); page.querySelector('#p2pRules tr:last-child .rule-match').focus(); });
+            page.querySelector('#p2pRules').addEventListener('click', function (e) {
+                if (e.target.classList.contains('rule-remove')) { e.preventDefault(); e.target.closest('tr').remove(); setDirty(true); }
+            });
+            function loadDevices() {
+                api('GET', 'P2PStream/Devices').then(function (list) {
+                    var names = [];
+                    (list || []).forEach(function (d) { [d.Name, d.App].forEach(function (n) { if (n && names.indexOf(n) === -1) { names.push(n); } }); });
+                    page.querySelector('#p2pDeviceList').innerHTML = names.map(function (n) { return '<option value="' + esc(n) + '"></option>'; }).join('');
+                }).catch(function () { /* not important */ });
+            }
+
+            // ---------- Trakt ----------
+            var traktTimer = null;
+            function renderTrakt(t) {
+                var el = page.querySelector('#p2pTrakt');
+                clearTimeout(traktTimer);
+                if (!t.Configured) { el.innerHTML = ''; return; }
+                if (t.Pending) {
+                    el.innerHTML = '<p>Go to <a class="p2p-link" href="' + esc(t.Pending.VerificationUrl) + '" target="_blank" rel="noopener">' + esc(t.Pending.VerificationUrl) + '</a> and enter:</p>' +
+                        '<div class="p2p-trakt-code">' + esc(t.Pending.UserCode) + '</div><p class="p2p-muted">Waiting for you to approve it (' + t.Pending.MinutesLeft + ' min left)...</p>';
+                    traktTimer = setTimeout(loadTrakt, 4000);
+                    return;
+                }
+                var html = t.Connected
+                    ? '<p>✓ Connected' + (t.User ? ' as <b>' + esc(t.User) + '</b>' : '') + '. Your watchlist and recommendations are in the table. <a href="#" class="src-edit" id="p2pTraktOff">Disconnect</a></p>'
+                    : '<p><button is="emby-button" type="button" class="raised" id="p2pTraktOn"' + (t.HasSecret ? '' : ' disabled title="Enter and save the Client Secret first"') + '><span>Connect your Trakt account</span></button></p>';
+                if (t.Error) { html += '<p class="p2p-nolib">' + esc(t.Error) + '</p>'; }
+                el.innerHTML = html;
+            }
+            function loadTrakt() { api('GET', 'P2PStream/Trakt').then(renderTrakt).catch(function () { /* older server */ }); }
+            page.querySelector('#p2pTrakt').addEventListener('click', function (e) {
+                var on = e.target.closest('#p2pTraktOn'), off = e.target.closest('#p2pTraktOff');
+                if (on) {
+                    api('POST', 'P2PStream/Trakt/Connect').then(function () { loadTrakt(); }).catch(function (err) { explain(err).then(function (d) { toast('Trakt: ' + d); }); });
+                } else if (off) {
+                    e.preventDefault();
+                    api('POST', 'P2PStream/Trakt/Disconnect').then(function () { loadTrakt(); loadCatalogs(); });
+                }
+            });
 
             // ---------- source health ----------
             var healthData = {};
@@ -651,7 +793,7 @@
                 data.Rows.forEach(function (r) {
                     var options = folderOptions(r.IsMovie, r.Folder, r.Library, r.FolderPath);
                     html += '<tr class="p2p-cat-row" data-id="' + esc(r.Id) + '" data-search="' + esc((r.Name + ' ' + (r.IsMovie ? 'movie' : 'series') + ' ' + (r.Library || r.Folder)).toLowerCase()) + '">' +
-                        '<td>' + esc(r.Name) + '</td>' +
+                        '<td>' + esc(r.Name) + (r.Source === 'Trakt' ? ' <span class="p2p-tag">Trakt</span>' : '') + '</td>' +
                         '<td><span class="p2p-tag">' + (r.IsMovie ? 'movie' : 'series') + '</span></td>' +
                         '<td><label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="cat-import"' + (r.Enabled ? ' checked' : '') + ' /><span></span></label></td>' +
                         '<td><label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="cat-collection"' + (r.Collection ? ' checked' : '') + ' /><span></span></label></td>' +
@@ -775,7 +917,13 @@
                     page.querySelector('#p2pCustomSources').innerHTML = '';
                     (config.RssSources || []).forEach(function (f) { customRow({ Type: 'rss', Name: f.Name, Url: f.Url, Enabled: f.Enabled }); });
                     (config.Indexers || []).forEach(function (i) { customRow({ Type: 'torznab', Name: i.Name, Url: i.Url, ApiKey: i.ApiKey, Enabled: i.Enabled }); });
+                    page.querySelector('#p2pRules').innerHTML = '';
+                    (config.DeviceRules || []).forEach(ruleRow);
+                    updateNetForm();
                     setDirty(false);
+                    loadNetwork();
+                    loadTrakt();
+                    loadDevices();
                     Dashboard.hideLoadingMsg();
                     api('GET', 'P2PStream/Sources').then(function (list) { renderSources(list); loadHealth(); }).catch(function () {
                         page.querySelector('#p2pSources').innerHTML = '<p class="p2p-muted">Could not load sources.</p>';
@@ -790,7 +938,7 @@
             // ---------- unsaved-changes bar ----------
             function setDirty(on) { page.querySelector('#p2pSaveBar').classList.toggle('show', !!on); }
             // Only real settings count. Search boxes, the magnet field and the catalog filter don't.
-            function isSetting(el) { return el && el.closest && el.closest('[data-key], [data-list], .p2p-source, .p2p-cat-row, .p2p-search-row'); }
+            function isSetting(el) { return el && el.closest && el.closest('[data-key], [data-list], .p2p-source, .p2p-cat-row, .p2p-search-row, .p2p-rule-row'); }
             page.addEventListener('input', function (e) { if (isSetting(e.target)) { setDirty(true); } });
             page.addEventListener('change', function (e) {
                 if (!isSetting(e.target)) { return; }
@@ -812,6 +960,7 @@
                             group.querySelectorAll('input[type=checkbox]'), function (cb) { return cb.checked; }
                         ).map(function (cb) { return group.getAttribute('data-type') === 'int' ? parseInt(cb.value, 10) : cb.value; });
                     });
+                    config.DeviceRules = readRules();
                     config.Indexers = readCustom('torznab');
                     config.RssSources = readCustom('rss');
                     if (page.querySelector('.p2p-source')) { config.Sources = readSources(); }
@@ -833,6 +982,7 @@
                 saveConfig().then(function () {
                     Dashboard.hideLoadingMsg();
                     toast('Settings saved');
+                    setTimeout(function () { loadNetwork(); loadTrakt(); }, 600);
                 }, function (err) {
                     Dashboard.hideLoadingMsg();
                     toast('Saving failed: ' + err.message);
@@ -843,11 +993,13 @@
             // ---------- torrents status ----------
             function renderStatus(data) {
                 var el = page.querySelector('#p2pStatus');
+                var net = data.Network && (data.Network.Mode !== 'Direct' || !data.Network.Ok)
+                    ? '<div class="p2p-netstatus ' + (data.Network.Ok ? 'ok' : 'bad') + '">' + (data.Network.Ok ? '✓ ' : '✗ ') + esc(data.Network.Message) + '</div>' : '';
                 if (!data.Torrents || !data.Torrents.length) {
-                    el.innerHTML = '<p class="p2p-muted">No active torrents. Play something, or add a magnet below.</p>';
+                    el.innerHTML = net + '<p class="p2p-muted">No active torrents. Play something, or add a magnet below.</p>';
                     return;
                 }
-                var html = '<table><thead><tr><th>Name</th><th>State</th><th>Progress</th><th class="p2p-nowrap">Speed</th><th class="p2p-nowrap">Seeds / Peers</th><th></th></tr></thead><tbody>';
+                var html = net + '<table><thead><tr><th>Name</th><th>State</th><th>Progress</th><th class="p2p-nowrap">Speed</th><th class="p2p-nowrap">Seeds / Peers</th><th></th></tr></thead><tbody>';
                 data.Torrents.forEach(function (t) {
                     var videos = (t.Files || []).filter(function (f) { return f.IsVideo; });
                     var files = videos.map(function (f) {

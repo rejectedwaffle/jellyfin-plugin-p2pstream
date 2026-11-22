@@ -22,6 +22,7 @@ public sealed partial class CatalogBuilder
     private static readonly char[] InvalidChars = Path.GetInvalidFileNameChars().Concat("<>:\"/\\|?*").Distinct().ToArray();
 
     private readonly TmdbClient _tmdb;
+    private readonly TraktClient _trakt;
     private readonly StreamUrlBuilder _urls;
     private readonly LibrarySetup _libraries;
     private readonly ILibraryManager _libraryManager;
@@ -33,6 +34,7 @@ public sealed partial class CatalogBuilder
 
     public CatalogBuilder(
         TmdbClient tmdb,
+        TraktClient trakt,
         StreamUrlBuilder urls,
         LibrarySetup libraries,
         ILibraryManager libraryManager,
@@ -40,6 +42,7 @@ public sealed partial class CatalogBuilder
         ILogger<CatalogBuilder> logger)
     {
         _tmdb = tmdb;
+        _trakt = trakt;
         _urls = urls;
         _libraries = libraries;
         _libraryManager = libraryManager;
@@ -155,7 +158,7 @@ public sealed partial class CatalogBuilder
         try
         {
             _libraries.RunLegacyCleanupOnce();
-            var defs = await CatalogDefinitions.GetAllAsync(_tmdb, ct).ConfigureAwait(false);
+            var defs = await CatalogDefinitions.GetAllAsync(_tmdb, ct, _trakt).ConfigureAwait(false);
             var jobs = defs.Select(d => (Def: d, Entry: CatalogDefinitions.Effective(d)))
                 .Where(j => onlyId is null ? j.Entry.Enabled : string.Equals(j.Def.Id, onlyId, StringComparison.OrdinalIgnoreCase))
                 .ToList();
@@ -329,6 +332,13 @@ public sealed partial class CatalogBuilder
                 {
                     items.TryAdd(i.Id, i);
                 }
+            }
+        }
+        else if (def.TraktPath is not null)
+        {
+            foreach (var i in await _trakt.GetItemsAsync(def.TraktPath, def.IsMovie, max, ct).ConfigureAwait(false))
+            {
+                items.TryAdd(i.Id, i);
             }
         }
         else if (def.CustomListId is not null)
