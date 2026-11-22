@@ -586,8 +586,12 @@
 
             function renderSearchFolders(data) {
                 var labels = ['Movies', 'Shows'];
+                var targets = data.SearchTargets || [];
                 page.querySelector('#p2pSearchFolderStatus').innerHTML = (data.SearchFolders || []).map(function (f, i) {
-                    return '<div><b>' + labels[i] + ':</b> ' + (f.Library ? 'in library "' + esc(f.Library) + '"' : noLibraryHint(f.Path)) + '</div>';
+                    if (f.Library) { return '<div><b>' + labels[i] + ':</b> in library "' + esc(f.Library) + '"</div>'; }
+                    var t = targets[i];
+                    var meanwhile = t && t.Library ? ' Until then, matches go into "' + esc(t.Library) + '".' : ' Until then, search results can\'t appear.';
+                    return '<div><b>' + labels[i] + ':</b> ' + noLibraryHint(f.Path) + '<span class="p2p-muted">' + meanwhile + '</span></div>';
                 }).join('');
             }
 

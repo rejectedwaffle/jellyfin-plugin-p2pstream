@@ -285,6 +285,11 @@ public class P2PStreamController : ControllerBase
                 _libraries.Describe(CatalogBuilder.FolderFor(SearchImporter.MovieLibrary)),
                 _libraries.Describe(CatalogBuilder.FolderFor(SearchImporter.ShowLibrary))
             },
+            SearchTargets = new[]
+            {
+                _libraries.Describe(_importer.TargetFolder(movies: true)),
+                _libraries.Describe(_importer.TargetFolder(movies: false))
+            },
             Rows = defs.Select(d =>
             {
                 var e = CatalogDefinitions.Effective(d);

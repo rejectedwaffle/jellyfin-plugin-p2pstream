@@ -91,6 +91,32 @@ public sealed class SearchImporter
 
     private static string Name(string? configured, string fallback) => string.IsNullOrWhiteSpace(configured) ? fallback : configured.Trim();
 
+    private bool IsVisible(string? titleDir) =>
+        titleDir is not null && Path.GetDirectoryName(titleDir) is string folder && _libraries.Describe(folder).Library is not null;
+
+    /// <summary>
+    /// Where search matches go: the search folder if it's in a library. Otherwise, so search still works before that
+    /// library exists, the first catalog folder that's in a library of the right type. Titles outside any library
+    /// would never show up in Jellyfin's search.
+    /// </summary>
+    public string TargetFolder(bool movies)
+    {
+        var preferred = CatalogBuilder.FolderFor(movies ? MovieLibrary : ShowLibrary);
+        if (_libraries.Describe(preferred).Library is not null)
+        {
+            return preferred;
+        }
+
+        var fallback = _libraries.ListFolders().FirstOrDefault(f => f.Library is not null && f.IsMovie == movies);
+        if (fallback is null)
+        {
+            _logger.LogWarning("No library for search results ({Kind}). Add a library with {Folder} (Settings > Search)", movies ? "movies" : "shows", preferred);
+            return preferred;
+        }
+
+        return fallback.Path;
+    }
+
     private async Task RunSearchImportAsync(string term)
     {
         try
@@ -113,16 +139,17 @@ public sealed class SearchImporter
 
     private async Task<List<string>> ImportAsync(List<TmdbItem> movies, List<TmdbItem> shows, CancellationToken ct)
     {
-        // Titles already in any P2P library are searchable already.
-        movies = movies.Where(m => CatalogBuilder.FindExistingAnywhere(true, m.Id) is null).ToList();
-        shows = shows.Where(s => CatalogBuilder.FindExistingAnywhere(false, s.Id) is null).ToList();
+        // Titles already in a folder that's in a library are searchable already. Ones sitting in a folder outside any
+        // library (e.g. written before the search library existed) don't count, so they're added where Jellyfin can see them.
+        movies = movies.Where(m => !IsVisible(CatalogBuilder.FindExistingAnywhere(true, m.Id))).ToList();
+        shows = shows.Where(s => !IsVisible(CatalogBuilder.FindExistingAnywhere(false, s.Id))).ToList();
         if (movies.Count == 0 && shows.Count == 0)
         {
             return [];
         }
 
-        var movieRoot = CatalogBuilder.FolderFor(MovieLibrary);
-        var showRoot = CatalogBuilder.FolderFor(ShowLibrary);
+        var movieRoot = TargetFolder(movies: true);
+        var showRoot = TargetFolder(movies: false);
         var newMovies = new List<string>();
         var newShows = new List<string>();
         _libraries.RunLegacyCleanupOnce();

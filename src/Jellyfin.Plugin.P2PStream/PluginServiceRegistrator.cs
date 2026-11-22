@@ -39,7 +39,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<SearchImporter>();
         serviceCollection.Configure<MvcOptions>(o =>
         {
-            o.Filters.Add<SearchImportFilter>();
+            o.Filters.Add<SearchImportFilter>(-1000); // run before other plugins' search hooks (e.g. Gelato), so matches are added first
             o.Filters.Add<Api.StreamPickerFilter>(); // Version menu on title pages
         });
     }
