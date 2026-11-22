@@ -109,9 +109,21 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
 
         _prober.ProbeTopInBackground(item, url, releases);
 
+        // Auto plays the remembered pick, or else tries the top-ranked release first. Name it, and if that release has been
+        // checked, show its tracks on Auto too (Jellyfin otherwise only knows them after Auto has played once).
         var auto = dto.MediaSources[0];
         var current = _resolver.CurrentPickTitle(request);
-        auto.Name = current is null ? "Auto (best match)" : "Auto (best match) — now: " + (current.Length > 70 ? current[..67] + "..." : current);
+        var autoRelease = current is null ? releases[0] : releases.FirstOrDefault(r => r.Title == current);
+        auto.Name = current is not null
+            ? "Auto (best match) — now: " + Short(current)
+            : "Auto (best match) — tries first: " + Short(releases[0].Title);
+        if (auto.MediaStreams is not { Count: > 0 } && autoRelease is not null && _options.TryGetProbe(StreamOptions.IdFor(autoRelease), out var probe))
+        {
+            auto.MediaStreams = probe.Streams;
+            auto.RunTimeTicks ??= probe.RunTimeTicks;
+            auto.DefaultAudioStreamIndex ??= (probe.Streams.FirstOrDefault(s => s.Type == MediaStreamType.Audio && s.IsDefault)
+                ?? probe.Streams.FirstOrDefault(s => s.Type == MediaStreamType.Audio))?.Index;
+        }
         dto.MediaSources = new[] { auto }.Concat(StreamPicker.BuildSources(item, url, releases, _options)).ToArray();
         dto.MediaSourceCount = dto.MediaSources.Length;
     }
@@ -187,6 +199,8 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
 
         repository.SaveMediaStreams(item.Id, Array.Empty<MediaStream>(), CancellationToken.None);
     }
+
+    private static string Short(string s) => s.Length > 70 ? s[..67] + "..." : s;
 
     [GeneratedRegex(@"/Items/[0-9a-fA-F-]{32,36}$")]
     private static partial Regex ItemPath();

@@ -94,27 +94,16 @@ public sealed class SearchImporter
     private bool IsVisible(string? titleDir) =>
         titleDir is not null && Path.GetDirectoryName(titleDir) is string folder && _libraries.Describe(folder).Library is not null;
 
-    /// <summary>
-    /// Where search matches go: the search folder if it's in a library. Otherwise, so search still works before that
-    /// library exists, the first catalog folder that's in a library of the right type. Titles outside any library
-    /// would never show up in Jellyfin's search.
-    /// </summary>
+    /// <summary>The folder chosen for search results on the Search tab. Titles only show up in search once it's in a library.</summary>
     public string TargetFolder(bool movies)
     {
-        var preferred = CatalogBuilder.FolderFor(movies ? MovieLibrary : ShowLibrary);
-        if (_libraries.Describe(preferred).Library is not null)
+        var folder = CatalogBuilder.FolderFor(movies ? MovieLibrary : ShowLibrary);
+        if (_libraries.Describe(folder).Library is null)
         {
-            return preferred;
+            _logger.LogWarning("The search folder for {Kind} isn't in a library, so results can't appear. Pick a library on Settings > Search", movies ? "movies" : "shows");
         }
 
-        var fallback = _libraries.ListFolders().FirstOrDefault(f => f.Library is not null && f.IsMovie == movies);
-        if (fallback is null)
-        {
-            _logger.LogWarning("No library for search results ({Kind}). Add a library with {Folder} (Settings > Search)", movies ? "movies" : "shows", preferred);
-            return preferred;
-        }
-
-        return fallback.Path;
+        return folder;
     }
 
     private async Task RunSearchImportAsync(string term)

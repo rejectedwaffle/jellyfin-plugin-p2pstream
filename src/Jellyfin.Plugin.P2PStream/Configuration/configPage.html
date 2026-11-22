@@ -192,13 +192,10 @@
                         <div class="p2p-card">
                             <h3><span class="material-icons">search</span>Jellyfin search</h3>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="SearchIntegration" /><span>Find any movie or show from Jellyfin's search bar</span></label>
-                            <div class="p2p-desc">When you search, matching titles from TMDB are added to the folders below, so you can open and play them. A brand-new title can take a few seconds; if it isn't there yet, search again.</div>
-                            <div class="p2p-row">
-                                <div class="inputContainer"><input is="emby-input" type="text" data-key="SearchMovieLibrary" label="Folder for movies" /></div>
-                                <div class="inputContainer"><input is="emby-input" type="text" data-key="SearchShowLibrary" label="Folder for shows" /></div>
-                            </div>
-                            <div class="fieldDescription">Add a library for each folder (a Movies library and a Shows library) so search results have somewhere to appear.</div>
-                            <div id="p2pSearchFolderStatus" class="p2p-folder-status"></div>
+                            <div class="p2p-desc">When you search, matching titles from TMDB are added to the libraries below, so you can open and play them. A brand-new title can take a few seconds; if it isn't there yet, search again.</div>
+                            <p class="p2p-muted" style="margin:.4em 0 .2em">Pick where search results go, the same way as on the Catalogs tab: one of your libraries, or <b>New library...</b>.</p>
+                            <div id="p2pSearchTable"><p class="p2p-muted">Loading...</p></div>
+                            <div style="height:1em"></div>
                             <div class="inputContainer">
                                 <input is="emby-input" type="number" min="0" data-key="SearchImportDays" data-type="int" label="Keep titles added by search for (days, 0 = forever)" />
                             </div>
@@ -549,26 +546,34 @@
                 return '<span class="p2p-nolib">No library yet:</span> <a href="#" class="p2p-copy" data-path="' + esc(path) + '">Copy folder</a> &middot; <a href="#/dashboard/libraries">Libraries</a>';
             }
 
+            // Library dropdown options: folders labeled by their library (or "in no library"), plus "New library...".
+            function folderOptions(isMovie, current, currentLibrary, currentPath) {
+                var choices = (catalogData.Folders || []).filter(function (f) { return f.IsMovie === null || f.IsMovie === isMovie; });
+                if (current && !choices.some(function (f) { return same(f.Name, current); })) {
+                    choices.push({ Name: current, Library: currentLibrary, IsMovie: null, Path: currentPath });
+                }
+                return choices.map(function (f) {
+                    return '<option value="' + esc(f.Name) + '"' + (same(f.Name, current) ? ' selected' : '') + '>' + esc(folderLabel(f)) + '</option>';
+                }).join('') + '<option value="__new__">New library...</option>';
+            }
+
+            // The folder a dropdown stands for (data-prev holds it while "New library..." is showing).
+            function chosenFolder(sel) { return sel.value && sel.value !== '__new__' ? sel.value : sel.getAttribute('data-prev'); }
+
             function renderCatalogs(data) {
                 catalogData = data;
                 page.querySelector('#p2pCatWarn').innerHTML = data.TmdbConfigured ? '' :
                     '<div class="p2p-warn">Add your TMDB API key below and save. Catalogs come from TMDB.</div>';
                 var html = '<table class="p2p-cat"><thead><tr><th>Name</th><th>Type</th><th>Import</th><th>Collection</th><th>Max items</th><th>Library</th><th></th></tr></thead><tbody>';
                 data.Rows.forEach(function (r) {
-                    var choices = (data.Folders || []).filter(function (f) { return f.IsMovie === null || f.IsMovie === r.IsMovie; });
-                    if (!choices.some(function (f) { return same(f.Name, r.Folder); })) {
-                        choices.push({ Name: r.Folder, Library: r.Library, IsMovie: null, Path: r.FolderPath });
-                    }
-                    var options = choices.map(function (f) {
-                        return '<option value="' + esc(f.Name) + '"' + (same(f.Name, r.Folder) ? ' selected' : '') + '>' + esc(folderLabel(f)) + '</option>';
-                    }).join('') + '<option value="__new__">New library...</option>';
+                    var options = folderOptions(r.IsMovie, r.Folder, r.Library, r.FolderPath);
                     html += '<tr class="p2p-cat-row" data-id="' + esc(r.Id) + '" data-search="' + esc((r.Name + ' ' + (r.IsMovie ? 'movie' : 'series') + ' ' + (r.Library || r.Folder)).toLowerCase()) + '">' +
                         '<td>' + esc(r.Name) + '</td>' +
                         '<td><span class="p2p-tag">' + (r.IsMovie ? 'movie' : 'series') + '</span></td>' +
                         '<td><label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="cat-import"' + (r.Enabled ? ' checked' : '') + ' /><span></span></label></td>' +
                         '<td><label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" class="cat-collection"' + (r.Collection ? ' checked' : '') + ' /><span></span></label></td>' +
                         '<td><input type="number" min="1" max="500" class="p2p-plain cat-max" style="width:5.5em" value="' + (r.MaxItems || 100) + '" /></td>' +
-                        '<td><select class="p2p-plain cat-lib" style="min-width:14em" data-prev="' + esc(r.Folder) + '">' + options + '</select><div class="cat-hint"></div></td>' +
+                        '<td><select class="p2p-plain lib-select cat-lib" style="min-width:14em" data-prev="' + esc(r.Folder) + '">' + options + '</select><div class="cat-hint"></div></td>' +
                         '<td><button type="button" class="p2p-round cat-sync" title="Import this catalog now"><span class="material-icons">sync</span></button></td>' +
                         '</tr>';
                 });
@@ -579,20 +584,32 @@
             }
 
             function updateHint(row) {
-                var name = row.querySelector('.cat-lib').getAttribute('data-prev');
+                var name = row.querySelector('.lib-select').getAttribute('data-prev');
                 var f = findFolder(name);
                 row.querySelector('.cat-hint').innerHTML = f && f.Library ? '' : noLibraryHint(f ? f.Path : folderPath(name));
             }
 
+            var searchRows = [{ Key: 'SearchMovieLibrary', Name: 'Movies', IsMovie: true }, { Key: 'SearchShowLibrary', Name: 'Shows', IsMovie: false }];
+
             function renderSearchFolders(data) {
-                var labels = ['Movies', 'Shows'];
-                var targets = data.SearchTargets || [];
-                page.querySelector('#p2pSearchFolderStatus').innerHTML = (data.SearchFolders || []).map(function (f, i) {
-                    if (f.Library) { return '<div><b>' + labels[i] + ':</b> in library "' + esc(f.Library) + '"</div>'; }
-                    var t = targets[i];
-                    var meanwhile = t && t.Library ? ' Until then, matches go into "' + esc(t.Library) + '".' : ' Until then, search results can\'t appear.';
-                    return '<div><b>' + labels[i] + ':</b> ' + noLibraryHint(f.Path) + '<span class="p2p-muted">' + meanwhile + '</span></div>';
-                }).join('');
+                var html = '<table class="p2p-cat"><thead><tr><th>Search results</th><th>Type</th><th>Library</th></tr></thead><tbody>';
+                searchRows.forEach(function (d, i) {
+                    var f = (data.SearchFolders || [])[i] || {};
+                    html += '<tr class="p2p-search-row" data-setting="' + d.Key + '">' +
+                        '<td>' + d.Name + '</td>' +
+                        '<td><span class="p2p-tag">' + (d.IsMovie ? 'movie' : 'series') + '</span></td>' +
+                        '<td><select class="p2p-plain lib-select" style="min-width:14em" data-prev="' + esc(f.Name || '') + '">' + folderOptions(d.IsMovie, f.Name, f.Library, f.Path) + '</select><div class="cat-hint"></div></td>' +
+                        '</tr>';
+                });
+                var el = page.querySelector('#p2pSearchTable');
+                el.innerHTML = html + '</tbody></table>';
+                el.querySelectorAll('.p2p-search-row').forEach(updateHint);
+            }
+
+            function readSearchFolders() {
+                return Array.prototype.map.call(page.querySelectorAll('.p2p-search-row'), function (row) {
+                    return { Key: row.getAttribute('data-setting'), Folder: chosenFolder(row.querySelector('.lib-select')) };
+                });
             }
 
             function readCatalogs() {
@@ -603,8 +620,7 @@
                         Enabled: row.querySelector('.cat-import').checked,
                         Collection: row.querySelector('.cat-collection').checked,
                         MaxItems: parseInt(row.querySelector('.cat-max').value, 10) || 100,
-                        // data-prev holds the chosen folder; the select may briefly show "New library..." or nothing.
-                        Library: sel.value && sel.value !== '__new__' ? sel.value : sel.getAttribute('data-prev')
+                        Library: chosenFolder(sel)
                     };
                 });
             }
@@ -612,6 +628,13 @@
             // Re-draws the table (e.g. after a new folder) without losing unsaved edits.
             function rerenderCatalogs() {
                 var states = readCatalogs();
+                var search = readSearchFolders();
+                if (search.length) {
+                    catalogData.SearchFolders = search.map(function (s) {
+                        var f = findFolder(s.Folder);
+                        return { Name: s.Folder, Library: f ? f.Library : null, Path: f ? f.Path : folderPath(s.Folder) };
+                    });
+                }
                 catalogData.Rows.forEach(function (r) {
                     var st = states.filter(function (x) { return x.Id === r.Id; })[0];
                     if (!st) { return; }
@@ -683,11 +706,11 @@
             // ---------- unsaved-changes bar ----------
             function setDirty(on) { page.querySelector('#p2pSaveBar').classList.toggle('show', !!on); }
             // Only real settings count. Search boxes, the magnet field and the catalog filter don't.
-            function isSetting(el) { return el && el.closest && el.closest('[data-key], [data-list], .p2p-source, #p2pIndexers, .p2p-cat-row'); }
+            function isSetting(el) { return el && el.closest && el.closest('[data-key], [data-list], .p2p-source, #p2pIndexers, .p2p-cat-row, .p2p-search-row'); }
             page.addEventListener('input', function (e) { if (isSetting(e.target)) { setDirty(true); } });
             page.addEventListener('change', function (e) {
                 if (!isSetting(e.target)) { return; }
-                if (e.target.classList.contains('cat-lib') && e.target.value === '__new__') { return; } // just opened the dialog
+                if (e.target.classList.contains('lib-select') && e.target.value === '__new__') { return; } // just opened the dialog
                 setDirty(true);
             });
 
@@ -708,6 +731,7 @@
                     config.Indexers = readIndexers();
                     if (page.querySelector('.p2p-source')) { config.Sources = readSources(); }
                     if (page.querySelector('.p2p-cat-row')) { config.Catalogs = readCatalogs(); }
+                    readSearchFolders().forEach(function (s) { if (s.Folder) { config[s.Key] = s.Folder; } });
                     return ApiClient.updatePluginConfiguration(pluginId, config);
                 }).then(function (result) {
                     setDirty(false);
@@ -866,12 +890,13 @@
                 }).then(function () { btn.disabled = false; });
             });
 
-            page.querySelector('#p2pCatalogs').addEventListener('change', function (e) {
-                var sel = e.target.closest('.cat-lib');
+            // Library dropdowns on the Catalogs and Search tabs.
+            page.addEventListener('change', function (e) {
+                var sel = e.target.closest('.lib-select');
                 if (!sel) { return; }
                 if (sel.value === '__new__') { openNewLibrary(sel); return; }
                 sel.setAttribute('data-prev', sel.value);
-                updateHint(sel.closest('.p2p-cat-row'));
+                updateHint(sel.closest('.p2p-cat-row, .p2p-search-row'));
             });
 
             page.addEventListener('click', function (e) {
