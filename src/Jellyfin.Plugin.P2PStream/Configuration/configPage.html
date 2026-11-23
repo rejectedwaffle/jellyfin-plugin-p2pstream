@@ -79,7 +79,14 @@
                 #P2PStreamConfigPage .p2p-netstatus { font-size: .88em; margin: .2em 0 .8em; padding: .45em .7em; border-radius: 6px; }
                 #P2PStreamConfigPage .p2p-netstatus.ok { background: rgba(108,192,112,.12); color: #8fd18f; }
                 #P2PStreamConfigPage .p2p-netstatus.bad { background: rgba(229,115,77,.14); color: #f08d6a; }
+                #P2PStreamConfigPage .p2p-netstatus.warn { background: rgba(229,160,13,.12); color: #e5b04d; }
                 #P2PStreamConfigPage .p2p-netstatus:empty { display: none; }
+                #P2PStreamConfigPage .p2p-testrows { font-size: .86em; margin: 0 0 .8em; }
+                #P2PStreamConfigPage .p2p-testrow { display: flex; gap: .5em; padding: .3em 0; border-top: 1px solid rgba(128,128,128,.18); }
+                #P2PStreamConfigPage .p2p-testrow b { min-width: 10em; font-weight: 600; }
+                #P2PStreamConfigPage .p2p-testrow .ok { color: #6cc070; }
+                #P2PStreamConfigPage .p2p-testrow .bad { color: #e5734d; }
+                #P2PStreamConfigPage .p2p-testrow .warn { color: #e5a00d; }
                 #P2PStreamConfigPage .p2p-rules td { padding: .3em .35em; }
                 #P2PStreamConfigPage .p2p-rules input.p2p-plain, #P2PStreamConfigPage .p2p-rules select.p2p-plain { width: 100%; box-sizing: border-box; }
                 #P2PStreamConfigPage .p2p-trakt-code { font-size: 1.6em; font-weight: 700; letter-spacing: .12em; color: #00a4dc; }
@@ -344,15 +351,22 @@
                             </div>
                             <div class="p2p-desc" id="p2pNetHelp"></div>
                             <div id="p2pNetStatus" class="p2p-netstatus"></div>
+                            <div style="margin:.2em 0 .6em"><button is="emby-button" type="button" class="raised p2p-nettest"><span>Test</span></button> <span class="p2p-muted">Shows the address the internet sees. Save first.</span></div>
+                            <div class="p2p-testrows" data-rows="all"></div>
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">vpn_lock</span>Proxy</h3>
-                            <p class="p2p-muted">Searches and .torrent downloads use it whenever it's set (helps if a site is blocked where you are). Torrent traffic uses it only with "Only through the proxy" above.</p>
+                            <p class="p2p-muted">Only used where you say: tick the box below for searches, or choose "Only through the proxy" above for torrent traffic.</p>
+                            <div id="p2pProxyUse" class="p2p-netstatus"></div>
                             <div class="inputContainer"><input is="emby-input" type="text" data-key="ProxyUrl" label="Proxy address (e.g. socks5://127.0.0.1:1080)" autocomplete="off" /></div>
                             <div class="p2p-row">
                                 <div class="inputContainer"><input is="emby-input" type="text" data-key="ProxyUser" label="Login" autocomplete="off" /></div>
                                 <div class="inputContainer"><input is="emby-input" type="password" data-key="ProxyPassword" label="Password" autocomplete="new-password" /></div>
                             </div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="SearchesUseProxy" id="p2pSearchProxy" /><span>Use the proxy for searches and TMDB</span></label>
+                            <div class="p2p-desc">Helps if a site is blocked where you are. If the proxy stops working, searches stop too, so use Test after changing it.</div>
+                            <div style="margin:.2em 0 .6em"><button is="emby-button" type="button" class="raised p2p-nettest"><span>Test</span></button></div>
+                            <div class="p2p-testrows" data-rows="Proxy"></div>
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">lan</span>Connection</h3>
@@ -618,6 +632,40 @@
                 page.querySelector('#p2pNetHelp').textContent = netHelp[mode] || '';
             }
             page.querySelector('#p2pNetMode').addEventListener('change', updateNetForm);
+
+            // What the proxy is used for, from the form (so it updates before saving).
+            function updateProxyUse() {
+                var el = page.querySelector('#p2pProxyUse');
+                var url = (page.querySelector('[data-key="ProxyUrl"]').value || '').trim();
+                if (!url) { el.className = 'p2p-netstatus'; el.textContent = ''; return; }
+                var uses = [];
+                if (page.querySelector('#p2pSearchProxy').checked) { uses.push('searches and TMDB'); }
+                if (page.querySelector('#p2pNetMode').value === 'proxy') { uses.push('torrent traffic'); }
+                el.className = 'p2p-netstatus ' + (uses.length ? 'ok' : 'warn');
+                el.textContent = uses.length ? 'Used for: ' + uses.join(' and ') + '.' : 'Not in use: nothing is set to use this proxy.';
+            }
+            ['#p2pNetMode', '#p2pSearchProxy', '[data-key="ProxyUrl"]'].forEach(function (s) {
+                page.querySelector(s).addEventListener('change', updateProxyUse);
+                page.querySelector(s).addEventListener('input', updateProxyUse);
+            });
+
+            function runNetTest() {
+                page.querySelectorAll('.p2p-testrows').forEach(function (el) { el.innerHTML = '<div class="p2p-muted">Testing (up to 30 seconds)...</div>'; });
+                api('POST', 'P2PStream/Network/Test', {}).then(function (data) {
+                    page.querySelectorAll('.p2p-testrows').forEach(function (el) {
+                        var only = el.getAttribute('data-rows');
+                        var rows = (data.Rows || []).filter(function (r) { return only === 'all' || r.Name === only; });
+                        el.innerHTML = rows.length ? rows.map(function (r) {
+                            var cls = r.Ok === true ? 'ok' : r.Ok === false ? 'bad' : 'warn';
+                            var mark = r.Ok === true ? '✓' : r.Ok === false ? '✗' : '!';
+                            return '<div class="p2p-testrow"><span class="' + cls + '">' + mark + '</span><b>' + esc(r.Name) + '</b><span>' + esc(r.Detail) + '</span></div>';
+                        }).join('') : '<div class="p2p-muted">No proxy address is set.</div>';
+                    });
+                }).catch(function (err) {
+                    explain(err).then(function (d) { page.querySelectorAll('.p2p-testrows').forEach(function (el) { el.innerHTML = '<div class="p2p-nolib">Test failed: ' + esc(d) + '</div>'; }); });
+                });
+            }
+            page.querySelectorAll('.p2p-nettest').forEach(function (b) { b.addEventListener('click', runNetTest); });
             function renderNetwork(n) {
                 var el = page.querySelector('#p2pNetStatus');
                 el.className = 'p2p-netstatus ' + (n.Ok ? 'ok' : 'bad');
@@ -924,6 +972,7 @@
                     page.querySelector('#p2pRules').innerHTML = '';
                     (config.DeviceRules || []).forEach(ruleRow);
                     updateNetForm();
+                    updateProxyUse();
                     setDirty(false);
                     loadNetwork();
                     loadTrakt();

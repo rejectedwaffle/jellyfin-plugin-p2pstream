@@ -115,6 +115,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets a value indicating whether searches and TMDB lookups also go through the VPN interface in "interface" mode.</summary>
     public bool SearchesUseInterface { get; set; } = true;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether searches, TMDB lookups and .torrent downloads go through the proxy.
+    /// Off by default: a proxy address on its own does nothing, so a forgotten one can't quietly break searches.
+    /// </summary>
+    public bool SearchesUseProxy { get; set; }
+
     /// <summary>Gets or sets a value indicating whether a torrent stops (no downloading or sharing) a minute after nobody is watching it.</summary>
     public bool StopSharingWhenIdle { get; set; } = true;
 

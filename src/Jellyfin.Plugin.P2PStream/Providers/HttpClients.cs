@@ -36,7 +36,8 @@ internal static class HttpClients
     {
         var c = Plugin.Instance?.Configuration;
         var viaVpn = SearchesViaVpn(c);
-        var key = $"{c?.ProxyUrl}|{c?.ProxyUser}|{c?.ProxyPassword}|{viaVpn}";
+        var useProxy = c?.SearchesUseProxy == true && !viaVpn;
+        var key = $"{c?.ProxyUrl}|{c?.ProxyUser}|{c?.ProxyPassword}|{viaVpn}|{useProxy}";
         if (_default is not null && key == _proxyKey)
         {
             return;
@@ -50,7 +51,7 @@ internal static class HttpClients
             }
 
             // Old clients aren't disposed: requests may still be in flight on them.
-            var proxy = viaVpn ? null : BuildProxy(c?.ProxyUrl, c?.ProxyUser, c?.ProxyPassword);
+            var proxy = useProxy ? BuildProxy(c?.ProxyUrl, c?.ProxyUser, c?.ProxyPassword) : null; // only when "use the proxy for searches" is ticked
             _noRedirect = Create(false, proxy, viaVpn);
             _default = Create(true, proxy, viaVpn);
             _proxyKey = key;

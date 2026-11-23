@@ -289,6 +289,109 @@ public class P2PStreamController : ControllerBase
         return list;
     }
 
+    /// <summary>
+    /// The Privacy test: the address the internet sees for each kind of traffic (direct, torrent, searches) and whether
+    /// the proxy works, so a VPN or proxy that isn't doing its job (or a forgotten proxy) shows up.
+    /// </summary>
+    [HttpPost("Network/Test")]
+    [Authorize(Policy = AdminPolicy)]
+    public async Task<ActionResult<object>> TestNetwork()
+    {
+        var ct = HttpContext.RequestAborted;
+        var c = Plugin.Instance!.Configuration;
+        var state = await Torrent.NetworkGuard.RefreshAsync(ct).ConfigureAwait(false);
+        var rows = new List<object>();
+        void Add(string name, bool? ok, string detail) => rows.Add(new { Name = name, Ok = ok, Detail = detail });
+
+        static async Task<string?> WhatIsMyIp(HttpClient client, CancellationToken token)
+        {
+            // Cloudflare's trace page: plain text with an "ip=" line.
+            var text = await client.GetStringAsync(new Uri("https://1.1.1.1/cdn-cgi/trace"), token).ConfigureAwait(false);
+            return text.Split('\n').FirstOrDefault(l => l.StartsWith("ip=", StringComparison.Ordinal))?[3..].Trim();
+        }
+
+        async Task<(string? Ip, string? Error)> Try(HttpClient client)
+        {
+            try
+            {
+                using var t = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                t.CancelAfter(TimeSpan.FromSeconds(15));
+                return (await WhatIsMyIp(client, t.Token).ConfigureAwait(false), null);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                return (null, ex.GetBaseException().Message);
+            }
+        }
+
+        // 1. The server's own address (no VPN binding, no proxy).
+        using var plain = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        var (directIp, directError) = await Try(plain).ConfigureAwait(false);
+        Add("Your server's own address", directIp is not null, directIp ?? ("couldn't check: " + directError));
+
+        // 2. Torrent traffic, through the same path the engine uses.
+        if (!state.Ok)
+        {
+            Add("Torrent traffic", false, "blocked: " + state.Message);
+        }
+        else
+        {
+            using var guarded = Torrent.NetworkGuard.CreateHttpClient(timeout: TimeSpan.FromSeconds(15));
+            var (ip, error) = await Try(guarded).ConfigureAwait(false);
+            if (ip is null)
+            {
+                Add("Torrent traffic", false, "couldn't connect: " + error);
+            }
+            else if (state.Mode == Torrent.NetworkMode.Direct)
+            {
+                Add("Torrent traffic", null, $"direct: peers see {ip} (your own address). Choose a VPN or the proxy under Torrent traffic to hide it.");
+            }
+            else if (ip == directIp)
+            {
+                Add("Torrent traffic", false, $"leaves from {ip}, your own address: the {(state.Mode == Torrent.NetworkMode.Proxy ? "proxy" : "VPN")} isn't hiding it");
+            }
+            else
+            {
+                Add("Torrent traffic", true, $"hidden: peers see {ip}, not your own address" + (directIp is null ? string.Empty : $" ({directIp})"));
+            }
+        }
+
+        // 3. Searches and TMDB, through the client they really use.
+        var (searchIp, searchError) = await Try(Providers.HttpClients.Default).ConfigureAwait(false);
+        var searchRoute = c.SearchesUseInterface && state.Mode == Torrent.NetworkMode.Interface ? "through the VPN" : c.SearchesUseProxy ? "through the proxy" : "direct";
+        Add("Searches and TMDB", searchIp is not null ? true : false, searchIp is not null
+            ? $"{searchRoute}: sites see {searchIp}"
+            : $"{searchRoute}, failing: {searchError}. Searches and playback lookups won't work until this is fixed.");
+
+        // 4. The proxy, if one is set, whether or not anything uses it.
+        if (!string.IsNullOrWhiteSpace(c.ProxyUrl))
+        {
+            var usedFor = new List<string>();
+            if (c.SearchesUseProxy)
+            {
+                usedFor.Add("searches");
+            }
+
+            if (Torrent.NetworkGuard.ConfiguredMode(c) == Torrent.NetworkMode.Proxy)
+            {
+                usedFor.Add("torrent traffic");
+            }
+
+            if (!Torrent.NetworkGuard.TryParseProxy(c.ProxyUrl, out var proxyUri, out var problem))
+            {
+                Add("Proxy", usedFor.Count == 0 ? null : false, problem);
+            }
+            else
+            {
+                var (ok, detail, _) = await Torrent.NetworkGuard.TestProxyAsync(proxyUri, WhatIsMyIp, ct).ConfigureAwait(false);
+                var use = usedFor.Count == 0 ? "Not used by anything (tick a box or clear the address)." : "Used for " + string.Join(" and ", usedFor) + ".";
+                Add("Proxy", ok ? (usedFor.Count == 0 ? null : true) : (usedFor.Count == 0 ? null : false), $"{proxyUri.Host}:{proxyUri.Port} {detail}. {use}");
+            }
+        }
+
+        return new { Mode = state.Mode.ToString(), Rows = rows };
+    }
+
     /// <summary>How torrent traffic leaves the server right now, and the network interfaces to choose from.</summary>
     [HttpGet("Network")]
     [Authorize(Policy = AdminPolicy)]
