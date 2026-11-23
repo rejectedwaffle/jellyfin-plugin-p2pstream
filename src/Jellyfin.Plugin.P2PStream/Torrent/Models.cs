@@ -71,5 +71,8 @@ public sealed class TorrentStatus
 
     public double IdleMinutes { get; set; }
 
+    /// <summary>Gets or sets why the torrent stopped with an error (e.g. a disk write failed), if it did.</summary>
+    public string? Error { get; set; }
+
     public List<TorrentFileStatus> Files { get; set; } = [];
 }

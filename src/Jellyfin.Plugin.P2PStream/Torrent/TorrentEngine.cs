@@ -205,6 +205,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                 Downloaded = m.Monitor.DataBytesReceived,
                 ActiveStreams = s.ActiveStreams,
                 IdleMinutes = Math.Round((DateTime.UtcNow - s.LastAccess).TotalMinutes, 1),
+                Error = TorrentSession.Describe(m.Error),
                 Files = m.Files.Select((f, i) => new TorrentFileStatus { Index = i, Path = f.Path, Length = f.Length, IsVideo = IsVideo(f.Path) }).ToList()
             };
         }).ToList();

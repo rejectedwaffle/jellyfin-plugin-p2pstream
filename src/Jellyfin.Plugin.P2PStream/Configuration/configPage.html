@@ -630,7 +630,11 @@
                 page.querySelector('#p2pIfaceHint').textContent = (vpns.length ? 'Looks like a VPN: ' + vpns.join(', ') + '. ' : 'No VPN interface found on this machine. ') +
                     (n.IsLinux && !n.DeviceBinding ? 'This system doesn\'t allow binding to the device directly, so the VPN must route its own address (a full-tunnel VPN, or a policy rule).' : '');
                 var disk = page.querySelector('#p2pDiskHint');
-                if (disk && n.DiskMb != null) { disk.textContent = 'Streaming data now: ' + (n.DiskMb >= 1024 ? (n.DiskMb / 1024).toFixed(1) + ' GB' : n.DiskMb + ' MB') + '. Over the limit, the least recently watched torrents are removed; a title being watched never is.'; }
+                function mb(v) { return v >= 1024 ? (v / 1024).toFixed(1) + ' GB' : v + ' MB'; }
+                if (disk && n.DiskMb != null) {
+                    disk.textContent = 'Streaming data now: ' + mb(n.DiskMb) + (n.DownloadFolderMb != null ? ' (download folder on disk: ' + mb(n.DownloadFolderMb) + ')' : '') +
+                        '. Over the limit, the least recently watched torrents are removed; a title being watched never is.';
+                }
             }
             function loadNetwork() { api('GET', 'P2PStream/Network').then(renderNetwork).catch(function () { /* older server */ }); }
 
@@ -1010,7 +1014,7 @@
                     }).join('');
                     var pct = Math.max(0, Math.min(100, t.Progress || 0));
                     html += '<tr><td><div class="p2p-tname">' + esc(t.Name) + '</div>' + (files ? '<div class="p2p-files">' + files + '</div>' : '') + '</td>' +
-                        '<td>' + esc(t.State) + (t.ActiveStreams ? '<div class="p2p-muted">streaming</div>' : '') + '</td>' +
+                        '<td>' + esc(t.State) + (t.ActiveStreams ? '<div class="p2p-muted">streaming</div>' : '') + (t.Error ? '<div class="p2p-nolib">' + esc(t.Error) + '</div>' : '') + '</td>' +
                         '<td class="p2p-nowrap">' + pct + '%<div class="p2p-bar"><span style="width:' + pct + '%"></span></div></td>' +
                         '<td class="p2p-nowrap">&darr; ' + t.DownloadKbps + ' KB/s<br>&uarr; ' + t.UploadKbps + ' KB/s</td>' +
                         '<td class="p2p-nowrap">' + t.Seeds + ' / ' + t.Peers + '</td>' +

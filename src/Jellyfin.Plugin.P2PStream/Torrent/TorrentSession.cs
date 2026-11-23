@@ -64,6 +64,14 @@ public sealed class TorrentSession
 
     public void Touch() => LastAccess = DateTime.UtcNow;
 
+    /// <summary>"Disk write failed: No space left on device" and the like.</summary>
+    public static string? Describe(Error? error) => error is null ? null : error.Reason switch
+    {
+        Reason.WriteFailure => "Couldn't write to disk",
+        Reason.ReadFailure => "Couldn't read from disk",
+        _ => error.Reason.ToString()
+    } + (error.Exception is { } ex ? ": " + ex.GetBaseException().Message : string.Empty);
+
     /// <summary>Opens a reader on the file. Any number of readers can be open at once. Dispose the lease when done.</summary>
     public async Task<StreamLease> OpenAsync(ITorrentManagerFile file, CancellationToken ct)
     {
@@ -128,6 +136,12 @@ public sealed class TorrentSession
         while (!Manager.Bitfield[first])
         {
             ObjectDisposedException.ThrowIf(_closed, this);
+            if (Manager.State == TorrentState.Error)
+            {
+                // MonoTorrent stopped it (e.g. the disk is full). Fail now instead of waiting forever.
+                throw new IOException("The torrent stopped with an error: " + (Describe(Manager.Error) ?? "unknown"));
+            }
+
             Steer(file, position, waiting: true);
             await Task.Delay(100, ct).ConfigureAwait(false);
         }

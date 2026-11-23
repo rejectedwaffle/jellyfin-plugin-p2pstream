@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.7.1.0",
+                             "changelog":  "Torrents tab shows why a torrent errored (e.g. disk full); playback no longer hangs on an errored torrent. Engine tab shows how much space the download folder takes.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.7.1.0/p2pstream_0.7.1.0.zip",
+                             "checksum":  "57c5a782876d3635fa07de1c4a951c32",
+                             "timestamp":  "2026-11-23T07:56:22Z"
+                         },
+                         {
                              "version":  "0.7.0.0",
                              "changelog":  "Privacy: send torrent traffic only through a VPN interface (with a kill switch) or only through a SOCKS5/HTTP proxy. Share only while watching; disk space limit. Per-device limits for Auto (e.g. TV up to 1080p). Trakt catalogs (trending, popular, anticipated, box office, watchlist, lists; connect your account for private watchlist and recommendations). Anime: Nyaa searched with romaji titles; season 2 releases no longer offered for season 1.",
                              "targetAbi":  "12.4.0.0",

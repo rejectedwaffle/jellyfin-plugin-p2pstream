@@ -302,8 +302,25 @@ public class P2PStreamController : ControllerBase
             DeviceBinding = Torrent.NetworkGuard.DeviceBindingWorks,
             IsLinux = OperatingSystem.IsLinux(),
             Interfaces = Torrent.NetworkGuard.ListInterfaces(),
-            DiskMb = _engine.TotalDiskBytes >> 20
+            DiskMb = _engine.TotalDiskBytes >> 20,
+            DownloadFolderMb = FolderBytes(Plugin.Instance!.DownloadPath) >> 20,
+            DownloadFolder = Plugin.Instance.DownloadPath
         };
+    }
+
+    /// <summary>Space the files in a folder take (0 if it can't be read).</summary>
+    private static long FolderBytes(string path)
+    {
+        try
+        {
+            return Directory.Exists(path)
+                ? new DirectoryInfo(path).EnumerateFiles("*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }).Sum(f => f.Length)
+                : 0;
+        }
+        catch (Exception)
+        {
+            return 0;
+        }
     }
 
     [HttpGet("Sources/Health")]
