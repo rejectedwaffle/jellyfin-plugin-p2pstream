@@ -97,24 +97,40 @@
                 #P2PStreamConfigPage .p2p-rules td { padding: .3em .35em; }
                 #P2PStreamConfigPage .p2p-rules input.p2p-plain, #P2PStreamConfigPage .p2p-rules select.p2p-plain { width: 100%; box-sizing: border-box; }
                 #P2PStreamConfigPage .p2p-trakt-code { font-size: 1.6em; font-weight: 700; letter-spacing: .12em; color: #00a4dc; }
+                #P2PStreamConfigPage .p2p-card select, #P2PStreamConfigPage .p2p-card input { max-width: 100%; box-sizing: border-box; }
+                #P2PStreamConfigPage #p2pStatus, #P2PStreamConfigPage #p2pCatalogs, #P2PStreamConfigPage #p2pSearchTable, #P2PStreamConfigPage .p2p-scroll { overflow-x: auto; }
+                /* Phones: tabs as a 4 + 3 grid of icons with labels (all visible, no sideways scrolling), one column of cards,
+                   tighter cards, full-width save bar. */
+                @media (max-width: 640px) {
+                    #P2PStreamConfigPage .p2p-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: .25em 0 .9em; }
+                    #P2PStreamConfigPage .p2p-tab-btn { flex-direction: column; justify-content: center; gap: .1em; padding: .45em .15em .4em; font-size: .78em; }
+                    #P2PStreamConfigPage .p2p-tab-btn .material-icons { font-size: 1.7em; }
+                    #P2PStreamConfigPage .p2p-card { padding: .7em .8em .3em; }
+                    #P2PStreamConfigPage .p2p-desc { margin-left: 2.2em; }
+                    #P2PStreamConfigPage .p2p-checks.three { columns: 2; }
+                    #P2PStreamConfigPage .p2p-testrow { grid-template-columns: 1.2em 1fr; }
+                    #P2PStreamConfigPage .p2p-testrow b, #P2PStreamConfigPage .p2p-testrow .p2p-verdict, #P2PStreamConfigPage .p2p-testrow .p2p-why { grid-column: 2; }
+                    #P2PStreamConfigPage .p2p-savebar { left: .75em; right: .75em; bottom: .75em; justify-content: space-between; }
+                }
                 #P2PStreamConfigPage .p2p-warn { border-left: 3px solid #e5a00d; padding: .4em .8em; margin: .5em 0 1em; background: rgba(229,160,13,.1); }
             </style>
 
             <h2 class="sectionTitle">P2P Stream</h2>
 
             <div class="p2p-tabs" id="p2pTabs">
-                <button type="button" class="p2p-tab-btn" data-tab="torrents"><span class="material-icons">cloud_download</span>Torrents</button>
+                <button type="button" class="p2p-tab-btn" data-tab="status"><span class="material-icons">monitor_heart</span>Status</button>
+                <button type="button" class="p2p-tab-btn" data-tab="libraries"><span class="material-icons">video_library</span>Libraries</button>
                 <button type="button" class="p2p-tab-btn" data-tab="sources"><span class="material-icons">travel_explore</span>Sources</button>
-                <button type="button" class="p2p-tab-btn" data-tab="catalogs"><span class="material-icons">video_library</span>Catalogs</button>
-                <button type="button" class="p2p-tab-btn" data-tab="search"><span class="material-icons">search</span>Search</button>
-                <button type="button" class="p2p-tab-btn" data-tab="quality"><span class="material-icons">high_quality</span>Quality</button>
-                <button type="button" class="p2p-tab-btn" data-tab="engine"><span class="material-icons">tune</span>Engine</button>
+                <button type="button" class="p2p-tab-btn" data-tab="playback"><span class="material-icons">play_circle</span>Playback</button>
+                <button type="button" class="p2p-tab-btn" data-tab="filters"><span class="material-icons">filter_alt</span>Filters</button>
+                <button type="button" class="p2p-tab-btn" data-tab="network"><span class="material-icons">shield</span>Network</button>
+                <button type="button" class="p2p-tab-btn" data-tab="accounts"><span class="material-icons">key</span>Accounts</button>
             </div>
 
             <form id="P2PStreamConfigForm">
 
-                <!-- ============================== TORRENTS ============================== -->
-                <section class="p2p-panel" data-panel="torrents">
+                <!-- ============================== STATUS: what's happening now ============================== -->
+                <section class="p2p-panel" data-panel="status">
                     <div class="p2p-grid">
                         <div class="p2p-card wide">
                             <h3><span class="material-icons">downloading</span>Active torrents</h3>
@@ -129,6 +145,11 @@
                             </div>
                         </div>
                         <div class="p2p-card">
+                            <h3><span class="material-icons">folder</span>Space used</h3>
+                            <div class="p2p-testrows p2p-storage"></div>
+                            <p class="p2p-muted">Limit and clean-up are on the <a href="#" class="p2p-goto p2p-link" data-tab="network">Network</a> tab.</p>
+                        </div>
+                        <div class="p2p-card">
                             <h3><span class="material-icons">cached</span>Remembered picks</h3>
                             <p class="p2p-muted">After a title plays once, the torrent that worked is remembered so replays start instantly. Clear this if a title keeps picking a bad release.</p>
                             <button is="emby-button" type="button" class="raised" id="p2pClearCache"><span>Forget cached picks</span></button>
@@ -136,7 +157,74 @@
                     </div>
                 </section>
 
-                <!-- ============================== SOURCES ============================== -->
+                <!-- ============================== LIBRARIES: what shows up in Jellyfin ============================== -->
+                <section class="p2p-panel" data-panel="libraries">
+                    <div class="p2p-grid">
+                        <div class="p2p-card wide">
+                            <h3><span class="material-icons">video_library</span>Catalogs</h3>
+                            <p class="p2p-muted">Turn on a catalog to import its titles. Each catalog writes into a folder; add a library with that folder in Dashboard &gt; Libraries (pick "New library..." to make a folder for one). Shows get all their aired episodes, so a big catalog takes a while.</p>
+                            <div id="p2pCatWarn"></div>
+                            <div class="p2p-row" style="margin-bottom:.5em">
+                                <input type="text" id="p2pCatFilter" class="p2p-plain" placeholder="Search catalogs by name or type" style="flex:1;min-width:10em" />
+                                <button is="emby-button" type="button" class="raised" id="p2pCatRefresh"><span>Refresh</span></button>
+                            </div>
+                            <div id="p2pCatalogs"><p class="p2p-muted">Loading...</p></div>
+                            <div style="text-align:right;margin-top:.75em">
+                                <button is="emby-button" type="button" class="raised button-submit" id="p2pImportAll"><span>Import all</span></button>
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">search</span>Jellyfin search</h3>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="SearchIntegration" /><span>Find any movie or show from Jellyfin's search bar</span></label>
+                            <div class="p2p-desc">When you search, matching titles from TMDB are added to the libraries below, so you can open and play them. A brand-new title can take a few seconds; if it isn't there yet, search again.</div>
+                            <p class="p2p-muted" style="margin:.4em 0 .2em">Where search results go: one of your libraries, or <b>New library...</b>.</p>
+                            <div id="p2pSearchTable"><p class="p2p-muted">Loading...</p></div>
+                            <div style="height:1em"></div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="number" min="0" data-key="SearchImportDays" data-type="int" label="Keep titles added by search for (days, 0 = forever)" />
+                            </div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">add_circle</span>Add any movie or show</h3>
+                            <p class="p2p-muted">The manual version of Jellyfin search.</p>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="text" id="p2pTmdbQuery" label="Movie or show name" /></div>
+                                <button is="emby-button" type="button" class="raised" id="p2pTmdbSearch"><span>Find</span></button>
+                            </div>
+                            <div id="p2pTmdbResults"></div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">playlist_add</span>Your lists</h3>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="CustomTmdbListIds" label="TMDB list ids (comma separated)" />
+                                <div class="fieldDescription">The number in a list's URL on themoviedb.org.</div>
+                            </div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="TraktLists" label="Trakt lists (comma separated)" autocomplete="off" />
+                                <div class="fieldDescription">A list's address, e.g. https://trakt.tv/users/someone/lists/best-of, or someone/best-of. Needs Trakt set up on the Accounts tab.</div>
+                            </div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="TraktUser" label="Trakt username (for a public watchlist)" autocomplete="off" />
+                            </div>
+                            <p class="p2p-muted">Each list appears in the table as a movie row and a show row. Save, then click Refresh.</p>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">schedule</span>Sync</h3>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="number" min="1" data-key="CatalogSyncHours" data-type="int" label="Re-sync every (hours)" />
+                                <div class="fieldDescription">Runs as the "Sync P2P Stream catalog" scheduled task.</div>
+                            </div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PruneCatalog" /><span>Remove titles that drop off a catalog</span></label>
+                            <div class="p2p-desc">Keeps libraries matching the current lists. Titles added by search are kept for the time set under Jellyfin search.</div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="CatalogPath" label="Catalog folder (blank = plugin data folder)" />
+                                <div class="fieldDescription">Where the .strm files for catalog and search libraries are written.</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============================== SOURCES: where torrents are found ============================== -->
                 <section class="p2p-panel" data-panel="sources">
                     <div class="p2p-grid">
                         <div class="p2p-card">
@@ -158,116 +246,17 @@
                     </div>
                 </section>
 
-                <!-- ============================== CATALOGS ============================== -->
-                <section class="p2p-panel" data-panel="catalogs">
-                    <div class="p2p-grid">
-                        <div class="p2p-card wide">
-                            <h3><span class="material-icons">video_library</span>Catalogs</h3>
-                            <p class="p2p-muted">Turn on a catalog to import its titles. Each catalog writes into a folder; add a library with that folder in Dashboard &gt; Libraries (pick "New library..." to make a folder for one). Shows get all their aired episodes, so a big catalog takes a while.</p>
-                            <div id="p2pCatWarn"></div>
-                            <div class="p2p-row" style="margin-bottom:.5em">
-                                <input type="text" id="p2pCatFilter" class="p2p-plain" placeholder="Search catalogs by name or type" style="flex:1" />
-                                <button is="emby-button" type="button" class="raised" id="p2pCatRefresh"><span>Refresh</span></button>
-                            </div>
-                            <div id="p2pCatalogs"><p class="p2p-muted">Loading...</p></div>
-                            <div style="text-align:right;margin-top:.75em">
-                                <button is="emby-button" type="button" class="raised button-submit" id="p2pImportAll"><span>Import all</span></button>
-                            </div>
-                        </div>
-                        <div class="p2p-card">
-                            <h3><span class="material-icons">key</span>TMDB</h3>
-                            <div class="inputContainer">
-                                <input is="emby-input" type="text" data-key="TmdbApiKey" label="TMDB API key or read access token" />
-                                <div class="fieldDescription">Free from themoviedb.org (Settings, then API). Needed for catalogs, search and playback lookups.</div>
-                            </div>
-                            <div class="inputContainer">
-                                <input is="emby-input" type="text" data-key="Language" label="Language (e.g. en-US)" />
-                                <div class="fieldDescription">Language for titles and folder names.</div>
-                            </div>
-                        </div>
-                        <div class="p2p-card">
-                            <h3><span class="material-icons">playlist_add</span>Your TMDB lists</h3>
-                            <div class="inputContainer">
-                                <input is="emby-input" type="text" data-key="CustomTmdbListIds" label="TMDB list ids (comma separated)" />
-                                <div class="fieldDescription">The number in a list's URL on themoviedb.org. Each list appears in the table as a movie row and a show row. Save, then click Refresh.</div>
-                            </div>
-                        </div>
-                        <div class="p2p-card">
-                            <h3><span class="material-icons">playlist_play</span>Trakt</h3>
-                            <p class="p2p-muted">Adds Trakt's trending, popular, anticipated and box office lists to the table, plus a watchlist and any lists you name. Create a free API app at <a class="p2p-link" href="https://trakt.tv/oauth/applications/new" target="_blank" rel="noopener">trakt.tv/oauth/applications</a> (redirect URI: <code>urn:ietf:wg:oauth:2.0:oob</code>) and paste its Client ID.</p>
-                            <div class="inputContainer"><input is="emby-input" type="text" data-key="TraktClientId" label="Client ID" autocomplete="off" /></div>
-                            <div class="inputContainer"><input is="emby-input" type="text" data-key="TraktUser" label="Trakt username (for a public watchlist)" autocomplete="off" /></div>
-                            <div class="inputContainer">
-                                <input is="emby-input" type="text" data-key="TraktLists" label="Trakt lists (comma separated)" autocomplete="off" />
-                                <div class="fieldDescription">A list's address, e.g. https://trakt.tv/users/someone/lists/best-of, or someone/best-of. Save, then click Refresh in the table.</div>
-                            </div>
-                            <div class="inputContainer">
-                                <input is="emby-input" type="password" data-key="TraktClientSecret" label="Client Secret (only to connect your account)" autocomplete="new-password" />
-                                <div class="fieldDescription">Connecting your account adds your private watchlist and recommendations.</div>
-                            </div>
-                            <div id="p2pTrakt"></div>
-                        </div>
-                        <div class="p2p-card">
-                            <h3><span class="material-icons">schedule</span>Sync</h3>
-                            <div class="inputContainer">
-                                <input is="emby-input" type="number" min="1" data-key="CatalogSyncHours" data-type="int" label="Re-sync every (hours)" />
-                                <div class="fieldDescription">Runs as the "Sync P2P Stream catalog" scheduled task.</div>
-                            </div>
-                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PruneCatalog" /><span>Remove titles that drop off a catalog</span></label>
-                            <div class="p2p-desc">Keeps libraries matching the current lists. Titles added by search are kept for the time set on the Search tab.</div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- ============================== SEARCH ============================== -->
-                <section class="p2p-panel" data-panel="search">
-                    <div class="p2p-grid">
-                        <div class="p2p-card">
-                            <h3><span class="material-icons">search</span>Jellyfin search</h3>
-                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="SearchIntegration" /><span>Find any movie or show from Jellyfin's search bar</span></label>
-                            <div class="p2p-desc">When you search, matching titles from TMDB are added to the libraries below, so you can open and play them. A brand-new title can take a few seconds; if it isn't there yet, search again.</div>
-                            <p class="p2p-muted" style="margin:.4em 0 .2em">Pick where search results go, the same way as on the Catalogs tab: one of your libraries, or <b>New library...</b>.</p>
-                            <div id="p2pSearchTable"><p class="p2p-muted">Loading...</p></div>
-                            <div style="height:1em"></div>
-                            <div class="inputContainer">
-                                <input is="emby-input" type="number" min="0" data-key="SearchImportDays" data-type="int" label="Keep titles added by search for (days, 0 = forever)" />
-                            </div>
-                        </div>
-                        <div class="p2p-card">
-                            <h3><span class="material-icons">add_circle</span>Add any movie or show</h3>
-                            <p class="p2p-muted">The manual version of the search above.</p>
-                            <div class="p2p-row">
-                                <div class="inputContainer"><input is="emby-input" type="text" id="p2pTmdbQuery" label="Movie or show name" /></div>
-                                <button is="emby-button" type="button" class="raised" id="p2pTmdbSearch"><span>Find</span></button>
-                            </div>
-                            <div id="p2pTmdbResults"></div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- ============================== QUALITY ============================== -->
-                <section class="p2p-panel" data-panel="quality">
+                <!-- ============================== PLAYBACK: what plays when you press play ============================== -->
+                <section class="p2p-panel" data-panel="playback">
                     <div class="p2p-grid">
                         <div class="p2p-card">
                             <h3><span class="material-icons">format_list_bulleted</span>Available streams</h3>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="StreamPicker" /><span>Let me choose the stream</span></label>
                             <div class="p2p-desc">Lists the releases in a title's <b>Version</b> menu (resolution, size, seeds, source), like Elementum. "Auto" stays the default and your pick is remembered. Reopen the page if the list isn't there yet.</div>
                             <div class="inputContainer"><input is="emby-input" type="number" min="1" max="50" data-key="StreamPickerMax" data-type="int" label="Streams to list" /></div>
-                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PrewarmOnOpen" /><span>Start loading when a title's page opens</span></label>
-                            <div class="p2p-desc">Fetches the start and end of Auto's release (about 6 MB) so play starts much sooner. Leave the page and it stops after a minute.</div>
-                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="ProbeStreams" /><span>Check the top streams' tracks</span></label>
-                            <div class="p2p-desc">Reads the video, audio and subtitle tracks of the top releases so they show in the Version menu. Uses some bandwidth per title page.</div>
-                            <div class="inputContainer"><input is="emby-input" type="number" min="1" max="5" data-key="ProbeStreamCount" data-type="int" label="Streams to check" /></div>
                         </div>
                         <div class="p2p-card">
-                            <h3><span class="material-icons">devices</span>Per-device limits</h3>
-                            <p class="p2p-muted">Caps what <b>Auto</b> plays on a device, e.g. a TV that can't handle 4K. "Device" matches the device's name, its name in Dashboard &gt; Devices, or the app. Picking a version in the Version menu always plays that version.</p>
-                            <table class="p2p-rules"><thead><tr><th>Device</th><th>Max resolution</th><th>Max GB</th><th></th></tr></thead><tbody id="p2pRules"></tbody></table>
-                            <datalist id="p2pDeviceList"></datalist>
-                            <div style="margin:.6em 0 .8em"><button is="emby-button" type="button" class="raised" id="p2pAddRule"><span>Add a device</span></button></div>
-                        </div>
-                        <div class="p2p-card">
-                            <h3><span class="material-icons">aspect_ratio</span>Resolution</h3>
+                            <h3><span class="material-icons">auto_awesome</span>What Auto picks</h3>
                             <div class="selectContainer">
                                 <select is="emby-select" data-key="PreferredResolution" data-type="int" label="Preferred resolution">
                                     <option value="2160">2160p (4K)</option>
@@ -278,6 +267,37 @@
                                 </select>
                                 <div class="fieldDescription">Tried first. If there's none, the closest lower resolution, then higher.</div>
                             </div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PreferStreamingSizes" /><span>Prefer streaming-friendly sizes</span></label>
+                            <div class="p2p-desc">Well-seeded releases under about 15 GB (4K) or 8 GB (1080p) are tried before huge remuxes, which start slowly (episodes: 6 GB and 3 GB). The big ones stay in the Version menu.</div>
+                            <div class="p2p-row">
+                                <div class="inputContainer"><input is="emby-input" type="number" min="1" max="10" data-key="CandidatesToTry" data-type="int" label="Releases to try" /></div>
+                                <div class="inputContainer"><input is="emby-input" type="number" min="10" data-key="MetadataTimeoutSeconds" data-type="int" label="Give up on one after (s)" /></div>
+                            </div>
+                            <div class="fieldDescription" style="margin:-.6em 0 1em">If a release won't start (no peers send its file list in time), the next best is tried, up to this many.</div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">bolt</span>Faster start</h3>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PrewarmOnOpen" /><span>Start loading when a title's page opens</span></label>
+                            <div class="p2p-desc">Fetches the start and end of Auto's release (about 6 MB) so play starts much sooner. Leave the page and it stops after a minute.</div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="ProbeStreams" /><span>Check the top streams' tracks</span></label>
+                            <div class="p2p-desc">Reads the video, audio and subtitle tracks of the top releases so they show in the Version menu. Uses some bandwidth per title page.</div>
+                            <div class="inputContainer"><input is="emby-input" type="number" min="1" max="5" data-key="ProbeStreamCount" data-type="int" label="Streams to check" /></div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">devices</span>Per-device limits</h3>
+                            <p class="p2p-muted">Caps what <b>Auto</b> plays on a device, e.g. a TV that can't handle 4K. "Device" matches the device's name, its name in Dashboard &gt; Devices, or the app. Picking a version in the Version menu always plays that version.</p>
+                            <div class="p2p-scroll"><table class="p2p-rules"><thead><tr><th>Device</th><th>Max resolution</th><th>Max GB</th><th></th></tr></thead><tbody id="p2pRules"></tbody></table></div>
+                            <datalist id="p2pDeviceList"></datalist>
+                            <div style="margin:.6em 0 .8em"><button is="emby-button" type="button" class="raised" id="p2pAddRule"><span>Add a device</span></button></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============================== FILTERS: which releases are allowed at all ============================== -->
+                <section class="p2p-panel" data-panel="filters">
+                    <div class="p2p-grid">
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">aspect_ratio</span>Resolutions</h3>
                             <p class="p2p-muted">Allowed (releases that don't say are always allowed):</p>
                             <div data-list="AllowedResolutions" data-type="int" class="p2p-checks three">
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="2160" /><span>4K/2160p</span></label>
@@ -289,8 +309,8 @@
                             </div>
                         </div>
                         <div class="p2p-card">
-                            <h3><span class="material-icons">movie_filter</span>Video quality</h3>
-                            <p class="p2p-muted">Allowed release types (releases that don't say are always allowed):</p>
+                            <h3><span class="material-icons">movie_filter</span>Release types</h3>
+                            <p class="p2p-muted">Allowed (releases that don't say are always allowed):</p>
                             <div data-list="AllowedReleaseTypes" class="p2p-checks">
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="bluray" /><span>BRRip/BDRip/BluRay</span></label>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="webdl" /><span>WEB-DL/WEBRip</span></label>
@@ -306,8 +326,6 @@
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">sd_storage</span>Size</h3>
-                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PreferStreamingSizes" /><span>Prefer streaming-friendly sizes</span></label>
-                            <div class="p2p-desc">Well-seeded releases under about 15 GB (4K) or 8 GB (1080p) are tried before huge remuxes, which start slowly (episodes: 6 GB and 3 GB). The big ones stay in the Version menu.</div>
                             <p class="p2p-muted">Releases outside these ranges are skipped. Max 0 = no limit.</p>
                             <div class="p2p-sizes">
                                 <span></span><b>Min GB</b><b>Max GB</b>
@@ -323,20 +341,19 @@
                             </div>
                         </div>
                         <div class="p2p-card">
-                            <h3><span class="material-icons">filter_alt</span>Filtering</h3>
-                            <div class="p2p-row">
-                                <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="MinSeeders" data-type="int" label="Minimum seeders" /></div>
-                                <div class="inputContainer"><input is="emby-input" type="number" min="1" max="10" data-key="CandidatesToTry" data-type="int" label="Releases to try" /></div>
+                            <h3><span class="material-icons">rule</span>Seeders and keywords</h3>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="number" min="0" data-key="MinSeeders" data-type="int" label="Minimum seeders" />
+                                <div class="fieldDescription">0 allows results without seeds.</div>
                             </div>
-                            <div class="fieldDescription" style="margin-bottom:1em">0 seeders allows results without seeds. "Releases to try": if one won't start, the next best is tried, up to this many.</div>
                             <div class="inputContainer"><input is="emby-input" type="text" data-key="RequiredKeywords" label="Required keywords (comma separated, all must appear)" /></div>
                             <div class="inputContainer"><input is="emby-input" type="text" data-key="ExcludedKeywords" label="Excluded keywords (comma separated)" /></div>
                         </div>
                     </div>
                 </section>
 
-                <!-- ============================== ENGINE ============================== -->
-                <section class="p2p-panel" data-panel="engine">
+                <!-- ============================== NETWORK: how traffic leaves, and what it costs ============================== -->
+                <section class="p2p-panel" data-panel="network">
                     <div class="p2p-grid">
                         <div class="p2p-card">
                             <h3><span class="material-icons">shield</span>Privacy</h3>
@@ -392,38 +409,57 @@
                             </div>
                         </div>
                         <div class="p2p-card">
-                            <h3><span class="material-icons">timer</span>Torrents</h3>
+                            <h3><span class="material-icons">timer</span>Torrent lifetime</h3>
                             <div class="p2p-row">
                                 <div class="inputContainer"><input is="emby-input" type="number" min="1" data-key="MaxActiveTorrents" data-type="int" label="Max active torrents" /></div>
                                 <div class="inputContainer"><input is="emby-input" type="number" min="1" data-key="IdleTimeoutMinutes" data-type="int" label="Remove idle after (min)" /></div>
                             </div>
                             <div class="fieldDescription" style="margin:-.6em 0 1em">When full, the least recently used torrent is removed.</div>
-                            <div class="inputContainer">
-                                <input is="emby-input" type="number" min="10" data-key="MetadataTimeoutSeconds" data-type="int" label="Give up on a release after (seconds)" />
-                                <div class="fieldDescription">How long to wait for peers to send a torrent's file list before trying the next release.</div>
-                            </div>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="StopSharingWhenIdle" /><span>Share only while watching</span></label>
                             <div class="p2p-desc">A torrent stops completely (no uploading, no connections) a minute after nobody is watching it, and starts again when you play it.</div>
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">folder</span>Storage</h3>
                             <div class="inputContainer">
-                                <input is="emby-input" type="text" data-key="DownloadPath" label="Download folder (blank = plugin data folder)" />
-                            </div>
-                            <div class="inputContainer">
                                 <input is="emby-input" type="number" min="0" data-key="MaxDiskGb" data-type="int" label="Disk space limit (GB, 0 = no limit)" />
                                 <div class="fieldDescription" id="p2pDiskHint">When streaming data goes over this, the least recently watched torrents are removed. A title being watched is never removed.</div>
                             </div>
-                            <div class="p2p-testrows" id="p2pStorage"></div>
+                            <div class="p2p-testrows p2p-storage"></div>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="KeepFilesAfterPlayback" /><span>Keep downloaded files after torrents are removed</span></label>
                             <div class="p2p-desc">Off: files are deleted when a torrent is removed, so the disk doesn't fill up.</div>
                             <div class="inputContainer">
-                                <input is="emby-input" type="text" data-key="CatalogPath" label="Catalog folder (blank = plugin data folder)" />
-                                <div class="fieldDescription">Where the .strm files for catalog and search libraries are written.</div>
+                                <input is="emby-input" type="text" data-key="DownloadPath" label="Download folder (blank = plugin data folder)" />
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ============================== ACCOUNTS: keys and links ============================== -->
+                <section class="p2p-panel" data-panel="accounts">
+                    <div class="p2p-grid">
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">key</span>TMDB</h3>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="TmdbApiKey" label="TMDB API key or read access token" />
+                                <div class="fieldDescription">Free from themoviedb.org (Settings, then API). Needed for catalogs, search and playback lookups.</div>
+                            </div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="Language" label="Language (e.g. en-US)" />
+                                <div class="fieldDescription">Language for titles and folder names.</div>
                             </div>
                         </div>
                         <div class="p2p-card">
-                            <h3><span class="material-icons">settings_ethernet</span>Advanced</h3>
+                            <h3><span class="material-icons">playlist_play</span>Trakt</h3>
+                            <p class="p2p-muted">Adds Trakt's trending, popular, anticipated and box office lists to the catalogs, plus your lists and watchlist (Libraries tab). Create a free API app at <a class="p2p-link" href="https://trakt.tv/oauth/applications/new" target="_blank" rel="noopener">trakt.tv/oauth/applications</a> (redirect URI: <code>urn:ietf:wg:oauth:2.0:oob</code>) and paste its Client ID.</p>
+                            <div class="inputContainer"><input is="emby-input" type="text" data-key="TraktClientId" label="Client ID" autocomplete="off" /></div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="password" data-key="TraktClientSecret" label="Client Secret (only to connect your account)" autocomplete="new-password" />
+                                <div class="fieldDescription">Connecting your account adds your private watchlist and recommendations.</div>
+                            </div>
+                            <div id="p2pTrakt"></div>
+                        </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">settings_ethernet</span>Stream links</h3>
                             <div class="inputContainer">
                                 <input is="emby-input" type="text" data-key="PublicBaseUrl" label="Server address in stream links (blank = automatic)" />
                                 <div class="fieldDescription">Leave blank unless some device can't play: then enter an address every device can reach, e.g. <code>http://192.168.1.10:8096</code>. Links are updated automatically when you save.</div>
@@ -551,13 +587,20 @@
 
             // ---------- tabs ----------
             function showTab(name) {
-                if (!page.querySelector('.p2p-panel[data-panel="' + name + '"]')) { name = name === 'access' ? 'engine' : 'catalogs'; } // removed or unknown tab
+                var moved = { torrents: 'status', catalogs: 'libraries', search: 'libraries', quality: 'playback', engine: 'network', access: 'accounts' };
+                if (moved[name]) { name = moved[name]; }
+                if (!page.querySelector('.p2p-panel[data-panel="' + name + '"]')) { name = 'status'; }
                 page.querySelectorAll('.p2p-tab-btn').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === name); });
                 page.querySelectorAll('.p2p-panel').forEach(function (p) { p.classList.toggle('active', p.getAttribute('data-panel') === name); });
                 store('p2pstream.tab', name);
                 if (name === 'sources') { loadHealth(); }
-                if (name === 'engine') { loadNetwork(); }
+                if (name === 'network' || name === 'status') { loadNetwork(); }
             }
+            // Links like "on the Network tab" switch tabs.
+            page.addEventListener('click', function (e) {
+                var go = e.target.closest('.p2p-goto');
+                if (go) { e.preventDefault(); showTab(go.getAttribute('data-tab')); window.scrollTo(0, 0); }
+            });
             page.querySelector('#p2pTabs').addEventListener('click', function (e) {
                 var b = e.target.closest('.p2p-tab-btn');
                 if (b) { showTab(b.getAttribute('data-tab')); }
@@ -687,14 +730,15 @@
                 if (disk) {
                     disk.textContent = 'Over the limit, the least recently watched torrents are removed; a title being watched never is.';
                 }
-                var store = page.querySelector('#p2pStorage');
-                if (store && n.Storage) {
+                var stores = page.querySelectorAll('.p2p-storage');
+                stores.forEach(function (store) {
+                    if (!n.Storage) { return; }
                     var total = n.Storage.reduce(function (a, s) { return a + s.Mb; }, 0);
                     store.innerHTML = '<div class="p2p-muted" style="margin:.2em 0">Space the plugin uses now: <b>' + mb(total) + '</b></div>' +
                         n.Storage.map(function (s) {
                             return '<div class="p2p-testrow"><span class="neutral">•</span><b>' + esc(s.Name) + '</b><span class="p2p-verdict">' + mb(s.Mb) + '</span><span class="p2p-why">' + esc(s.Note) + '</span></div>';
                         }).join('');
-                }
+                });
             }
             function loadNetwork() { api('GET', 'P2PStream/Network').then(renderNetwork).catch(function () { /* older server */ }); }
 
@@ -915,7 +959,7 @@
             function renderCatalogs(data) {
                 catalogData = data;
                 page.querySelector('#p2pCatWarn').innerHTML = data.TmdbConfigured ? '' :
-                    '<div class="p2p-warn">Add your TMDB API key below and save. Catalogs come from TMDB.</div>';
+                    '<div class="p2p-warn">Add your TMDB API key on the <a href="#" class="p2p-goto p2p-link" data-tab="accounts">Accounts</a> tab and save. Catalogs come from TMDB.</div>';
                 var html = '<table class="p2p-cat"><thead><tr><th>Name</th><th>Type</th><th>Import</th><th>Collection</th><th>Max items</th><th>Library</th><th></th></tr></thead><tbody>';
                 data.Rows.forEach(function (r) {
                     var options = folderOptions(r.IsMovie, r.Folder, r.Library, r.FolderPath);
@@ -1344,7 +1388,7 @@
             });
 
             page.addEventListener('pageshow', function () {
-                showTab(recall('p2pstream.tab') || 'catalogs');
+                showTab(recall('p2pstream.tab') || 'status');
                 load();
                 refreshStatus();
                 statusTimer = setInterval(refreshStatus, 3000);
