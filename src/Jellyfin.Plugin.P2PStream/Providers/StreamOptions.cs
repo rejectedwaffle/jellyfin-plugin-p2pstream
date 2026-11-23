@@ -152,7 +152,10 @@ public sealed class StreamOptions
             }
 
             var list = ranked.Where(chosen.Contains).ToList(); // keep the ranking order
-            _cache[request.Key] = (DateTime.UtcNow, list);
+            if (list.Count > 0)
+            {
+                _cache[request.Key] = (DateTime.UtcNow, list); // an empty result (sources down, VPN off) isn't kept, so the next try searches again
+            }
             _logger.LogInformation("Found {Count} streams for {Request}", list.Count, request);
             return list;
         }

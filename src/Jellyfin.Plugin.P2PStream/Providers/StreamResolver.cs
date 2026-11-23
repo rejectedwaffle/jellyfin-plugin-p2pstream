@@ -138,6 +138,8 @@ public sealed class StreamResolver
     /// <param name="remember">False for background checks, which must not change Auto's remembered pick.</param>
     public async Task<ResolvedStream> ResolveAsync(MediaRequest req, string? releaseId, CancellationToken ct, bool remember = true)
     {
+        NetworkGuard.Require(); // VPN/proxy down: say so, rather than searching (which may be blocked too) and reporting "nothing found"
+
         // ffmpeg and clients often fire several requests at once. Only one of them searches or starts a torrent.
         var gate = _locks.GetOrAdd(req.Key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
