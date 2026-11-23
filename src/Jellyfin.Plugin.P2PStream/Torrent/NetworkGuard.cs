@@ -512,46 +512,76 @@ public static class NetworkGuard
     /// The settings page's test: connects through the proxy (whatever mode is on) and reports each step: reachable,
     /// login accepted, the address the internet sees, and whether it relays UDP (for UDP trackers).
     /// </summary>
-    public static async Task<(bool Ok, string Detail, string? Ip)> TestProxyAsync(Uri proxy, Func<HttpClient, CancellationToken, Task<string?>> whatIsMyIp, CancellationToken ct)
+    public static async Task<(bool Ok, bool TorrentsOk, string Detail, string? Ip)> TestProxyAsync(Uri proxy, Func<HttpClient, CancellationToken, Task<string?>> whatIsMyIp, CancellationToken ct)
     {
         var reach = await ProbeProxyAsync(proxy, ct).ConfigureAwait(false);
         if (reach is not null)
         {
-            return (false, "isn't answering (" + reach + ")", null);
+            return (false, false, "isn't answering (" + reach + ")", null);
         }
 
+        using var handler = new SocketsHttpHandler
+        {
+            UseProxy = false,
+            ConnectCallback = async (context, token) => new NetworkStream(await ConnectViaProxyAsync(proxy, context.DnsEndPoint.Host, context.DnsEndPoint.Port, token).ConfigureAwait(false), ownsSocket: true)
+        };
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
         string? ip;
         try
         {
-            using var handler = new SocketsHttpHandler
-            {
-                UseProxy = false,
-                ConnectCallback = async (context, token) => new NetworkStream(await ConnectViaProxyAsync(proxy, context.DnsEndPoint.Host, context.DnsEndPoint.Port, token).ConfigureAwait(false), ownsSocket: true)
-            };
-            using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
             ip = await whatIsMyIp(client, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            return (false, "answers, but " + (ex.GetBaseException().Message.Contains("login", StringComparison.OrdinalIgnoreCase) ? "rejected the login (check the login and password)" : ex.GetBaseException().Message), null);
+            return (false, false, "answers, but " + (ex.GetBaseException().Message.Contains("login", StringComparison.OrdinalIgnoreCase) ? "rejected the login (check the login and password)" : ex.GetBaseException().Message), null);
         }
 
-        var udp = "TCP only (HTTP proxy): UDP trackers are skipped";
+        // Torrents need trackers. Some proxies (VPN providers' SOCKS servers among them) carry web traffic but block
+        // or drop BitTorrent, so ask a real tracker, over TCP and over UDP, and wait for its answer.
+        var tcpTracker = false;
+        try
+        {
+            using var t = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            t.CancelAfter(TimeSpan.FromSeconds(10));
+            using var resp = await client.GetAsync(new Uri("http://tracker.opentrackr.org:1337/announce"), t.Token).ConfigureAwait(false);
+            tcpTracker = true; // any HTTP answer (even an error about missing parameters) means the tracker is reachable
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+        }
+
+        var udpTracker = false;
+        var udpNote = "TCP only (HTTP proxy): UDP trackers are skipped";
         if (IsSocks(proxy))
         {
             try
             {
                 using var relay = await Socks5UdpRelay.OpenAsync(proxy, ct).ConfigureAwait(false);
-                udp = "relays UDP (UDP trackers work)";
+                using var t = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                t.CancelAfter(TimeSpan.FromSeconds(8));
+                var request = new MonoTorrent.Messages.UdpTracker.ConnectMessage();
+                var receive = relay.ReceiveAsync(t.Token);
+                for (var i = 0; i < 3 && !receive.IsCompleted; i++)
+                {
+                    await relay.SendAsync("tracker.opentrackr.org", 1337, request.Encode(), t.Token).ConfigureAwait(false);
+                    await Task.WhenAny(receive, Task.Delay(2500, t.Token)).ConfigureAwait(false);
+                }
+
+                udpTracker = receive.IsCompletedSuccessfully && receive.Result.Length >= 16;
+                udpNote = udpTracker ? "relays UDP" : "accepts UDP but nothing comes back: UDP trackers won't work";
             }
             catch (Exception) when (!ct.IsCancellationRequested)
             {
-                udp = "doesn't relay UDP: UDP trackers are skipped, so fewer peers are found";
+                udpNote = "doesn't relay UDP: UDP trackers won't work";
             }
         }
 
+        var torrentsOk = tcpTracker || udpTracker;
+        var trackers = torrentsOk
+            ? $"reaches torrent trackers ({(tcpTracker ? "TCP" : string.Empty)}{(tcpTracker && udpTracker ? " and " : string.Empty)}{(udpTracker ? "UDP" : string.Empty)})"
+            : "can't reach torrent trackers: this proxy seems to block BitTorrent, so torrents through it find no peers";
         var login = ProxyCredentials(proxy).User.Length > 0 ? "login accepted, " : string.Empty;
-        return (true, $"works: {login}the internet sees {ip ?? "?"}; {udp}", ip);
+        return (true, torrentsOk, $"works: {login}the internet sees {ip ?? "?"}; {udpNote}; {trackers}", ip);
     }
 
     private static async Task<Socket> ConnectViaProxyAsync(Uri proxy, string host, int port, CancellationToken ct)

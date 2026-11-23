@@ -383,9 +383,11 @@ public class P2PStreamController : ControllerBase
             }
             else
             {
-                var (ok, detail, _) = await Torrent.NetworkGuard.TestProxyAsync(proxyUri, WhatIsMyIp, ct).ConfigureAwait(false);
+                var (ok, torrentsOk, detail, _) = await Torrent.NetworkGuard.TestProxyAsync(proxyUri, WhatIsMyIp, ct).ConfigureAwait(false);
+                var forTorrents = usedFor.Contains("torrent traffic");
                 var use = usedFor.Count == 0 ? "Not used by anything (tick a box or clear the address)." : "Used for " + string.Join(" and ", usedFor) + ".";
-                Add("Proxy", ok ? (usedFor.Count == 0 ? null : true) : (usedFor.Count == 0 ? null : false), $"{proxyUri.Host}:{proxyUri.Port} {detail}. {use}");
+                bool? good = usedFor.Count == 0 ? null : ok && (!forTorrents || torrentsOk);
+                Add("Proxy", good, $"{proxyUri.Host}:{proxyUri.Port} {detail}. {use}");
             }
         }
 

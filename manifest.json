@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.8.1.0",
+                             "changelog":  "The proxy test asks a real torrent tracker (over TCP and UDP) through the proxy, so it shows when a proxy carries web traffic but blocks BitTorrent.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.8.1.0/p2pstream_0.8.1.0.zip",
+                             "checksum":  "bbb5d0a554a02aba6a7b49e5632b5604",
+                             "timestamp":  "2026-11-23T08:45:16Z"
+                         },
+                         {
                              "version":  "0.8.0.0",
                              "changelog":  "The proxy is only used where you choose: a new \u0027Use the proxy for searches and TMDB\u0027 checkbox (off by default), and \u0027Only through the proxy\u0027 for torrent traffic. The Proxy card says what it\u0027s used for. New Test button: shows the address the internet sees for your server, torrent traffic and searches, and whether the proxy works (login, UDP).",
                              "targetAbi":  "12.4.0.0",
