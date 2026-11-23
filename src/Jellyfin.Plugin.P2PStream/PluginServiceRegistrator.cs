@@ -37,6 +37,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // Catalog and search
         serviceCollection.AddSingleton<TmdbClient>();
         serviceCollection.AddSingleton<LibrarySetup>();
+        serviceCollection.AddHostedService<Catalog.StrmUrlUpdater>();
         serviceCollection.AddSingleton<CatalogBuilder>();
         serviceCollection.AddSingleton<SearchImporter>();
         serviceCollection.Configure<MvcOptions>(o =>

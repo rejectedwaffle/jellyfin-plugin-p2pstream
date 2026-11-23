@@ -31,6 +31,9 @@
                 #P2PStreamConfigPage .p2p-row { display: flex; gap: .75em; align-items: flex-end; flex-wrap: wrap; }
                 #P2PStreamConfigPage .p2p-row > .inputContainer, #P2PStreamConfigPage .p2p-row > .selectContainer { flex: 1 1 10em; }
                 #P2PStreamConfigPage .checkboxContainer { margin-bottom: .2em; }
+                /* Jellyfin gives checkbox labels a fixed height; let ours grow so multi-line labels (sources) don't overlap the next row. */
+                #P2PStreamConfigPage .emby-checkbox-label { height: auto; min-height: 2.2em; }
+                #P2PStreamConfigPage .p2p-source .emby-checkbox-label { align-items: flex-start; }
                 #P2PStreamConfigPage .p2p-desc { opacity: .7; font-size: .86em; margin: 0 0 .75em 2.6em; }
                 #P2PStreamConfigPage table { width: 100%; border-collapse: collapse; font-size: .92em; }
                 #P2PStreamConfigPage th, #P2PStreamConfigPage td { text-align: left; padding: .45em .5em; border-bottom: 1px solid rgba(128,128,128,.22); vertical-align: middle; }
@@ -106,7 +109,6 @@
                 <button type="button" class="p2p-tab-btn" data-tab="search"><span class="material-icons">search</span>Search</button>
                 <button type="button" class="p2p-tab-btn" data-tab="quality"><span class="material-icons">high_quality</span>Quality</button>
                 <button type="button" class="p2p-tab-btn" data-tab="engine"><span class="material-icons">tune</span>Engine</button>
-                <button type="button" class="p2p-tab-btn" data-tab="access"><span class="material-icons">vpn_key</span>Access</button>
             </div>
 
             <form id="P2PStreamConfigForm">
@@ -412,6 +414,7 @@
                                 <input is="emby-input" type="number" min="0" data-key="MaxDiskGb" data-type="int" label="Disk space limit (GB, 0 = no limit)" />
                                 <div class="fieldDescription" id="p2pDiskHint">When streaming data goes over this, the least recently watched torrents are removed. A title being watched is never removed.</div>
                             </div>
+                            <div class="p2p-testrows" id="p2pStorage"></div>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="KeepFilesAfterPlayback" /><span>Keep downloaded files after torrents are removed</span></label>
                             <div class="p2p-desc">Off: files are deleted when a torrent is removed, so the disk doesn't fill up.</div>
                             <div class="inputContainer">
@@ -419,25 +422,18 @@
                                 <div class="fieldDescription">Where the .strm files for catalog and search libraries are written.</div>
                             </div>
                         </div>
-                    </div>
-                </section>
-
-                <!-- ============================== ACCESS ============================== -->
-                <section class="p2p-panel" data-panel="access">
-                    <div class="p2p-grid">
                         <div class="p2p-card">
-                            <h3><span class="material-icons">language</span>Addresses</h3>
+                            <h3><span class="material-icons">settings_ethernet</span>Advanced</h3>
                             <div class="inputContainer">
-                                <input is="emby-input" type="text" data-key="PublicBaseUrl" label="Public base URL" />
-                                <div class="fieldDescription">The address every device uses to reach Jellyfin, e.g. <code>http://192.168.1.10:8096</code> (include your base path if you use one). It's written into every .strm file, so after changing it, run "Import all" on the Catalogs tab.</div>
+                                <input is="emby-input" type="text" data-key="PublicBaseUrl" label="Server address in stream links (blank = automatic)" />
+                                <div class="fieldDescription">Leave blank unless some device can't play: then enter an address every device can reach, e.g. <code>http://192.168.1.10:8096</code>. Links are updated automatically when you save.</div>
                             </div>
-                        </div>
-                        <div class="p2p-card">
-                            <h3><span class="material-icons">password</span>Stream token</h3>
-                            <div class="inputContainer">
-                                <input is="emby-input" type="text" data-key="StreamToken" label="Stream token" />
-                                <div class="fieldDescription">A secret in the stream links that lets players stream without a Jellyfin login. Treat it like a password. After changing it, run "Import all" so the links are rewritten.</div>
+                            <input type="hidden" data-key="StreamToken" id="p2pToken" />
+                            <div class="p2p-row" style="align-items:center;margin-bottom:.4em">
+                                <span>Stream token: <code id="p2pTokenShown"></code></span>
+                                <button is="emby-button" type="button" class="raised" id="p2pNewToken"><span>Make a new token</span></button>
                             </div>
+                            <div class="p2p-desc" style="margin-left:0">The secret in stream links that lets players stream without a Jellyfin login. Make a new one if a link was shared by mistake; links are updated automatically when you save.</div>
                         </div>
                     </div>
                 </section>
@@ -555,6 +551,7 @@
 
             // ---------- tabs ----------
             function showTab(name) {
+                if (!page.querySelector('.p2p-panel[data-panel="' + name + '"]')) { name = name === 'access' ? 'engine' : 'catalogs'; } // removed or unknown tab
                 page.querySelectorAll('.p2p-tab-btn').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === name); });
                 page.querySelectorAll('.p2p-panel').forEach(function (p) { p.classList.toggle('active', p.getAttribute('data-panel') === name); });
                 store('p2pstream.tab', name);
@@ -687,12 +684,33 @@
                 fillInterfaces(n);
                 var disk = page.querySelector('#p2pDiskHint');
                 function mb(v) { return v >= 1024 ? (v / 1024).toFixed(1) + ' GB' : v + ' MB'; }
-                if (disk && n.DiskMb != null) {
-                    disk.textContent = 'Streaming data now: ' + mb(n.DiskMb) + (n.DownloadFolderMb != null ? ' (download folder on disk: ' + mb(n.DownloadFolderMb) + ')' : '') +
-                        '. Over the limit, the least recently watched torrents are removed; a title being watched never is.';
+                if (disk) {
+                    disk.textContent = 'Over the limit, the least recently watched torrents are removed; a title being watched never is.';
+                }
+                var store = page.querySelector('#p2pStorage');
+                if (store && n.Storage) {
+                    var total = n.Storage.reduce(function (a, s) { return a + s.Mb; }, 0);
+                    store.innerHTML = '<div class="p2p-muted" style="margin:.2em 0">Space the plugin uses now: <b>' + mb(total) + '</b></div>' +
+                        n.Storage.map(function (s) {
+                            return '<div class="p2p-testrow"><span class="neutral">•</span><b>' + esc(s.Name) + '</b><span class="p2p-verdict">' + mb(s.Mb) + '</span><span class="p2p-why">' + esc(s.Note) + '</span></div>';
+                        }).join('');
                 }
             }
             function loadNetwork() { api('GET', 'P2PStream/Network').then(renderNetwork).catch(function () { /* older server */ }); }
+
+            // ---------- stream token ----------
+            function showToken() {
+                var t = page.querySelector('#p2pToken').value || '';
+                page.querySelector('#p2pTokenShown').textContent = t ? '••••••••' + t.slice(-4) : '(none)';
+            }
+            page.querySelector('#p2pNewToken').addEventListener('click', function () {
+                var bytes = new Uint8Array(16);
+                window.crypto.getRandomValues(bytes);
+                page.querySelector('#p2pToken').value = Array.prototype.map.call(bytes, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+                showToken();
+                setDirty(true);
+                toast('New token made. Save to use it; stream links are updated automatically.');
+            });
 
             // ---------- VPN interface dropdown ----------
             // VPNs found on this machine first, then other interfaces, then "Other..." for typing a name. The saved
@@ -1017,7 +1035,7 @@
                         if (el.type === 'checkbox') { el.checked = !!v; } else { el.value = v == null ? '' : v; }
                     });
                     if (!config.PublicBaseUrl) {
-                        page.querySelector('[data-key="PublicBaseUrl"]').placeholder = window.location.origin;
+                        page.querySelector('[data-key="PublicBaseUrl"]').placeholder = 'Automatic: ' + window.location.origin;
                     }
                     page.querySelectorAll('[data-list]').forEach(function (group) {
                         var values = (config[group.getAttribute('data-list')] || []).map(String);
@@ -1030,6 +1048,7 @@
                     (config.DeviceRules || []).forEach(ruleRow);
                     updateNetForm();
                     updateProxyUse();
+                    showToken();
                     setDirty(false);
                     loadNetwork();
                     loadTrakt();

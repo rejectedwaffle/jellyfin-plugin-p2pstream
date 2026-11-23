@@ -122,7 +122,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool StopSharingWhenIdle { get; set; } = true;
 
     /// <summary>Gets or sets the most disk space streaming torrents may use, in GB (0 = no limit). Titles being watched are never removed.</summary>
-    public int MaxDiskGb { get; set; }
+    public int MaxDiskGb { get; set; } = 30;
 
     // ---- Per-device quality ----
 

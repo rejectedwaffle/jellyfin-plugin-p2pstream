@@ -461,6 +461,63 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         await EnforceDiskCapAsync().ConfigureAwait(false);
     }
 
+    private static readonly TimeSpan KeepUnused = TimeSpan.FromDays(30);
+    private DateTime _lastPrune = DateTime.MinValue;
+
+    /// <summary>
+    /// Deletes saved .torrent/.magnet files and MonoTorrent cache entries (resume data, fetched metadata) that haven't
+    /// been used for 30 days, so they don't pile up forever. Torrents in use are never touched. A pruned title just
+    /// searches again the next time it's played. Runs at most every 6 hours.
+    /// </summary>
+    private void PruneOldFiles()
+    {
+        if (DateTime.UtcNow - _lastPrune < TimeSpan.FromHours(6))
+        {
+            return;
+        }
+
+        _lastPrune = DateTime.UtcNow;
+        var cutoff = DateTime.UtcNow - KeepUnused;
+        var active = _sessions.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var removed = 0;
+        foreach (var dir in new[] { _storeDir, Path.Combine(Plugin.Instance!.DataFolderPath, "cache") })
+        {
+            if (!Directory.Exists(dir))
+            {
+                continue;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    var name = Path.GetFileName(file);
+                    if (name.Contains("dht", StringComparison.OrdinalIgnoreCase) || active.Any(h => name.Contains(h, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue; // the DHT node cache, or a torrent in use
+                    }
+
+                    if (File.GetLastWriteTimeUtc(file) < cutoff)
+                    {
+                        File.Delete(file);
+                        removed++;
+                    }
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+        }
+
+        if (removed > 0)
+        {
+            _logger.LogInformation("Removed {Count} saved torrent files unused for {Days} days", removed, KeepUnused.Days);
+        }
+    }
+
     /// <summary>Downloaded data of a torrent (whole pieces it has, which is what's on disk).</summary>
     public static long DiskBytes(TorrentManager m) =>
         m.HasMetadata && m.Torrent is not null ? (long)m.Bitfield.TrueCount * m.Torrent.PieceLength : 0;
@@ -508,6 +565,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             }
 
             await EnforceDiskCapAsync().ConfigureAwait(false);
+            PruneOldFiles();
         }
         catch (Exception ex)
         {
