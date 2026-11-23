@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Jellyfin.Plugin.P2PStream.Torrent;
+using NetworkGuard = Jellyfin.Plugin.P2PStream.Torrent.NetworkGuard;
 using Microsoft.Extensions.Logging;
 using MonoTorrent.Client;
 
@@ -174,6 +175,7 @@ public sealed class StreamResolver
             var tries = Math.Max(1, Plugin.Instance!.Configuration.CandidatesToTry);
             foreach (var release in releases.Take(tries))
             {
+                NetworkGuard.Require(); // don't try the next release while the VPN/proxy is down
                 var started = await TryStartAsync(req, release, remember: true, ct).ConfigureAwait(false);
                 if (started is not null)
                 {

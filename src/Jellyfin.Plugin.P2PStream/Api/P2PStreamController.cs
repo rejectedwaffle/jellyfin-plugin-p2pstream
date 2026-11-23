@@ -539,6 +539,11 @@ public class P2PStreamController : ControllerBase
         {
             return new EmptyResult();
         }
+        catch (Torrent.NetworkBlockedException ex)
+        {
+            _logger.LogWarning("Not playing {Request}: {Message}", req, ex.Message);
+            return Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to resolve {Request}", req);

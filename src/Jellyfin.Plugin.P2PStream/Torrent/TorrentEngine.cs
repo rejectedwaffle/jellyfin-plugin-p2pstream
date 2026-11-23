@@ -144,6 +144,23 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             {
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(10, Config.MetadataTimeoutSeconds)));
+
+                // Stop waiting at once if the kill switch trips (otherwise this holds the title for the full timeout).
+                void OnNetwork(NetworkState old, NetworkState now)
+                {
+                    if (!now.Ok)
+                    {
+                        try
+                        {
+                            timeout.Cancel();
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                        }
+                    }
+                }
+
+                NetworkGuard.Changed += OnNetwork;
                 try
                 {
                     await manager.WaitForMetadataAsync(timeout.Token).ConfigureAwait(false);
@@ -151,7 +168,12 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
                     await RemoveManagerAsync(manager, true).ConfigureAwait(false);
+                    NetworkGuard.Require();
                     throw new TimeoutException($"No metadata for {source.InfoHash} within timeout (no peers?)");
+                }
+                finally
+                {
+                    NetworkGuard.Changed -= OnNetwork;
                 }
             }
 

@@ -142,6 +142,8 @@ public sealed class TorrentSession
                 throw new IOException("The torrent stopped with an error: " + (Describe(Manager.Error) ?? "unknown"));
             }
 
+            NetworkGuard.Require(); // the VPN dropped while waiting: fail now, the player shows an error
+
             Steer(file, position, waiting: true);
             await Task.Delay(100, ct).ConfigureAwait(false);
         }
