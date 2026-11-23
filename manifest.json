@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.7.5.0",
+                             "changelog":  "When the VPN or proxy comes back, only torrents someone is watching restart; idle ones stay stopped instead of downloading in the background. Includes 0.7.4: clear error while blocked, empty searches not remembered.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.7.5.0/p2pstream_0.7.5.0.zip",
+                             "checksum":  "00220455c61ed952752ce359d32f22bd",
+                             "timestamp":  "2026-11-23T08:23:27Z"
+                         },
+                         {
                              "version":  "0.7.4.0",
                              "changelog":  "While the VPN or proxy is down, playback says so instead of \u0027no releases found\u0027. A search that found nothing is no longer remembered for 30 minutes.",
                              "targetAbi":  "12.4.0.0",

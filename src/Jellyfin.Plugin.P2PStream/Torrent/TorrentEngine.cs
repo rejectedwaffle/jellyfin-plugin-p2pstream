@@ -419,10 +419,15 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                         _stoppedByGuard.Clear();
                     }
 
-                    foreach (var m in engine.Torrents.Where(m => resume.Contains(Hash(m))))
+                    // Only torrents someone is watching. Idle ones stay stopped (playing one starts it again), since
+                    // nothing would stop them otherwise: their idle timer already ran while they were blocked.
+                    var watched = resume.Where(h => _sessions.TryGetValue(h, out var s) && s.ActiveStreams > 0).ToList();
+                    foreach (var m in engine.Torrents.Where(m => watched.Contains(Hash(m))))
                     {
                         await m.StartAsync().ConfigureAwait(false);
                     }
+
+                    resume = watched;
 
                     _logger.LogInformation("Torrent network changed ({Message}); {Count} torrents reconnected", now.Message, resume.Count);
                 }
