@@ -31,6 +31,7 @@ public static partial class ReleaseRanker
         var resolutions = c.AllowedResolutions ?? [];
         var types = new HashSet<string>(c.AllowedReleaseTypes ?? [], StringComparer.OrdinalIgnoreCase);
         var pref = c.PreferredResolution > 0 ? c.PreferredResolution : 1080;
+        var english = string.IsNullOrWhiteSpace(c.Language) || c.Language.StartsWith("en", StringComparison.OrdinalIgnoreCase);
 
         var list = new List<ReleaseCandidate>();
         foreach (var r in releases)
@@ -68,6 +69,7 @@ public static partial class ReleaseRanker
 
         return list
             .OrderBy(r => r.IsSeasonPack)
+            .ThenBy(r => english && IsForeignLanguage(r.Title) ? 1 : 0)
             .ThenBy(r => ResolutionTier(r.Resolution, pref))
             .ThenBy(r => c.PreferStreamingSizes && !StreamingFriendly(r, request) ? 1 : 0)
             .ThenByDescending(r => r.Seeders)
@@ -108,6 +110,16 @@ public static partial class ReleaseRanker
     };
 
     /// <summary>Returns the release type id (see <see cref="ReleaseTypes"/>), or null if it can't be told.</summary>
+    /// <summary>
+    /// A release tagged with another language (an Italian or French dub, multi-language releases that default to it).
+    /// For an English library these rank after untagged releases: their default audio or forced subtitles are often
+    /// not English.
+    /// </summary>
+    public static bool IsForeignLanguage(string title) => ForeignLanguage().IsMatch(title);
+
+    [GeneratedRegex(@"(?<![A-Za-z])(ITA|ITALIAN|FRENCH|TRUEFRENCH|VFF|VFQ|VFI|VOSTFR|GER|GERMAN|DEUTSCH|SPA|SPANISH|ESP|CASTELLANO|LATINO|RUS|RUSSIAN|HINDI|TAMIL|TELUGU|DUBLADO|TURKISH|ARABIC|POLISH|NORDIC)(?![A-Za-z])", RegexOptions.IgnoreCase)]
+    private static partial Regex ForeignLanguage();
+
     /// <summary>Removes junk some sites put into names (e.g. "The###@ Lord###@ of###@ ...") and extra spaces.</summary>
     public static string CleanTitle(string title)
     {

@@ -162,6 +162,8 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             return;
         }
 
+        SkipAutomaticSubtitle(context, item);
+
         var staticId = item.Id.ToString("N");
         if (string.IsNullOrEmpty(chosen) || string.Equals(chosen, staticId, StringComparison.OrdinalIgnoreCase))
         {
@@ -252,6 +254,54 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
 
         _resolver.Pin(request, id, byDeviceRule: true);
         _logger.LogInformation("{Item} on {Device}: playing {Release} ({Limit})", item.Name, device, fits.Title, DeviceRules.Describe(rule));
+    }
+
+    /// <summary>
+    /// For a torrent, Jellyfin can only show an embedded text subtitle by first reading the whole file to extract it,
+    /// which means downloading the entire release before playback starts. Releases often mark a subtitle as default or
+    /// forced (e.g. Italian forced subtitles), which Jellyfin then picks automatically. So: when no subtitle is asked for,
+    /// ask for none; when the asked-for subtitle is the release's own default/forced text track (the automatic pick), drop
+    /// it. A subtitle the user picks still works (slowly, as explained in the log).
+    /// </summary>
+    private void SkipAutomaticSubtitle(ActionExecutingContext context, BaseItem item)
+    {
+        var bodies = context.ActionArguments.Values
+            .Where(v => v?.GetType().GetProperty("SubtitleStreamIndex") is { CanWrite: true } p && (p.PropertyType == typeof(int?) || p.PropertyType == typeof(int)))
+            .ToList();
+        var hasQuery = context.ActionArguments.TryGetValue("subtitleStreamIndex", out var q);
+        int? requested = hasQuery ? q as int? : null;
+        requested ??= bodies.Select(b => b!.GetType().GetProperty("SubtitleStreamIndex")!.GetValue(b) as int?).FirstOrDefault(i => i.HasValue);
+
+        if (requested is int index && index >= 0)
+        {
+            var streams = _services.GetService<IMediaSourceManager>()?.GetMediaStreams(item.Id) ?? [];
+            var stream = streams.FirstOrDefault(s => s.Type == MediaStreamType.Subtitle && s.Index == index);
+            if (stream is null || stream.IsExternal || !stream.IsTextSubtitleStream || !(stream.IsDefault || stream.IsForced))
+            {
+                if (stream is { IsExternal: false, IsTextSubtitleStream: true })
+                {
+                    _logger.LogInformation("{Item}: subtitle {Language} chosen; Jellyfin reads the whole torrent to extract it before playback starts", item.Name, stream.Language);
+                }
+
+                return; // a subtitle someone picked (or one that needs no extraction): keep it
+            }
+
+            _logger.LogInformation("{Item}: skipped the release's automatic {Language} subtitle (showing it would mean downloading the whole torrent first)", item.Name, stream.Language);
+        }
+        else if (requested is not null)
+        {
+            return; // already "none"
+        }
+
+        if (hasQuery)
+        {
+            context.ActionArguments["subtitleStreamIndex"] = -1;
+        }
+
+        foreach (var body in bodies)
+        {
+            body!.GetType().GetProperty("SubtitleStreamIndex")!.SetValue(body, -1);
+        }
     }
 
     private void ClearSavedTracks(BaseItem item)
