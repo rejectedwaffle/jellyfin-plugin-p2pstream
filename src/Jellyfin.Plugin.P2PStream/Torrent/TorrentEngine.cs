@@ -379,6 +379,56 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         {
             _logger.LogDebug("Network check failed: {Message}", ex.Message);
         }
+
+        await KeepDhtRunningAsync().ConfigureAwait(false);
+    }
+
+    private DateTime _lastDhtStart = DateTime.MinValue;
+    private string _lastDhtState = string.Empty;
+
+    /// <summary>
+    /// MonoTorrent tries to join the DHT once; if that first attempt fails (the VPN was still connecting, the bootstrap
+    /// servers didn't answer), it never tries again and torrents only find peers through trackers. While torrents are
+    /// running, try again every 2 minutes.
+    /// </summary>
+    private async Task KeepDhtRunningAsync()
+    {
+        var engine = _engine;
+        if (engine is null || engine.Settings.DhtEndPoint is null || !NetworkGuard.State.Ok)
+        {
+            return;
+        }
+
+        try
+        {
+            var state = $"{engine.Dht.State}";
+            if (state != _lastDhtState)
+            {
+                _logger.LogInformation("DHT: {State}, {Nodes} nodes", state, engine.Dht.NodeCount);
+                _lastDhtState = state;
+            }
+
+            if (engine.Dht.State != MonoTorrent.Dht.DhtState.NotReady
+                || DateTime.UtcNow - _lastDhtStart < TimeSpan.FromMinutes(2)
+                || !engine.Torrents.Any(m => m.State is TorrentState.Downloading or TorrentState.Seeding or TorrentState.Metadata))
+            {
+                return;
+            }
+
+            _lastDhtStart = DateTime.UtcNow;
+
+            // ClientEngine.DhtEngine is internal; IDhtEngine.StartAsync is public and starts a fresh bootstrap.
+            if (typeof(ClientEngine).GetProperty("DhtEngine", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(engine)
+                is MonoTorrent.Dht.IDhtEngine dht)
+            {
+                _logger.LogInformation("DHT isn't connected; trying again");
+                await dht.StartAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("DHT restart failed: {Message}", ex.Message);
+        }
     }
 
     /// <summary>

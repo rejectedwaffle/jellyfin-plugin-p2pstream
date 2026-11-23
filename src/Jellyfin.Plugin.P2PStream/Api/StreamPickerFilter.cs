@@ -165,6 +165,13 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         SkipAutomaticSubtitle(context, item);
 
         var staticId = item.Id.ToString("N");
+        var client = context.HttpContext.Request.Headers.Authorization.ToString() + " " + context.HttpContext.Request.Headers["X-Emby-Authorization"].ToString();
+        var clientName = ClientName().Match(client) is { Success: true } cm ? cm.Groups[1].Value : "unknown app";
+        _logger.LogInformation(
+            "Playback info for {Item} from {Client}: version asked for: {Version}",
+            item.Name,
+            clientName,
+            string.IsNullOrEmpty(chosen) || string.Equals(chosen, staticId, StringComparison.OrdinalIgnoreCase) ? "Auto" : chosen);
         if (string.IsNullOrEmpty(chosen) || string.Equals(chosen, staticId, StringComparison.OrdinalIgnoreCase))
         {
             await ApplyDeviceRuleAsync(context, item, request).ConfigureAwait(false); // Auto
@@ -189,10 +196,18 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             return; // not one of ours
         }
 
-        // A different release than last time: forget the saved tracks so Jellyfin reads the new release's tracks.
+        // A different release than last time: use its tracks if it was checked in advance (otherwise Jellyfin reads the
+        // start of the release before answering, which can take minutes on a slow torrent and makes apps give up).
         if (!_resolver.IsCurrentPick(request, chosen))
         {
-            ClearSavedTracks(item);
+            if (_options.TryGetProbe(chosen, out var probe) && probe.Streams is { Count: > 0 })
+            {
+                _services.GetService<IMediaStreamRepository>()?.SaveMediaStreams(item.Id, probe.Streams, CancellationToken.None);
+            }
+            else
+            {
+                ClearSavedTracks(item);
+            }
         }
 
         _resolver.Pin(request, chosen);
@@ -344,6 +359,9 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
 
         return list;
     }
+
+    [GeneratedRegex(@"Client=""([^""]*)""")]
+    private static partial Regex ClientName();
 
     [GeneratedRegex(@"^p2pres(\d{3,4})$")]
     private static partial Regex ResolutionChoice();

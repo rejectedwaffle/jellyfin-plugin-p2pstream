@@ -272,6 +272,7 @@ public sealed class GuardedUdpTrackerConnection : ITrackerConnection
 public sealed class GuardedDhtListener : SocketListener, IDhtListener
 {
     private Socket? _socket;
+    private DateTime _lastError = DateTime.MinValue;
 
     public GuardedDhtListener(IPEndPoint endpoint)
         : base(endpoint)
@@ -320,11 +321,17 @@ public sealed class GuardedDhtListener : SocketListener, IDhtListener
             {
                 // ICMP port unreachable from an earlier send; keep listening
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 if (token.IsCancellationRequested)
                 {
                     return;
+                }
+
+                if (DateTime.UtcNow - _lastError > TimeSpan.FromMinutes(10))
+                {
+                    _lastError = DateTime.UtcNow;
+                    NetworkGuard.Log($"DHT can't receive on {LocalEndPoint}: {ex.Message}");
                 }
 
                 await Task.Delay(100, CancellationToken.None).ConfigureAwait(false);

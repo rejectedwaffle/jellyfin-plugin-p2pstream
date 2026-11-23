@@ -52,6 +52,9 @@ public static class NetworkGuard
 
     public static void SetLogger(Action<string> log) => _log = log;
 
+    /// <summary>Writes to the Jellyfin log (set at startup).</summary>
+    public static void Log(string message) => _log?.Invoke(message);
+
     public static NetworkMode ConfiguredMode(Configuration.PluginConfiguration? c) => (c?.TorrentNetwork ?? string.Empty).Trim().ToLowerInvariant() switch
     {
         "interface" or "vpn" => NetworkMode.Interface,

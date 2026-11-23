@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.9.5.0",
+                             "changelog":  "DHT is retried when its first connection fails (VPN mode found peers only through trackers). Choosing a version uses its already-checked tracks so playback info answers at once. Logs which version each app asks for.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.9.5.0/p2pstream_0.9.5.0.zip",
+                             "checksum":  "7092d7b0e74c0defe3e05a571fedc51f",
+                             "timestamp":  "2026-11-23T20:40:54Z"
+                         },
+                         {
                              "version":  "0.9.4.0",
                              "changelog":  "Playback no longer stalls on a release\u0027s automatic default/forced subtitle (Jellyfin had to download the whole torrent to extract it first). For English libraries, releases tagged with another language (ITA, FRENCH, ...) rank after untagged ones.",
                              "targetAbi":  "12.4.0.0",
