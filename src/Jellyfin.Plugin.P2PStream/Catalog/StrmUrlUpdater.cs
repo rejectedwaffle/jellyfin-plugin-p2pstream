@@ -20,6 +20,18 @@ public sealed partial class StrmUrlUpdater : IHostedService
     private readonly ILogger<StrmUrlUpdater> _logger;
     private readonly SemaphoreSlim _running = new(1, 1);
     private string _current = string.Empty;
+    private string _currentToken = string.Empty;
+    private static (string Token, DateTime Until) _previous;
+
+    /// <summary>
+    /// True for the token used before the last change, for 10 minutes: whatever is playing (the player holds the old
+    /// link) keeps working while all links are rewritten.
+    /// </summary>
+    public static bool IsRecentPreviousToken(string token)
+    {
+        var (old, until) = _previous;
+        return !string.IsNullOrEmpty(old) && DateTime.UtcNow < until && old == token;
+    }
 
     public StrmUrlUpdater(StreamUrlBuilder urls, ILibraryManager libraryManager, ILogger<StrmUrlUpdater> logger)
     {
@@ -33,7 +45,8 @@ public sealed partial class StrmUrlUpdater : IHostedService
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _current = Prefix;
-        Plugin.Instance!.ConfigurationChanged += OnConfigurationChanged;
+        _currentToken = Plugin.Instance!.Configuration.StreamToken;
+        Plugin.Instance.ConfigurationChanged += OnConfigurationChanged;
         return Task.CompletedTask;
     }
 
@@ -53,6 +66,13 @@ public sealed partial class StrmUrlUpdater : IHostedService
         if (now == _current)
         {
             return;
+        }
+
+        var token = Plugin.Instance!.Configuration.StreamToken;
+        if (token != _currentToken)
+        {
+            _previous = (_currentToken, DateTime.UtcNow.AddMinutes(10));
+            _currentToken = token;
         }
 
         _current = now;

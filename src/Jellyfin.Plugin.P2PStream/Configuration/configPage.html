@@ -16,7 +16,9 @@
                 #P2PStreamConfigPage .p2p-tab-btn .material-icons { font-size: 1.2em; }
                 #P2PStreamConfigPage .p2p-panel { display: none; }
                 #P2PStreamConfigPage .p2p-panel.active { display: block; }
-                #P2PStreamConfigPage .p2p-grid { columns: 20em 3; column-gap: 1em; }
+                /* Jellyfin's dashboard caps settings forms at about 54em; this page uses the full width instead. */
+                #P2PStreamConfigPage form, #P2PStreamConfigPage .content-primary { max-width: none !important; }
+                #P2PStreamConfigPage .p2p-grid { columns: 21em; column-gap: 1em; }
                 #P2PStreamConfigPage .p2p-card { background: rgba(128,128,128,.08); border: 1px solid rgba(128,128,128,.25); border-radius: 8px; padding: .85em 1.1em .4em; margin: 0 0 1em; break-inside: avoid; page-break-inside: avoid; }
                 #P2PStreamConfigPage .p2p-card.wide { column-span: all; padding-bottom: .85em; }
                 #P2PStreamConfigPage .p2p-card h3 { display: flex; align-items: center; gap: .5em; margin: 0 0 .45em; font-size: 1.1em; font-weight: 500; }

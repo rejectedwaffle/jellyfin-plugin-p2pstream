@@ -35,6 +35,7 @@ public static partial class ReleaseRanker
         var list = new List<ReleaseCandidate>();
         foreach (var r in releases)
         {
+            r.Title = CleanTitle(r.Title);
             r.Resolution = ParseResolution(r.Title);
             var type = DetectReleaseType(r.Title);
             if ((r.Seeders >= 0 && r.Seeders < c.MinSeeders) // -1 = unknown (e.g. web-seeded), don't filter
@@ -107,6 +108,24 @@ public static partial class ReleaseRanker
     };
 
     /// <summary>Returns the release type id (see <see cref="ReleaseTypes"/>), or null if it can't be told.</summary>
+    /// <summary>Removes junk some sites put into names (e.g. "The###@ Lord###@ of###@ ...") and extra spaces.</summary>
+    public static string CleanTitle(string title)
+    {
+        if (string.IsNullOrEmpty(title))
+        {
+            return title;
+        }
+
+        var cleaned = JunkMarks().Replace(title, string.Empty);
+        return MultiSpace().Replace(cleaned, " ").Trim();
+    }
+
+    [GeneratedRegex(@"#{2,}@*|#+@+|@{2,}")]
+    private static partial Regex JunkMarks();
+
+    [GeneratedRegex(@"\s{2,}")]
+    private static partial Regex MultiSpace();
+
     public static string? DetectReleaseType(string title)
     {
         foreach (var (id, _, pattern) in ReleaseTypes)

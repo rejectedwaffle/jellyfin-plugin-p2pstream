@@ -640,8 +640,9 @@ public class P2PStreamController : ControllerBase
     private static bool TokenValid(string token)
     {
         var expected = Plugin.Instance?.Configuration.StreamToken;
-        return !string.IsNullOrEmpty(expected)
-            && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(token ?? string.Empty), Encoding.UTF8.GetBytes(expected));
+        return (!string.IsNullOrEmpty(expected)
+                && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(token ?? string.Empty), Encoding.UTF8.GetBytes(expected)))
+            || Catalog.StrmUrlUpdater.IsRecentPreviousToken(token ?? string.Empty); // 10 minutes after a new token, for what's already playing
     }
 
     private static string MimeType(string path) => Path.GetExtension(path).ToLowerInvariant() switch

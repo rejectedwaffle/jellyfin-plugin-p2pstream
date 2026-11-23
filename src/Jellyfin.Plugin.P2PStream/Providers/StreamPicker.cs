@@ -174,7 +174,7 @@ public sealed class StreamProber
         }
 
         var source = StreamPicker.BuildSources(item, strmUrl, [release])[0];
-        source.Path += "&probe=1"; // tells the play endpoint not to remember this release
+        source.Path += "&probe=true"; // tells the play endpoint not to remember this release ("1" isn't a valid bool)
         using var timeout = new CancellationTokenSource(ProbeTimeout);
         try
         {

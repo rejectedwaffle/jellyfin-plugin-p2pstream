@@ -584,9 +584,21 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         await _engineLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (manager.State != TorrentState.Stopped)
+            try
             {
-                await manager.StopAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                for (var i = 0; i < 50 && manager.State == TorrentState.Stopping; i++)
+                {
+                    await Task.Delay(100).ConfigureAwait(false); // a stop already under way (idle stop, kill switch)
+                }
+
+                if (manager.State != TorrentState.Stopped)
+                {
+                    await manager.StopAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex) when (ex is ObjectDisposedException or InvalidOperationException or TaskCanceledException)
+            {
+                _logger.LogDebug("Stopping {Name} before removal: {Message}", manager.Torrent?.Name, ex.Message);
             }
 
             await engine.RemoveAsync(manager, deleteData ? RemoveMode.DownloadedDataOnly : RemoveMode.KeepAllData).ConfigureAwait(false);

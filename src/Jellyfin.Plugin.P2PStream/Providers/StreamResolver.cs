@@ -40,12 +40,19 @@ public sealed class StreamResolver
     /// and downloads the start and end of the video, the parts players read first. Pressing play then starts much sooner.
     /// It's the same release Auto would play, so nothing is wasted if you play it.
     /// </summary>
+    private readonly ConcurrentDictionary<string, DateTime> _warmed = new();
+
     public void Prewarm(MediaRequest req)
     {
-        if (Plugin.Instance?.Configuration.PrewarmOnOpen != true || !_warming.TryAdd(req.Key, 0))
+        // Once per title per 15 minutes: apps fetch a title's page several times (and again when playback starts).
+        if (Plugin.Instance?.Configuration.PrewarmOnOpen != true
+            || (_warmed.TryGetValue(req.Key, out var at) && DateTime.UtcNow - at < TimeSpan.FromMinutes(15))
+            || !_warming.TryAdd(req.Key, 0))
         {
             return;
         }
+
+        _warmed[req.Key] = DateTime.UtcNow;
 
         _ = Task.Run(async () =>
         {
