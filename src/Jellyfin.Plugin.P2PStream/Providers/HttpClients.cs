@@ -35,8 +35,10 @@ internal static class HttpClients
     private static void Ensure()
     {
         var c = Plugin.Instance?.Configuration;
-        var viaVpn = SearchesViaVpn(c);
-        var useProxy = c?.SearchesUseProxy == true && !viaVpn;
+        var follow = c?.SearchesFollowTorrentTraffic == true;
+        var mode = Torrent.NetworkGuard.ConfiguredMode(c);
+        var viaVpn = follow && mode == Torrent.NetworkMode.Interface;
+        var useProxy = follow && mode == Torrent.NetworkMode.Proxy;
         var key = $"{c?.ProxyUrl}|{c?.ProxyUser}|{c?.ProxyPassword}|{viaVpn}|{useProxy}";
         if (_default is not null && key == _proxyKey)
         {
@@ -51,16 +53,12 @@ internal static class HttpClients
             }
 
             // Old clients aren't disposed: requests may still be in flight on them.
-            var proxy = useProxy ? BuildProxy(c?.ProxyUrl, c?.ProxyUser, c?.ProxyPassword) : null; // only when "use the proxy for searches" is ticked
+            var proxy = useProxy ? BuildProxy(c?.ProxyUrl, c?.ProxyUser, c?.ProxyPassword) : null; // only when searches follow torrent traffic, and that's the proxy
             _noRedirect = Create(false, proxy, viaVpn);
             _default = Create(true, proxy, viaVpn);
             _proxyKey = key;
         }
     }
-
-    /// <summary>In VPN mode, searches and TMDB lookups go through the VPN interface too (unless turned off), with the same kill switch.</summary>
-    private static bool SearchesViaVpn(Configuration.PluginConfiguration? c) =>
-        c is not null && c.SearchesUseInterface && Torrent.NetworkGuard.ConfiguredMode(c) == Torrent.NetworkMode.Interface;
 
     private static IWebProxy? BuildProxy(string? url, string? user, string? password)
     {

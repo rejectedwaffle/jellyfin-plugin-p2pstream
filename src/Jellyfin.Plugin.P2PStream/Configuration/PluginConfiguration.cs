@@ -112,14 +112,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets the network interface torrent traffic must use in "interface" mode, e.g. wg0 or tun0 (or its IP address).</summary>
     public string BindInterface { get; set; } = string.Empty;
 
-    /// <summary>Gets or sets a value indicating whether searches and TMDB lookups also go through the VPN interface in "interface" mode.</summary>
-    public bool SearchesUseInterface { get; set; } = true;
-
     /// <summary>
-    /// Gets or sets a value indicating whether searches, TMDB lookups and .torrent downloads go through the proxy.
-    /// Off by default: a proxy address on its own does nothing, so a forgotten one can't quietly break searches.
+    /// Gets or sets a value indicating whether searches, TMDB lookups and .torrent downloads go the same way as torrent
+    /// traffic (through the chosen VPN or proxy). Off by default; in Direct mode it changes nothing.
     /// </summary>
-    public bool SearchesUseProxy { get; set; }
+    public bool SearchesFollowTorrentTraffic { get; set; }
 
     /// <summary>Gets or sets a value indicating whether a torrent stops (no downloading or sharing) a minute after nobody is watching it.</summary>
     public bool StopSharingWhenIdle { get; set; } = true;

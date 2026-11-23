@@ -330,7 +330,7 @@ public class P2PStreamController : ControllerBase
         Uri? proxyUri = null;
         var proxySet = !string.IsNullOrWhiteSpace(c.ProxyUrl);
         var proxyForTorrents = mode == Torrent.NetworkMode.Proxy;
-        var proxyForSearches = c.SearchesUseProxy && !(c.SearchesUseInterface && mode == Torrent.NetworkMode.Interface);
+        var proxyForSearches = c.SearchesFollowTorrentTraffic && mode == Torrent.NetworkMode.Proxy;
         if (proxySet && Torrent.NetworkGuard.TryParseProxy(c.ProxyUrl, out var parsed, out _))
         {
             proxyUri = parsed;
@@ -376,7 +376,7 @@ public class P2PStreamController : ControllerBase
 
         // 3. Searches and TMDB, through the client they really use.
         var (searchIp, searchError) = await Try(Providers.HttpClients.Default).ConfigureAwait(false);
-        var route = c.SearchesUseInterface && mode == Torrent.NetworkMode.Interface ? "through the VPN" : proxyForSearches ? "through the proxy" : "directly";
+        var route = c.SearchesFollowTorrentTraffic && mode == Torrent.NetworkMode.Interface ? "through the VPN" : proxyForSearches ? "through the proxy" : "directly";
         if (searchIp is null)
         {
             Add("Searches", false, "Not working", $"Searches go {route} and fail ({searchError}). Finding and playing titles won't work until this is fixed.");
@@ -401,7 +401,7 @@ public class P2PStreamController : ControllerBase
             }
 
             var used = uses.Count == 0
-                ? "Not used by anything: tick \"Use the proxy for searches\" or choose it for torrent traffic, or clear the address."
+                ? "Not used: choose \"Only through the proxy\" under Torrent traffic to use it, or clear the address."
                 : "Used for " + string.Join(" and ", uses) + ".";
             if (proxyTest is null)
             {

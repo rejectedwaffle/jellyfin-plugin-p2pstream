@@ -351,7 +351,10 @@
                                     <datalist id="p2pIfaceList"></datalist>
                                     <div class="fieldDescription" id="p2pIfaceHint"></div>
                                 </div>
-                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="SearchesUseInterface" /><span>Send searches through the VPN too</span></label>
+                            </div>
+                            <div id="p2pSearchFollow">
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="SearchesFollowTorrentTraffic" id="p2pSearchFollowBox" /><span>Send searches and TMDB lookups the same way</span></label>
+                                <div class="p2p-desc">Through the VPN or proxy chosen above, so sites don't see your address either. If it stops working, searches stop too.</div>
                             </div>
                             <div class="p2p-desc" id="p2pNetHelp"></div>
                             <div id="p2pNetStatus" class="p2p-netstatus"></div>
@@ -360,15 +363,13 @@
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">vpn_lock</span>Proxy</h3>
-                            <p class="p2p-muted">Only used where you say: tick the box below for searches, or choose "Only through the proxy" above for torrent traffic.</p>
+                            <p class="p2p-muted">Only used when Torrent traffic is set to "Only through the proxy" (and for searches too, if "Send searches and TMDB lookups the same way" is ticked).</p>
                             <div id="p2pProxyUse" class="p2p-netstatus"></div>
                             <div class="inputContainer"><input is="emby-input" type="text" data-key="ProxyUrl" label="Proxy address (e.g. socks5://127.0.0.1:1080)" autocomplete="off" /></div>
                             <div class="p2p-row">
                                 <div class="inputContainer"><input is="emby-input" type="text" data-key="ProxyUser" label="Login" autocomplete="off" /></div>
                                 <div class="inputContainer"><input is="emby-input" type="password" data-key="ProxyPassword" label="Password" autocomplete="new-password" /></div>
                             </div>
-                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="SearchesUseProxy" id="p2pSearchProxy" /><span>Use the proxy for searches and TMDB</span></label>
-                            <div class="p2p-desc">Helps if a site is blocked where you are. If the proxy stops working, searches stop too, so use Test after changing it.</div>
                             <div style="margin:.2em 0 .6em"><button is="emby-button" type="button" class="raised p2p-nettest"><span>Test</span></button></div>
                             <div class="p2p-testrows" data-rows="Proxy"></div>
                         </div>
@@ -633,6 +634,7 @@
             function updateNetForm() {
                 var mode = page.querySelector('#p2pNetMode').value || 'direct';
                 page.querySelector('#p2pNetIface').style.display = mode === 'interface' ? '' : 'none';
+                page.querySelector('#p2pSearchFollow').style.display = mode === 'direct' ? 'none' : '';
                 page.querySelector('#p2pNetHelp').textContent = netHelp[mode] || '';
             }
             page.querySelector('#p2pNetMode').addEventListener('change', updateNetForm);
@@ -643,12 +645,13 @@
                 var url = (page.querySelector('[data-key="ProxyUrl"]').value || '').trim();
                 if (!url) { el.className = 'p2p-netstatus'; el.textContent = ''; return; }
                 var uses = [];
-                if (page.querySelector('#p2pSearchProxy').checked) { uses.push('searches and TMDB'); }
-                if (page.querySelector('#p2pNetMode').value === 'proxy') { uses.push('torrent traffic'); }
+                var proxyMode = page.querySelector('#p2pNetMode').value === 'proxy';
+                if (proxyMode) { uses.push('torrent traffic'); }
+                if (proxyMode && page.querySelector('#p2pSearchFollowBox').checked) { uses.push('searches and TMDB'); }
                 el.className = 'p2p-netstatus ' + (uses.length ? 'ok' : 'warn');
-                el.textContent = uses.length ? 'Used for: ' + uses.join(' and ') + '.' : 'Not in use: nothing is set to use this proxy.';
+                el.textContent = uses.length ? 'Used for: ' + uses.join(' and ') + '.' : 'Not in use: Torrent traffic isn\'t set to the proxy.';
             }
-            ['#p2pNetMode', '#p2pSearchProxy', '[data-key="ProxyUrl"]'].forEach(function (s) {
+            ['#p2pNetMode', '#p2pSearchFollowBox', '[data-key="ProxyUrl"]'].forEach(function (s) {
                 page.querySelector(s).addEventListener('change', updateProxyUse);
                 page.querySelector(s).addEventListener('input', updateProxyUse);
             });
