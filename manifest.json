@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.9.3.0",
+                             "changelog":  "The Auto entry\u0027s \u0027now:\u0027 name is cleaned too (picks remembered before 0.9.2 could show ###@).",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.9.3.0/p2pstream_0.9.3.0.zip",
+                             "checksum":  "f272a2c2a5bf9778fa9070cc051ff0d7",
+                             "timestamp":  "2026-11-23T11:13:28Z"
+                         },
+                         {
                              "version":  "0.9.2.0",
                              "changelog":  "Fixed: the track check never worked (probe=1 rejected). Pre-load once per title per 15 minutes. Removing a torrent no longer fails and leaves it behind. Junk like ###@ cleaned from release names. Settings use the full screen width with as many columns as fit. Old stream links keep working for 10 minutes after a new token.",
                              "targetAbi":  "12.4.0.0",

@@ -139,7 +139,7 @@ public sealed class StreamResolver
         _started.TryGetValue(releaseId, out var s) && _cache.TryGet(req.Key, out var e) && e.InfoHash == s.InfoHash;
 
     /// <summary>The release Auto currently plays, if one is remembered.</summary>
-    public string? CurrentPickTitle(MediaRequest req) => _cache.TryGet(req.Key, out var e) ? e.Title : null;
+    public string? CurrentPickTitle(MediaRequest req) => _cache.TryGet(req.Key, out var e) ? ReleaseRanker.CleanTitle(e.Title) : null; // picks remembered before names were cleaned
 
     /// <param name="releaseId">A release picked in the Version menu, or null for Auto (best match).</param>
     /// <param name="remember">False for background checks, which must not change Auto's remembered pick.</param>
