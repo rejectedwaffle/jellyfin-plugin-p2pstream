@@ -141,6 +141,12 @@ public sealed class StreamOptions
         try
         {
             await EnrichAsync(request, CancellationToken.None).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(request.Title) && string.IsNullOrWhiteSpace(request.ImdbId))
+            {
+                // Without a title or IMDb id no source can search; don't record that as every source finding nothing.
+                throw new StreamNotFoundException("Couldn't look this title up on TMDB, so there's nothing to search for. Check the TMDB key, and the proxy if one is set.");
+            }
+
             var c = Plugin.Instance!.Configuration;
             var ranked = ReleaseRanker.Rank(await _sources.SearchAsync(request, CancellationToken.None).ConfigureAwait(false), request);
             var keep = Math.Max(Math.Clamp(c.StreamPickerMax, 1, 50), Math.Max(1, c.CandidatesToTry));
