@@ -424,14 +424,53 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             if (typeof(ClientEngine).GetProperty("DhtEngine", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(engine)
                 is MonoTorrent.Dht.IDhtEngine dht)
             {
-                _logger.LogInformation("DHT isn't connected; trying again");
-                await dht.StartAsync().ConfigureAwait(false);
+                var nodes = await DhtBootstrapNodesAsync().ConfigureAwait(false);
+                _logger.LogInformation("DHT isn't connected; trying again through {Count} bootstrap servers", nodes.Length / 26);
+                await dht.StartAsync(nodes).ConfigureAwait(false);
             }
         }
         catch (Exception ex)
         {
             _logger.LogDebug("DHT restart failed: {Message}", ex.Message);
         }
+    }
+
+    private static readonly (string Host, int Port)[] DhtRouters =
+    [
+        ("dht.transmissionbt.com", 6881), ("dht.libtorrent.org", 25401), ("router.utorrent.com", 6881),
+        ("router.bittorrent.com", 6881), ("dht.aelitis.com", 6881)
+    ];
+
+    /// <summary>
+    /// Several well-known DHT entry points, as compact node info (20-byte id, IPv4 address, port). MonoTorrent on its own
+    /// only asks router.bittorrent.com, which often doesn't answer VPN addresses (many users share them).
+    /// </summary>
+    public static async Task<byte[]> DhtBootstrapNodesAsync()
+    {
+        var bytes = new List<byte>();
+        foreach (var (host, port) in DhtRouters)
+        {
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                var addresses = await Dns.GetHostAddressesAsync(host, timeout.Token).ConfigureAwait(false);
+                foreach (var ip in addresses.Where(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork))
+                {
+                    var id = new byte[20];
+                    Random.Shared.NextBytes(id);
+                    bytes.AddRange(id);
+                    bytes.AddRange(ip.GetAddressBytes());
+                    bytes.Add((byte)(port >> 8));
+                    bytes.Add((byte)(port & 0xFF));
+                }
+            }
+            catch (Exception)
+            {
+                // that one doesn't resolve right now; the others will do
+            }
+        }
+
+        return bytes.ToArray();
     }
 
     /// <summary>
