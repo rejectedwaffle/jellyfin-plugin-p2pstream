@@ -205,20 +205,51 @@ public static class NetworkGuard
         }
 
         // Check it answers, so the settings page can say so (and nothing tries peers for minutes for no reason).
-        try
+        var reason = await ProbeProxyAsync(proxy, ct).ConfigureAwait(false);
+        if (reason is not null)
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            using var s = new Socket(SocketType.Stream, ProtocolType.Tcp);
-            await s.ConnectAsync(proxy.Host, proxy.Port, timeout.Token).ConfigureAwait(false);
-        }
-        catch (Exception) when (!ct.IsCancellationRequested)
-        {
-            return new NetworkState(NetworkMode.Proxy, false, $"Blocked: the proxy {proxy.Host}:{proxy.Port} isn't answering. Nothing is downloaded or shared until it is.", Proxy: proxy);
+            return new NetworkState(NetworkMode.Proxy, false, $"Blocked: the proxy {proxy.Host}:{proxy.Port} isn't answering ({reason}). Nothing is downloaded or shared until it is.", Proxy: proxy);
         }
 
         var dhtNote = IsSocks(proxy) ? "UDP trackers via SOCKS5; DHT off" : "HTTP proxy: TCP only, UDP trackers and DHT off";
         return new NetworkState(NetworkMode.Proxy, true, $"Only through the proxy {proxy.Host}:{proxy.Port} ({dhtNote}; no incoming connections).", Proxy: proxy);
+    }
+
+    /// <summary>Connects to the proxy (a few of its addresses, if it has several). Returns null if it answers, else why not.</summary>
+    private static async Task<string?> ProbeProxyAsync(Uri proxy, CancellationToken ct)
+    {
+        IPAddress[] addresses;
+        try
+        {
+            addresses = IPAddress.TryParse(proxy.Host, out var ip) ? [ip] : await Dns.GetHostAddressesAsync(proxy.Host, ct).ConfigureAwait(false);
+        }
+        catch (SocketException ex)
+        {
+            return "its address can't be looked up: " + ex.SocketErrorCode;
+        }
+
+        string? last = "it has no address";
+        foreach (var address in addresses.OrderBy(a => a.AddressFamily == AddressFamily.InterNetwork ? 0 : 1).Take(3))
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(4));
+            using var s = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            try
+            {
+                await s.ConnectAsync(new IPEndPoint(address, proxy.Port), timeout.Token).ConfigureAwait(false);
+                return null;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                last = $"no reply from {address} within 4 seconds; a firewall may block port {proxy.Port}";
+            }
+            catch (SocketException ex)
+            {
+                last = $"{address}: {ex.SocketErrorCode}";
+            }
+        }
+
+        return last;
     }
 
     public static bool TryParseProxy(string? url, out Uri proxy, out string problem)
