@@ -77,5 +77,8 @@ public sealed class TorrentStatus
     /// <summary>Gets or sets each tracker's last answer ("Ok", "Offline: ..."), to see why a torrent finds no peers.</summary>
     public List<string> Trackers { get; set; } = [];
 
+    /// <summary>Peer connection attempts since the torrent was added, by outcome (e.g. "Connected 4, Unreachable 70").</summary>
+    public string? Connections { get; set; }
+
     public List<TorrentFileStatus> Files { get; set; } = [];
 }

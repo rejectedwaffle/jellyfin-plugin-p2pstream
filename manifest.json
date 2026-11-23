@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.9.6.0",
+                             "changelog":  "Torrents list shows peer connection outcomes (connected / unreachable / ...) to tell a weak swarm from a network problem.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.9.6.0/p2pstream_0.9.6.0.zip",
+                             "checksum":  "362effc15dfbce3b942b4177eb5d5512",
+                             "timestamp":  "2026-11-23T20:47:01Z"
+                         },
+                         {
                              "version":  "0.9.5.0",
                              "changelog":  "DHT is retried when its first connection fails (VPN mode found peers only through trackers). Choosing a version uses its already-checked tracks so playback info answers at once. Logs which version each app asks for.",
                              "targetAbi":  "12.4.0.0",

@@ -65,6 +65,15 @@ public sealed class TorrentSession
     public void Touch() => LastAccess = DateTime.UtcNow;
 
     /// <summary>"Disk write failed: No space left on device" and the like.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _connections = new();
+
+    /// <summary>Counts a peer connection attempt's outcome (shown in the Torrents list, to tell a swarm problem from a network one).</summary>
+    public void CountConnection(string outcome) => _connections.AddOrUpdate(outcome, 1, (_, n) => n + 1);
+
+    public string? ConnectionSummary() => _connections.IsEmpty
+        ? null
+        : string.Join(", ", _connections.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}"));
+
     public static string? Describe(Error? error) => error is null ? null : error.Reason switch
     {
         Reason.WriteFailure => "Couldn't write to disk",

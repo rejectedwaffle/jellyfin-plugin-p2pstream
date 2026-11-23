@@ -184,6 +184,8 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             }
 
             var session = new TorrentSession(source.InfoHash, manager);
+            manager.ConnectionAttemptFailed += (_, e) => session.CountConnection(e.Reason.ToString());
+            manager.PeerConnected += (_, _) => session.CountConnection("Connected");
             _sessions[source.InfoHash] = session;
             Track(manager);
             _logger.LogInformation("Added torrent {Name} ({Hash})", manager.Torrent?.Name, source.InfoHash);
@@ -229,6 +231,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                 ActiveStreams = s.ActiveStreams,
                 IdleMinutes = Math.Round((DateTime.UtcNow - s.LastAccess).TotalMinutes, 1),
                 Error = TorrentSession.Describe(m.Error),
+                Connections = s.ConnectionSummary(),
                 Trackers = m.TrackerManager.Tiers.SelectMany(t => t.Trackers)
                     .Select(t => $"{t.Uri.Scheme}://{t.Uri.Host}: {t.Status}{(string.IsNullOrEmpty(t.FailureMessage) ? string.Empty : " (" + t.FailureMessage + ")")}")
                     .ToList(),
