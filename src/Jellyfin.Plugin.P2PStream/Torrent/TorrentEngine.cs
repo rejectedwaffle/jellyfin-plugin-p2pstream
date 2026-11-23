@@ -137,6 +137,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                 _engineLock.Release();
             }
 
+            await SplitTrackerTiersAsync(manager).ConfigureAwait(false);
             await EnsureStartedAsync(manager).ConfigureAwait(false);
 
             if (!manager.HasMetadata)
@@ -206,6 +207,9 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                 ActiveStreams = s.ActiveStreams,
                 IdleMinutes = Math.Round((DateTime.UtcNow - s.LastAccess).TotalMinutes, 1),
                 Error = TorrentSession.Describe(m.Error),
+                Trackers = m.TrackerManager.Tiers.SelectMany(t => t.Trackers)
+                    .Select(t => $"{t.Uri.Scheme}://{t.Uri.Host}: {t.Status}{(string.IsNullOrEmpty(t.FailureMessage) ? string.Empty : " (" + t.FailureMessage + ")")}")
+                    .ToList(),
                 Files = m.Files.Select((f, i) => new TorrentFileStatus { Index = i, Path = f.Path, Length = f.Length, IsVideo = IsVideo(f.Path) }).ToList()
             };
         }).ToList();
@@ -224,6 +228,33 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     }
 
     internal static string Hash(TorrentManager m) => m.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
+
+    /// <summary>
+    /// Gives every tracker its own tier. A magnet's trackers all land in one tier, and MonoTorrent tries a tier's
+    /// trackers one after another, moving on only when one fails (up to 45 seconds for a dead UDP tracker). Public
+    /// magnets list many dead trackers, so the working ones could wait minutes. Tiers are announced in parallel.
+    /// </summary>
+    public static async Task SplitTrackerTiersAsync(TorrentManager manager)
+    {
+        try
+        {
+            var extra = manager.TrackerManager.Tiers.Where(t => t.Trackers.Count > 1).SelectMany(t => t.Trackers.Skip(1)).ToList();
+            foreach (var tracker in extra)
+            {
+                if (await manager.TrackerManager.RemoveTrackerAsync(tracker).ConfigureAwait(false))
+                {
+                    await manager.TrackerManager.AddTrackerAsync(tracker).ConfigureAwait(false);
+                }
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // a private torrent: its trackers can't be changed (and it usually has one)
+        }
+    }
+
+    /// <summary>Gets the DHT state and node count ("Ready, 312 nodes"), for the status display.</summary>
+    public string DhtStatus => _engine?.Dht is { } d ? $"{d.State}, {d.NodeCount} nodes" : "off";
 
     private static async Task EnsureStartedAsync(TorrentManager manager)
     {

@@ -137,6 +137,7 @@ public class P2PStreamController : ControllerBase
         {
             Torrents = torrents,
             Network = new { Mode = Torrent.NetworkGuard.State.Mode.ToString(), Torrent.NetworkGuard.State.Ok, Torrent.NetworkGuard.State.Message },
+            Dht = _engine.DhtStatus,
             DiskMb = _engine.TotalDiskBytes >> 20,
             BaseUrl = _urls.BaseUrl(Request),
             CatalogPath = Plugin.Instance!.CatalogPath,

@@ -74,5 +74,8 @@ public sealed class TorrentStatus
     /// <summary>Gets or sets why the torrent stopped with an error (e.g. a disk write failed), if it did.</summary>
     public string? Error { get; set; }
 
+    /// <summary>Gets or sets each tracker's last answer ("Ok", "Offline: ..."), to see why a torrent finds no peers.</summary>
+    public List<string> Trackers { get; set; } = [];
+
     public List<TorrentFileStatus> Files { get; set; } = [];
 }
