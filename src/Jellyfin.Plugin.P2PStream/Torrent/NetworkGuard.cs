@@ -508,18 +508,28 @@ public static class NetworkGuard
 
     // ------------------------------------------------------------------ proxy handshakes
 
+    /// <summary>What the settings page's proxy test found.</summary>
+    /// <param name="Problem">Why it doesn't work at all (can't connect, login rejected), or null.</param>
+    /// <param name="Login">True if a login was sent and accepted, null if there's no login.</param>
+    /// <param name="Ip">The address the internet sees through the proxy.</param>
+    /// <param name="Udp">Whether UDP tracker packets come back (null for an HTTP proxy, which can't carry UDP).</param>
+    /// <param name="Trackers">Whether a real torrent tracker answers through the proxy (TCP or UDP).</param>
+    public sealed record ProxyTestResult(string? Problem, bool? Login, string? Ip, bool? Udp, bool Trackers);
+
     /// <summary>
-    /// The settings page's test: connects through the proxy (whatever mode is on) and reports each step: reachable,
-    /// login accepted, the address the internet sees, and whether it relays UDP (for UDP trackers).
+    /// The settings page's test: connects through the proxy (whatever mode is on) and checks each thing torrents need:
+    /// it answers, the login is accepted, the address the internet sees, and whether a real tracker answers over TCP
+    /// and UDP. VPN providers' SOCKS servers often carry web traffic but block BitTorrent.
     /// </summary>
-    public static async Task<(bool Ok, bool TorrentsOk, string Detail, string? Ip)> TestProxyAsync(Uri proxy, Func<HttpClient, CancellationToken, Task<string?>> whatIsMyIp, CancellationToken ct)
+    public static async Task<ProxyTestResult> TestProxyAsync(Uri proxy, Func<HttpClient, CancellationToken, Task<string?>> whatIsMyIp, CancellationToken ct)
     {
         var reach = await ProbeProxyAsync(proxy, ct).ConfigureAwait(false);
         if (reach is not null)
         {
-            return (false, false, "isn't answering (" + reach + ")", null);
+            return new ProxyTestResult("Can't connect to it (" + reach + ")", null, null, null, false);
         }
 
+        var hasLogin = ProxyCredentials(proxy).User.Length > 0;
         using var handler = new SocketsHttpHandler
         {
             UseProxy = false,
@@ -533,11 +543,12 @@ public static class NetworkGuard
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            return (false, false, "answers, but " + (ex.GetBaseException().Message.Contains("login", StringComparison.OrdinalIgnoreCase) ? "rejected the login (check the login and password)" : ex.GetBaseException().Message), null);
+            var message = ex.GetBaseException().Message;
+            return message.Contains("login", StringComparison.OrdinalIgnoreCase)
+                ? new ProxyTestResult("The login was rejected: check the login and password", false, null, null, false)
+                : new ProxyTestResult("It answers, but doesn't pass traffic on (" + message + ")", hasLogin ? true : null, null, null, false);
         }
 
-        // Torrents need trackers. Some proxies (VPN providers' SOCKS servers among them) carry web traffic but block
-        // or drop BitTorrent, so ask a real tracker, over TCP and over UDP, and wait for its answer.
         var tcpTracker = false;
         try
         {
@@ -550,10 +561,10 @@ public static class NetworkGuard
         {
         }
 
-        var udpTracker = false;
-        var udpNote = "TCP only (HTTP proxy): UDP trackers are skipped";
+        bool? udp = null;
         if (IsSocks(proxy))
         {
+            udp = false;
             try
             {
                 using var relay = await Socks5UdpRelay.OpenAsync(proxy, ct).ConfigureAwait(false);
@@ -567,21 +578,14 @@ public static class NetworkGuard
                     await Task.WhenAny(receive, Task.Delay(2500, t.Token)).ConfigureAwait(false);
                 }
 
-                udpTracker = receive.IsCompletedSuccessfully && receive.Result.Length >= 16;
-                udpNote = udpTracker ? "relays UDP" : "accepts UDP but nothing comes back: UDP trackers won't work";
+                udp = receive.IsCompletedSuccessfully && receive.Result.Length >= 16;
             }
             catch (Exception) when (!ct.IsCancellationRequested)
             {
-                udpNote = "doesn't relay UDP: UDP trackers won't work";
             }
         }
 
-        var torrentsOk = tcpTracker || udpTracker;
-        var trackers = torrentsOk
-            ? $"reaches torrent trackers ({(tcpTracker ? "TCP" : string.Empty)}{(tcpTracker && udpTracker ? " and " : string.Empty)}{(udpTracker ? "UDP" : string.Empty)})"
-            : "can't reach torrent trackers: this proxy seems to block BitTorrent, so torrents through it find no peers";
-        var login = ProxyCredentials(proxy).User.Length > 0 ? "login accepted, " : string.Empty;
-        return (true, torrentsOk, $"works: {login}the internet sees {ip ?? "?"}; {udpNote}; {trackers}", ip);
+        return new ProxyTestResult(null, hasLogin ? true : null, ip, udp, tcpTracker || udp == true);
     }
 
     private static async Task<Socket> ConnectViaProxyAsync(Uri proxy, string host, int port, CancellationToken ct)

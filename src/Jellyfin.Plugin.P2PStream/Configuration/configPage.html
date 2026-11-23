@@ -81,9 +81,13 @@
                 #P2PStreamConfigPage .p2p-netstatus.bad { background: rgba(229,115,77,.14); color: #f08d6a; }
                 #P2PStreamConfigPage .p2p-netstatus.warn { background: rgba(229,160,13,.12); color: #e5b04d; }
                 #P2PStreamConfigPage .p2p-netstatus:empty { display: none; }
+                #P2PStreamConfigPage .p2p-desc:empty { display: none; }
                 #P2PStreamConfigPage .p2p-testrows { font-size: .86em; margin: 0 0 .8em; }
-                #P2PStreamConfigPage .p2p-testrow { display: flex; gap: .5em; padding: .3em 0; border-top: 1px solid rgba(128,128,128,.18); }
-                #P2PStreamConfigPage .p2p-testrow b { min-width: 10em; font-weight: 600; }
+                #P2PStreamConfigPage .p2p-testrow { display: grid; grid-template-columns: 1.2em 6.5em 1fr; gap: .1em .5em; padding: .4em 0; border-top: 1px solid rgba(128,128,128,.18); align-items: baseline; }
+                #P2PStreamConfigPage .p2p-testrow b { font-weight: 600; }
+                #P2PStreamConfigPage .p2p-testrow .p2p-verdict { font-weight: 600; }
+                #P2PStreamConfigPage .p2p-testrow .p2p-why { grid-column: 3; opacity: .75; font-size: .95em; }
+                #P2PStreamConfigPage .p2p-testrow .neutral { opacity: .6; }
                 #P2PStreamConfigPage .p2p-testrow .ok { color: #6cc070; }
                 #P2PStreamConfigPage .p2p-testrow .bad { color: #e5734d; }
                 #P2PStreamConfigPage .p2p-testrow .warn { color: #e5a00d; }
@@ -336,7 +340,7 @@
                             <h3><span class="material-icons">shield</span>Privacy</h3>
                             <div class="selectContainer">
                                 <select is="emby-select" data-key="TorrentNetwork" id="p2pNetMode" label="Torrent traffic">
-                                    <option value="direct">Direct (normal)</option>
+                                    <option value="direct">Direct</option>
                                     <option value="interface">Only through a VPN (network interface)</option>
                                     <option value="proxy">Only through the proxy</option>
                                 </select>
@@ -622,7 +626,7 @@
 
             // ---------- privacy (network mode, VPN interface) ----------
             var netHelp = {
-                direct: 'Torrents connect normally.',
+                direct: '',
                 'interface': 'Every torrent connection (peers, trackers, DHT, web seeds) is tied to the VPN\'s network interface. If the VPN drops, torrents stop until it\'s back: nothing goes out any other way. Pick the interface the VPN creates inside the Jellyfin machine or container.',
                 proxy: 'Peers and trackers go through the proxy below (SOCKS5 is best: it also carries UDP trackers). DHT and incoming connections are off. If the proxy stops answering, torrents stop.'
             };
@@ -656,9 +660,11 @@
                         var only = el.getAttribute('data-rows');
                         var rows = (data.Rows || []).filter(function (r) { return only === 'all' || r.Name === only; });
                         el.innerHTML = rows.length ? rows.map(function (r) {
-                            var cls = r.Ok === true ? 'ok' : r.Ok === false ? 'bad' : 'warn';
-                            var mark = r.Ok === true ? '✓' : r.Ok === false ? '✗' : '!';
-                            return '<div class="p2p-testrow"><span class="' + cls + '">' + mark + '</span><b>' + esc(r.Name) + '</b><span>' + esc(r.Detail) + '</span></div>';
+                            var cls = r.Ok === true ? 'ok' : r.Ok === false ? 'bad' : 'neutral';
+                            var mark = r.Ok === true ? '✓' : r.Ok === false ? '✗' : '•';
+                            return '<div class="p2p-testrow"><span class="' + cls + '">' + mark + '</span><b>' + esc(r.Name) + '</b>' +
+                                '<span class="p2p-verdict ' + cls + '">' + esc(r.Summary) + '</span>' +
+                                (r.Detail ? '<span class="p2p-why">' + esc(r.Detail) + '</span>' : '') + '</div>';
                         }).join('') : '<div class="p2p-muted">No proxy address is set.</div>';
                     });
                 }).catch(function (err) {
@@ -668,8 +674,9 @@
             page.querySelectorAll('.p2p-nettest').forEach(function (b) { b.addEventListener('click', runNetTest); });
             function renderNetwork(n) {
                 var el = page.querySelector('#p2pNetStatus');
-                el.className = 'p2p-netstatus ' + (n.Ok ? 'ok' : 'bad');
-                el.textContent = (n.Ok ? '✓ ' : '✗ ') + n.Message;
+                var plainDirect = n.Mode === 'Direct' && n.Ok;
+                el.className = 'p2p-netstatus ' + (plainDirect ? '' : n.Ok ? 'ok' : 'bad');
+                el.textContent = plainDirect ? '' : (n.Ok ? '✓ ' : '✗ ') + n.Message;
                 var list = page.querySelector('#p2pIfaceList');
                 list.innerHTML = (n.Interfaces || []).filter(function (i) { return i.Up; }).map(function (i) {
                     return '<option value="' + esc(i.Name) + '">' + esc((i.LooksLikeVpn ? 'VPN? ' : '') + i.Description + ' ' + (i.Addresses || []).join(', ')) + '</option>';

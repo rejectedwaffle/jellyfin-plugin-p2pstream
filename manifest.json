@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.8.2.0",
+                             "changelog":  "Clearer privacy test: a short verdict per line (Your address, Torrents, Searches, Proxy) with an explanation underneath; the proxy\u0027s checks as a list. Simpler Direct option.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.8.2.0/p2pstream_0.8.2.0.zip",
+                             "checksum":  "d53deb08058852708df00a4ac25a6d67",
+                             "timestamp":  "2026-11-23T08:50:39Z"
+                         },
+                         {
                              "version":  "0.8.1.0",
                              "changelog":  "The proxy test asks a real torrent tracker (over TCP and UDP) through the proxy, so it shows when a proxy carries web traffic but blocks BitTorrent.",
                              "targetAbi":  "12.4.0.0",
