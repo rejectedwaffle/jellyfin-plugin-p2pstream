@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.8.4.0",
+                             "changelog":  "VPN interface is a dropdown: VPNs found on the server first (with their address), other interfaces marked as not a VPN, or type a name. Better VPN detection (pia, proton, mullvad, and any tunnel without a hardware address). Download folder size shows the space really used.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.8.4.0/p2pstream_0.8.4.0.zip",
+                             "checksum":  "cb690b2564352bb04137f9f3598a2274",
+                             "timestamp":  "2026-11-23T09:39:52Z"
+                         },
+                         {
                              "version":  "0.8.3.0",
                              "changelog":  "One \u0027Send searches and TMDB lookups the same way\u0027 option in Privacy: searches follow the torrent traffic setting (VPN or proxy). Replaces the separate VPN and proxy search checkboxes.",
                              "targetAbi":  "12.4.0.0",

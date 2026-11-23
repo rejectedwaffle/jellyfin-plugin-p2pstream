@@ -176,11 +176,33 @@ public static class NetworkGuard
     private static bool IsUp(NetworkInterface nic) =>
         nic.OperationalStatus is OperationalStatus.Up or OperationalStatus.Unknown or OperationalStatus.Dormant; // WireGuard reports "unknown"
 
+    private static readonly string[] VpnNameHints =
+    [
+        "wg", "tun", "tap", "vpn", "wireguard", "pia", "proton", "mullvad", "nord", "surfshark", "expressvpn", "windscribe",
+        "ivpn", "airvpn", "openvpn", "ppp", "ipsec", "tailscale", "zt", "nebula"
+    ];
+
+    /// <summary>
+    /// A VPN tunnel: a VPN-style name, a point-to-point/tunnel type, or (Linux WireGuard and OpenVPN tun devices) no
+    /// hardware address at all, unlike real network cards and bridges.
+    /// </summary>
     private static bool LooksLikeVpn(NetworkInterface nic)
     {
         var text = (nic.Name + " " + nic.Description).ToLowerInvariant();
-        return nic.NetworkInterfaceType is NetworkInterfaceType.Ppp or NetworkInterfaceType.Tunnel
-            || new[] { "wg", "tun", "tap", "vpn", "wireguard", "proton", "mullvad", "nord", "openvpn", "ppp", "ipsec", "tailscale" }.Any(text.Contains);
+        if (nic.NetworkInterfaceType is NetworkInterfaceType.Ppp or NetworkInterfaceType.Tunnel || VpnNameHints.Any(text.Contains))
+        {
+            return true;
+        }
+
+        try
+        {
+            return OperatingSystem.IsLinux() && nic.GetPhysicalAddress().GetAddressBytes().Length == 0
+                && !text.StartsWith("docker", StringComparison.Ordinal) && !text.StartsWith("veth", StringComparison.Ordinal);
+        }
+        catch (NetworkInformationException)
+        {
+            return false;
+        }
     }
 
     private static IEnumerable<IPAddress> Addresses(NetworkInterface nic)

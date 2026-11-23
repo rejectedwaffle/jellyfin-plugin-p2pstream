@@ -346,10 +346,13 @@
                                 </select>
                             </div>
                             <div id="p2pNetIface">
-                                <div class="inputContainer">
-                                    <input is="emby-input" type="text" data-key="BindInterface" id="p2pBindIface" list="p2pIfaceList" label="VPN network interface (e.g. wg0, tun0)" autocomplete="off" />
-                                    <datalist id="p2pIfaceList"></datalist>
+                                <input type="hidden" data-key="BindInterface" id="p2pBindIface" />
+                                <div class="selectContainer">
+                                    <select is="emby-select" id="p2pIfaceSelect" label="VPN network interface"></select>
                                     <div class="fieldDescription" id="p2pIfaceHint"></div>
+                                </div>
+                                <div class="inputContainer" id="p2pIfaceOtherRow" style="display:none">
+                                    <input is="emby-input" type="text" id="p2pIfaceOther" label="Interface name or its IP address" autocomplete="off" />
                                 </div>
                             </div>
                             <div id="p2pSearchFollow">
@@ -638,6 +641,7 @@
                 page.querySelector('#p2pNetHelp').textContent = netHelp[mode] || '';
             }
             page.querySelector('#p2pNetMode').addEventListener('change', updateNetForm);
+            page.querySelector('#p2pNetMode').addEventListener('change', function (e) { if (e.target.value === 'interface') { loadNetwork(); } });
 
             // What the proxy is used for, from the form (so it updates before saving).
             function updateProxyUse() {
@@ -680,13 +684,7 @@
                 var plainDirect = n.Mode === 'Direct' && n.Ok;
                 el.className = 'p2p-netstatus ' + (plainDirect ? '' : n.Ok ? 'ok' : 'bad');
                 el.textContent = plainDirect ? '' : (n.Ok ? '✓ ' : '✗ ') + n.Message;
-                var list = page.querySelector('#p2pIfaceList');
-                list.innerHTML = (n.Interfaces || []).filter(function (i) { return i.Up; }).map(function (i) {
-                    return '<option value="' + esc(i.Name) + '">' + esc((i.LooksLikeVpn ? 'VPN? ' : '') + i.Description + ' ' + (i.Addresses || []).join(', ')) + '</option>';
-                }).join('');
-                var vpns = (n.Interfaces || []).filter(function (i) { return i.Up && i.LooksLikeVpn; }).map(function (i) { return i.Name; });
-                page.querySelector('#p2pIfaceHint').textContent = (vpns.length ? 'Looks like a VPN: ' + vpns.join(', ') + '. ' : 'No VPN interface found on this machine. ') +
-                    (n.IsLinux && !n.DeviceBinding ? 'This system doesn\'t allow binding to the device directly, so the VPN must route its own address (a full-tunnel VPN, or a policy rule).' : '');
+                fillInterfaces(n);
                 var disk = page.querySelector('#p2pDiskHint');
                 function mb(v) { return v >= 1024 ? (v / 1024).toFixed(1) + ' GB' : v + ' MB'; }
                 if (disk && n.DiskMb != null) {
@@ -695,6 +693,55 @@
                 }
             }
             function loadNetwork() { api('GET', 'P2PStream/Network').then(renderNetwork).catch(function () { /* older server */ }); }
+
+            // ---------- VPN interface dropdown ----------
+            // VPNs found on this machine first, then other interfaces, then "Other..." for typing a name. The saved
+            // choice stays selected even while that VPN is down ("not connected right now").
+            function addressesOf(i) { return (i.Addresses || []).filter(function (a) { return a.indexOf('fe80') !== 0; }).join(', '); }
+            function fillInterfaces(n) {
+                var sel = page.querySelector('#p2pIfaceSelect');
+                var hidden = page.querySelector('#p2pBindIface');
+                var current = (hidden.value || '').trim();
+                var up = (n.Interfaces || []).filter(function (i) { return i.Up; });
+                var vpns = up.filter(function (i) { return i.LooksLikeVpn; });
+                var others = up.filter(function (i) { return !i.LooksLikeVpn; });
+                var html = '';
+                if (!vpns.length) { html += '<option value="" disabled>No VPN found: connect one, then reopen this page</option>'; }
+                html += vpns.map(function (i) { return '<option value="' + esc(i.Name) + '">' + esc(i.Name + ' — ' + addressesOf(i) + ' (VPN)') + '</option>'; }).join('');
+                var known = up.some(function (i) { return i.Name === current; });
+                if (current && !known) { html += '<option value="' + esc(current) + '">' + esc(current + ' — not connected right now') + '</option>'; }
+                html += others.map(function (i) { return '<option value="' + esc(i.Name) + '">' + esc(i.Name + ' — ' + addressesOf(i) + ' (not a VPN: torrents wouldn\'t be hidden)') + '</option>'; }).join('');
+                html += '<option value="__other__">Other...</option>';
+                sel.innerHTML = html;
+                if (current) {
+                    sel.value = current;
+                } else if (vpns.length && page.querySelector('#p2pNetMode').value === 'interface') {
+                    sel.value = vpns[0].Name; // nothing chosen yet: suggest the VPN found
+                    hidden.value = vpns[0].Name;
+                    setDirty(true);
+                } else {
+                    sel.selectedIndex = vpns.length ? 0 : -1;
+                }
+
+                page.querySelector('#p2pIfaceOtherRow').style.display = 'none';
+                page.querySelector('#p2pIfaceHint').textContent = n.IsLinux && !n.DeviceBinding
+                    ? 'This system doesn\'t allow binding to the device directly, so the VPN must route its own address (a full-tunnel VPN, or a policy rule).' : '';
+            }
+            page.querySelector('#p2pIfaceSelect').addEventListener('change', function (e) {
+                var other = e.target.value === '__other__';
+                page.querySelector('#p2pIfaceOtherRow').style.display = other ? '' : 'none';
+                if (other) {
+                    page.querySelector('#p2pIfaceOther').value = page.querySelector('#p2pBindIface').value;
+                    page.querySelector('#p2pIfaceOther').focus();
+                } else {
+                    page.querySelector('#p2pBindIface').value = e.target.value;
+                }
+                setDirty(true);
+            });
+            page.querySelector('#p2pIfaceOther').addEventListener('input', function (e) {
+                page.querySelector('#p2pBindIface').value = e.target.value.trim();
+                setDirty(true);
+            });
 
             // ---------- per-device limits ----------
             var resOptions = [[0, 'Any'], [2160, '4K'], [1440, '1440p'], [1080, '1080p'], [720, '720p'], [480, '480p']];

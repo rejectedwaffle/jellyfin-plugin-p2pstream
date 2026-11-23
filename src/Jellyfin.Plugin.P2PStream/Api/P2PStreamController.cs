@@ -461,11 +461,43 @@ public class P2PStreamController : ControllerBase
     /// <summary>Space the files in a folder take (0 if it can't be read).</summary>
     private static long FolderBytes(string path)
     {
+        if (!Directory.Exists(path))
+        {
+            return 0;
+        }
+
+        // Torrent files are sparse: created at full size, but only downloaded pieces take space. On Linux ask du for
+        // the space really used; file lengths would count the whole size of every partly downloaded file.
+        if (OperatingSystem.IsLinux())
+        {
+            try
+            {
+                using var du = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("du", ["-sk", path])
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                });
+                if (du is not null)
+                {
+                    var output = du.StandardOutput.ReadToEnd();
+                    du.WaitForExit(10000);
+                    var kb = output.Split('\t', ' ')[0];
+                    if (long.TryParse(kb, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var k))
+                    {
+                        return k * 1024;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // no du: fall back to file lengths
+            }
+        }
+
         try
         {
-            return Directory.Exists(path)
-                ? new DirectoryInfo(path).EnumerateFiles("*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }).Sum(f => f.Length)
-                : 0;
+            return new DirectoryInfo(path).EnumerateFiles("*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }).Sum(f => f.Length);
         }
         catch (Exception)
         {
