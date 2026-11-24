@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.9.18.0",
+                             "changelog":  "Play waits for the plugin\u0027s running track check (up to 150 s) instead of letting Jellyfin start its own, slower one after 45 s.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.9.18.0/p2pstream_0.9.18.0.zip",
+                             "checksum":  "333a377815bfc4149cc97f04372fb82d",
+                             "timestamp":  "2026-11-24T09:28:58Z"
+                         },
+                         {
                              "version":  "0.9.17.0",
                              "changelog":  "Track checks analyze 10 seconds of video instead of Jellyfin\u0027s default 200, so checking a release through a torrent takes seconds instead of minutes.",
                              "targetAbi":  "12.4.0.0",

@@ -280,7 +280,9 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             }
 
             var started = DateTime.UtcNow;
-            var probe = await _prober.WaitForProbeAsync(id, TimeSpan.FromSeconds(45), context.HttpContext.RequestAborted).ConfigureAwait(false);
+            // Wait for a running check rather than letting Jellyfin start its own: Jellyfin's analyses 20x more video, so
+            // starting over is always slower than waiting (measured: our check done 15 s after a 45 s wait, Jellyfin's 30 s+).
+            var probe = await _prober.WaitForProbeAsync(id, TimeSpan.FromSeconds(150), context.HttpContext.RequestAborted).ConfigureAwait(false);
             if (probe?.Streams is not { Count: > 0 })
             {
                 return; // Jellyfin checks it itself, as before
