@@ -243,7 +243,7 @@ public sealed class StreamResolver
             {
                 if (remember)
                 {
-                    _cache.Set(req.Key, known.InfoHash, known.FileIndex, session.Manager.Torrent?.Name ?? releaseId);
+                    _cache.Set(req.Key, known.InfoHash, known.FileIndex, session.Manager.Torrent?.Name ?? releaseId, chosen: true);
                 }
 
                 return new ResolvedStream(session, known.FileIndex);
@@ -253,11 +253,11 @@ public sealed class StreamResolver
         var releases = await _options.GetAsync(req, ct).ConfigureAwait(false);
         var chosen = releases.FirstOrDefault(r => StreamOptions.IdFor(r) == releaseId)
             ?? throw new StreamNotFoundException("That stream is no longer listed. Reopen the title to refresh the list, or use Auto.");
-        return await TryStartAsync(req, chosen, remember, ct).ConfigureAwait(false)
+        return await TryStartAsync(req, chosen, remember, ct, chosenByUser: true).ConfigureAwait(false)
             ?? throw new StreamNotFoundException($"Couldn't start \"{chosen.Title}\" (no peers, or no matching video file). Try another version.");
     }
 
-    private async Task<ResolvedStream?> TryStartAsync(MediaRequest req, ReleaseCandidate release, bool remember, CancellationToken ct)
+    private async Task<ResolvedStream?> TryStartAsync(MediaRequest req, ReleaseCandidate release, bool remember, CancellationToken ct, bool chosenByUser = false)
     {
         try
         {
@@ -270,7 +270,7 @@ public sealed class StreamResolver
                 // Remember it: Auto uses this release next time, and repeat requests skip the lookup.
                 if (remember)
                 {
-                    _cache.Set(req.Key, source.InfoHash, index, release.Title);
+                    _cache.Set(req.Key, source.InfoHash, index, release.Title, chosenByUser);
                 }
 
                 _started[StreamOptions.IdFor(release)] = (source.InfoHash, index);

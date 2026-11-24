@@ -23,6 +23,19 @@ public static partial class ReleaseRanker
         ("dvdrip", "DVDRip", new Regex(@"\b(dvdrip|dvd-?rip|dvd5|dvd9|dvd)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled))
     ];
 
+    /// <summary>Bump when the ranking rules change, so picks Auto made under the old rules are made again.</summary>
+    private const int RulesVersion = 2; // 2: foreign-language releases rank lower (0.9.4)
+
+    /// <summary>
+    /// Identifies the rules and settings that decide Auto's pick. A pick Auto remembered under a different stamp is
+    /// dropped and made again (picks someone chose in the Version menu are kept).
+    /// </summary>
+    public static string RulesStamp()
+    {
+        var c = Plugin.Instance!.Configuration;
+        return string.Join('|', RulesVersion, c.PreferredResolution, c.Language ?? string.Empty, c.PreferStreamingSizes);
+    }
+
     public static List<ReleaseCandidate> Rank(IEnumerable<ReleaseCandidate> releases, MediaRequest? request)
     {
         var c = Plugin.Instance!.Configuration;

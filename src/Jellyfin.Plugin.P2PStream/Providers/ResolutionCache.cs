@@ -28,6 +28,15 @@ public sealed class ResolutionCache
     {
         if (Entries.TryGetValue(key, out entry!) && DateTime.UtcNow - entry.Created < MaxAge)
         {
+            // Auto's own pick, made under other ranking rules or quality settings: let Auto pick again.
+            if (!entry.Chosen && entry.Rules != ReleaseRanker.RulesStamp())
+            {
+                _logger.LogInformation("Ranking rules or quality settings changed since Auto picked \"{Title}\"; picking again", entry.Title);
+                Remove(key);
+                entry = null!;
+                return false;
+            }
+
             return true;
         }
 
@@ -35,9 +44,10 @@ public sealed class ResolutionCache
         return false;
     }
 
-    public void Set(string key, string infoHash, int fileIndex, string title)
+    /// <param name="chosen">True when someone picked this release (Version menu or a device rule), not Auto's ranking.</param>
+    public void Set(string key, string infoHash, int fileIndex, string title, bool chosen)
     {
-        Entries[key] = new Entry(infoHash, fileIndex, title, DateTime.UtcNow);
+        Entries[key] = new Entry(infoHash, fileIndex, title, DateTime.UtcNow, chosen, chosen ? null : ReleaseRanker.RulesStamp());
         Save();
     }
 
@@ -94,5 +104,7 @@ public sealed class ResolutionCache
         }
     }
 
-    public sealed record Entry(string InfoHash, int FileIndex, string Title, DateTime Created);
+    /// <param name="Chosen">Picked in the Version menu or by a device rule (kept when the ranking rules change).</param>
+    /// <param name="Rules">For Auto's picks, the <see cref="ReleaseRanker.RulesStamp"/> it was made under.</param>
+    public sealed record Entry(string InfoHash, int FileIndex, string Title, DateTime Created, bool Chosen = false, string? Rules = null);
 }

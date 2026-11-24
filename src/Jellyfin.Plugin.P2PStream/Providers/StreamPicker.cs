@@ -18,7 +18,82 @@ namespace Jellyfin.Plugin.P2PStream.Providers;
 /// </summary>
 public static partial class StreamPicker
 {
-    private static readonly ConcurrentDictionary<Guid, Guid> VersionOwners = new();
+    // Version id -> (title it belongs to, last time it was listed). Saved to disk, so a version picked after a server
+    // restart still resolves without reopening the title page first.
+    private static readonly TimeSpan VersionKeep = TimeSpan.FromDays(60);
+    private static readonly object VersionLock = new();
+    private static ConcurrentDictionary<Guid, VersionOwner>? _versionOwners;
+    private static int _versionSaveQueued;
+
+    private sealed record VersionOwner(Guid Item, DateTime Seen);
+
+    private static string VersionsFile => Path.Combine(Plugin.Instance!.DataFolderPath, "versions.json");
+
+    private static ConcurrentDictionary<Guid, VersionOwner> VersionOwners
+    {
+        get
+        {
+            if (_versionOwners is { } loaded)
+            {
+                return loaded;
+            }
+
+            lock (VersionLock)
+            {
+                if (_versionOwners is null)
+                {
+                    var map = new ConcurrentDictionary<Guid, VersionOwner>();
+                    try
+                    {
+                        if (File.Exists(VersionsFile)
+                            && JsonSerializer.Deserialize<Dictionary<Guid, VersionOwner>>(File.ReadAllText(VersionsFile)) is { } data)
+                        {
+                            foreach (var (id, owner) in data.Where(kv => DateTime.UtcNow - kv.Value.Seen < VersionKeep))
+                            {
+                                map[id] = owner;
+                            }
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // A damaged file only means versions need their title page reopened once.
+                    }
+
+                    _versionOwners = map;
+                }
+
+                return _versionOwners;
+            }
+        }
+    }
+
+    private static void QueueVersionSave()
+    {
+        if (Interlocked.Exchange(ref _versionSaveQueued, 1) == 1)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(10)).ConfigureAwait(false); // a page lists many versions at once: save once
+            Interlocked.Exchange(ref _versionSaveQueued, 0);
+            lock (VersionLock)
+            {
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(VersionsFile)!);
+                    var tmp = VersionsFile + ".tmp";
+                    File.WriteAllText(tmp, JsonSerializer.Serialize(VersionOwners.Where(kv => DateTime.UtcNow - kv.Value.Seen < VersionKeep).ToDictionary()));
+                    File.Move(tmp, VersionsFile, overwrite: true);
+                }
+                catch (Exception)
+                {
+                    // Not critical: next listing tries again.
+                }
+            }
+        });
+    }
 
     /// <summary>
     /// The id a version gets in the Version menu. Jellyfin apps look a chosen version up as a library item
@@ -32,12 +107,23 @@ public static partial class StreamPicker
     public static string RegisterVersion(BaseItem item, string key)
     {
         var id = VersionId(item, key);
-        VersionOwners[Guid.ParseExact(id, "N")] = item.Id;
+        var key2 = Guid.ParseExact(id, "N");
+        var now = DateTime.UtcNow;
+        if (!VersionOwners.TryGetValue(key2, out var known) || known.Item != item.Id || now - known.Seen > TimeSpan.FromDays(1))
+        {
+            VersionOwners[key2] = new VersionOwner(item.Id, now);
+            QueueVersionSave();
+        }
+
         return id;
     }
 
     /// <summary>The title a version id (from the Version menu) belongs to.</summary>
-    public static bool TryGetVersionOwner(Guid versionId, out Guid itemId) => VersionOwners.TryGetValue(versionId, out itemId);
+    public static bool TryGetVersionOwner(Guid versionId, out Guid itemId)
+    {
+        itemId = VersionOwners.TryGetValue(versionId, out var owner) ? owner.Item : Guid.Empty;
+        return owner is not null;
+    }
 
     /// <summary>Gets the play request behind a .strm item written by this plugin.</summary>
     public static bool TryGetRequest(BaseItem item, out string strmUrl, out MediaRequest request)
