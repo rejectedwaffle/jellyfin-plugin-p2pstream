@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.9.16.0",
+                             "changelog":  "Faster first play: the release Auto will play is checked first (no longer waits behind other titles\u0027 checks) and its tracks are handed to Jellyfin at Play, so Jellyfin doesn\u0027t read the torrent twice. More peers are tried at once (40), each for 7 s.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.9.16.0/p2pstream_0.9.16.0.zip",
+                             "checksum":  "63d4f3fbb2208ed88fdb138aa4c4595d",
+                             "timestamp":  "2026-11-24T09:20:32Z"
+                         },
+                         {
                              "version":  "0.9.15.0",
                              "changelog":  "Per-device limits: each device gets a full-width name field, with its limits on the line below.",
                              "targetAbi":  "12.4.0.0",

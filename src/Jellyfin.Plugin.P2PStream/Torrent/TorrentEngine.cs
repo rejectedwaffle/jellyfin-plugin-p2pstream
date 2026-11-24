@@ -409,6 +409,11 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             MaximumDownloadRate = Math.Max(0, c.MaxDownloadKbps) * 1024,
             MaximumUploadRate = Math.Max(0, c.MaxUploadKbps) * 1024,
             MaximumConnections = 200,
+
+            // Many peers don't answer (behind NAT, or gone). Trying more at once, and giving up on each sooner, finds the
+            // ones that do much faster than the default 8 attempts with 10 s each.
+            MaximumHalfOpenConnections = 40,
+            ConnectionTimeout = TimeSpan.FromSeconds(7),
             DiskCacheBytes = 32 * 1024 * 1024
         };
         return b.ToSettings();

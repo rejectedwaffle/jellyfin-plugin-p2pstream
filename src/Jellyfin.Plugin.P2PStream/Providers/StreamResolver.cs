@@ -127,6 +127,10 @@ public sealed class StreamResolver
         return true;
     }
 
+    /// <summary>The release pinned to play next (a chosen version or a device rule's pick), if it's in the list.</summary>
+    public ReleaseCandidate? PinnedRelease(MediaRequest req, IReadOnlyList<ReleaseCandidate> ranked) =>
+        _pinned.TryGetValue(req.Key, out var id) ? ranked.FirstOrDefault(r => StreamOptions.IdFor(r) == id) : null;
+
     /// <summary>The release Auto would play now: the remembered pick if it's in the list, else the top-ranked one.</summary>
     public ReleaseCandidate? AutoRelease(MediaRequest req, IReadOnlyList<ReleaseCandidate> ranked)
     {

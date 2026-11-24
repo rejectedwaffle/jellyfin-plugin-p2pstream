@@ -220,8 +220,12 @@ public sealed class StreamProber
     private readonly StreamOptions _options;
     private readonly IServiceProvider _services;
     private readonly ILogger<StreamProber> _logger;
-    private readonly ConcurrentDictionary<string, byte> _running = new();
-    private readonly SemaphoreSlim _oneAtATime = new(1, 1);
+    private readonly ConcurrentDictionary<string, Task> _running = new();
+
+    // The release Auto will play gets its own lane: its tracks are needed the moment Play is pressed, so it never waits
+    // behind other titles' slower checks. The other top releases (for the Version menu) are checked one at a time.
+    private readonly SemaphoreSlim _autoLane = new(2, 2);
+    private readonly SemaphoreSlim _otherLane = new(1, 1);
 
     public StreamProber(StreamOptions options, IServiceProvider services, ILogger<StreamProber> logger)
     {
@@ -230,8 +234,11 @@ public sealed class StreamProber
         _logger = logger;
     }
 
-    /// <summary>Starts checking the title's top releases that haven't been checked yet. Returns immediately.</summary>
-    public void ProbeTopInBackground(BaseItem item, string strmUrl, IReadOnlyList<ReleaseCandidate> releases)
+    /// <summary>
+    /// Starts checking the release Auto will play (first, in its own lane) and the title's other top releases that
+    /// haven't been checked yet. Returns immediately.
+    /// </summary>
+    public void ProbeTopInBackground(BaseItem item, string strmUrl, IReadOnlyList<ReleaseCandidate> releases, ReleaseCandidate? autoRelease = null)
     {
         var c = Plugin.Instance?.Configuration;
         if (c?.ProbeStreams != true)
@@ -239,35 +246,76 @@ public sealed class StreamProber
             return;
         }
 
-        var todo = releases.Take(Math.Clamp(c.ProbeStreamCount, 1, 5))
-            .Where(r => !_options.TryGetProbe(StreamOptions.IdFor(r), out _) && _running.TryAdd(StreamOptions.IdFor(r), 0))
-            .ToList();
-        if (todo.Count == 0)
+        autoRelease ??= releases.FirstOrDefault();
+        if (autoRelease is not null)
+        {
+            Start(item, strmUrl, autoRelease, _autoLane);
+        }
+
+        foreach (var release in releases.Take(Math.Clamp(c.ProbeStreamCount, 1, 5)).Where(r => r != autoRelease))
+        {
+            Start(item, strmUrl, release, _otherLane);
+        }
+    }
+
+    /// <summary>
+    /// The tracks of a release: at once if it's been checked, after waiting up to <paramref name="wait"/> if a check is
+    /// running, otherwise null.
+    /// </summary>
+    public async Task<ProbeInfo?> WaitForProbeAsync(string releaseId, TimeSpan wait, CancellationToken ct)
+    {
+        if (_options.TryGetProbe(releaseId, out var done))
+        {
+            return done;
+        }
+
+        if (_running.TryGetValue(releaseId, out var running))
+        {
+            try
+            {
+                await running.WaitAsync(wait, ct).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                return null;
+            }
+        }
+
+        return _options.TryGetProbe(releaseId, out var info) ? info : null;
+    }
+
+    private void Start(BaseItem item, string strmUrl, ReleaseCandidate release, SemaphoreSlim lane)
+    {
+        var id = StreamOptions.IdFor(release);
+        if (_options.TryGetProbe(id, out _) || _running.ContainsKey(id))
+        {
+            return;
+        }
+
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_running.TryAdd(id, gate.Task))
         {
             return;
         }
 
         _ = Task.Run(async () =>
         {
-            foreach (var release in todo)
+            try
             {
-                var id = StreamOptions.IdFor(release);
+                await lane.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                    await _oneAtATime.WaitAsync().ConfigureAwait(false); // one check at a time across the server
-                    try
-                    {
-                        await ProbeAsync(item, strmUrl, release, id).ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        _oneAtATime.Release();
-                    }
+                    await ProbeAsync(item, strmUrl, release, id).ConfigureAwait(false);
                 }
                 finally
                 {
-                    _running.TryRemove(id, out _);
+                    lane.Release();
                 }
+            }
+            finally
+            {
+                _running.TryRemove(id, out _);
+                gate.TrySetResult();
             }
         });
     }
@@ -283,13 +331,14 @@ public sealed class StreamProber
         var source = StreamPicker.BuildSources(item, strmUrl, [release])[0];
         source.Path += "&probe=true"; // tells the play endpoint not to remember this release ("1" isn't a valid bool)
         using var timeout = new CancellationTokenSource(ProbeTimeout);
+        var started = DateTime.UtcNow;
         try
         {
             var info = await encoder.GetMediaInfo(new MediaInfoRequest { MediaSource = source, MediaType = DlnaProfileType.Video, ExtractChapters = false }, timeout.Token).ConfigureAwait(false);
             if (info.MediaStreams is { Count: > 0 })
             {
                 _options.SetProbe(id, new ProbeInfo(info.MediaStreams, info.RunTimeTicks, info.Bitrate));
-                _logger.LogInformation("Checked {Release}: {Count} tracks", release.Title, info.MediaStreams.Count);
+                _logger.LogInformation("Checked {Release}: {Count} tracks in {Seconds:0}s", release.Title, info.MediaStreams.Count, (DateTime.UtcNow - started).TotalSeconds);
             }
         }
         catch (Exception ex)

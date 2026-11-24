@@ -122,7 +122,6 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             return;
         }
 
-        _prober.ProbeTopInBackground(item, url, releases);
         _resolver.Prewarm(request);
 
         // Auto plays the remembered pick, or else tries the top-ranked release first. Name it, and if that release has been
@@ -143,6 +142,8 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
                 ? "Auto (best match) — now: " + Short(current)
                 : "Auto (best match) — tries first: " + Short(releases[0].Title);
         }
+
+        _prober.ProbeTopInBackground(item, url, releases, autoRelease);
 
         if (auto.MediaStreams is not { Count: > 0 } && autoRelease is not null && _options.TryGetProbe(StreamOptions.IdFor(autoRelease), out var probe))
         {
@@ -190,6 +191,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         if (string.IsNullOrEmpty(chosen) || string.Equals(chosen, staticId, StringComparison.OrdinalIgnoreCase))
         {
             await ApplyDeviceRuleAsync(context, item, request).ConfigureAwait(false); // Auto
+            await UseCheckedTracksAsync(context, item, request).ConfigureAwait(false);
             return;
         }
 
@@ -247,6 +249,49 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         foreach (var body in bodies)
         {
             body!.GetType().GetProperty("MediaSourceId")!.SetValue(body, staticId);
+        }
+    }
+
+    /// <summary>
+    /// Auto is about to play and Jellyfin doesn't know the tracks of the release it will play: if the plugin checked that
+    /// release (or is checking it, from when the title's page opened), save its tracks so Jellyfin doesn't read the start
+    /// of the torrent a second time before answering.
+    /// </summary>
+    private async Task UseCheckedTracksAsync(ActionExecutingContext context, BaseItem item, MediaRequest request)
+    {
+        try
+        {
+            if (!_options.TryGetCached(request, out var releases) || releases.Count == 0)
+            {
+                return; // the page wasn't opened recently, so nothing was checked
+            }
+
+            var release = _resolver.PinnedRelease(request, releases) ?? _resolver.AutoRelease(request, releases);
+            if (release is null)
+            {
+                return;
+            }
+
+            var id = StreamOptions.IdFor(release);
+            var saved = _services.GetService<IMediaSourceManager>()?.GetMediaStreams(item.Id) ?? [];
+            if (saved.Count > 0 && _resolver.IsCurrentPick(request, id))
+            {
+                return; // Jellyfin already knows this release's tracks
+            }
+
+            var started = DateTime.UtcNow;
+            var probe = await _prober.WaitForProbeAsync(id, TimeSpan.FromSeconds(45), context.HttpContext.RequestAborted).ConfigureAwait(false);
+            if (probe?.Streams is not { Count: > 0 })
+            {
+                return; // Jellyfin checks it itself, as before
+            }
+
+            _services.GetService<IMediaStreamRepository>()?.SaveMediaStreams(item.Id, probe.Streams, CancellationToken.None);
+            _logger.LogInformation("{Item}: gave Jellyfin the {Count} tracks of {Release} (waited {Seconds:0}s)", item.Name, probe.Streams.Count, release.Title, (DateTime.UtcNow - started).TotalSeconds);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug("Could not hand over checked tracks: {Message}", ex.Message);
         }
     }
 
