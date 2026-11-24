@@ -100,10 +100,15 @@ public sealed class DeepStreamingRequester : IStreamingPieceRequester
         {
             if (!Array.Exists(_haves, b => b.Length > start && b[start]))
             {
-                return;
+                // Still waiting for that first piece: spread just its blocks over every peer. 4K releases use 8-16 MB
+                // pieces, which took 40 s+ at the stock 2-4 blocks per peer; asking only for this piece can't delay it.
+                urgentEnd = start;
+                windowEnd = start;
             }
-
-            _primed = true;
+            else
+            {
+                _primed = true;
+            }
         }
 
         var target = peer.MaxPendingRequests;
