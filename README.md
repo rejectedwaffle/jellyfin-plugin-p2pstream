@@ -84,8 +84,17 @@ For quick test builds without a release: `./scripts/package.ps1 -Dev` builds `<v
 repository in Jellyfin and install from there.
 
 ## Notes
-- You are responsible for what you download and share; uploading (seeding) is part of how BitTorrent works.
 - Some sites block automated searches or move domains. Use "change address" or the proxy setting.
+
+## Legal notice
+- P2P Stream is a BitTorrent client for Jellyfin. It doesn't host, index or distribute any media, and this repository
+  contains none.
+- Out of the box, the only enabled source is the Internet Archive (public-domain and openly licensed films). Any other
+  source is something you choose to turn on or add.
+- You are responsible for what you download and share, and for following the copyright law where you live. Downloading or
+  sharing copyrighted material without permission may be illegal. While a torrent plays, the plugin also uploads parts
+  of it to other peers; that's how BitTorrent works.
+- If you believe something in this repository infringes your rights, please [open an issue](https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/issues).
 
 ## License
 GPL-3.0. See [LICENSE](LICENSE).
