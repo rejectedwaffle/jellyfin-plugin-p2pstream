@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.9.17.0",
+                             "changelog":  "Track checks analyze 10 seconds of video instead of Jellyfin\u0027s default 200, so checking a release through a torrent takes seconds instead of minutes.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.9.17.0/p2pstream_0.9.17.0.zip",
+                             "checksum":  "a9d84d6e84b01da1ecd2cc30fbf58d7e",
+                             "timestamp":  "2026-11-24T09:24:27Z"
+                         },
+                         {
                              "version":  "0.9.16.0",
                              "changelog":  "Faster first play: the release Auto will play is checked first (no longer waits behind other titles\u0027 checks) and its tracks are handed to Jellyfin at Play, so Jellyfin doesn\u0027t read the torrent twice. More peers are tried at once (40), each for 7 s.",
                              "targetAbi":  "12.4.0.0",

@@ -330,6 +330,10 @@ public sealed class StreamProber
 
         var source = StreamPicker.BuildSources(item, strmUrl, [release])[0];
         source.Path += "&probe=true"; // tells the play endpoint not to remember this release ("1" isn't a valid bool)
+
+        // Jellyfin's default analysis reads up to 200 s of video (up to 1 GB) to fill in every track's details: minutes
+        // through a torrent. The track list itself comes from the file's header, so 10 s is plenty (live TV does the same).
+        source.AnalyzeDurationMs = 10_000;
         using var timeout = new CancellationTokenSource(ProbeTimeout);
         var started = DateTime.UtcNow;
         try
