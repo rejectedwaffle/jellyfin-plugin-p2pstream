@@ -93,9 +93,10 @@
                 #P2PStreamConfigPage .p2p-desc:empty { display: none; }
                 #P2PStreamConfigPage .p2p-testrows { font-size: .86em; margin: 0 0 .8em; }
                 #P2PStreamConfigPage .p2p-testrow { display: grid; grid-template-columns: 1.2em 6.5em 1fr; gap: .1em .5em; padding: .4em 0; border-top: 1px solid rgba(128,128,128,.18); align-items: baseline; }
-                #P2PStreamConfigPage .p2p-testrow b { font-weight: 600; }
-                #P2PStreamConfigPage .p2p-testrow .p2p-verdict { font-weight: 600; }
-                #P2PStreamConfigPage .p2p-testrow .p2p-why { grid-column: 3; opacity: .75; font-size: .95em; }
+                #P2PStreamConfigPage .p2p-testrow > span:first-child { grid-column: 1; grid-row: 1 / span 2; align-self: start; }
+                #P2PStreamConfigPage .p2p-testrow b { font-weight: 600; grid-column: 2; grid-row: 1 / span 2; align-self: start; } /* a wrapped name doesn't push its explanation down */
+                #P2PStreamConfigPage .p2p-testrow .p2p-verdict { font-weight: 600; grid-column: 3; grid-row: 1; }
+                #P2PStreamConfigPage .p2p-testrow .p2p-why { grid-column: 3; grid-row: 2; opacity: .75; font-size: .95em; }
                 #P2PStreamConfigPage .p2p-testrow .neutral { opacity: .6; }
                 #P2PStreamConfigPage .p2p-testrow .ok { color: #6cc070; }
                 #P2PStreamConfigPage .p2p-testrow .bad { color: #e5734d; }
