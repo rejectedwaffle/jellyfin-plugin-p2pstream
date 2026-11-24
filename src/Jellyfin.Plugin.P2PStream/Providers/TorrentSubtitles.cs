@@ -58,7 +58,7 @@ public sealed partial class TorrentSubtitles
             }
             catch (Exception ex)
             {
-                _logger.LogDebug("Subtitles for {Item} not added: {Message}", item.Name, ex.Message);
+                _logger.LogInformation("Subtitles for {Item} not added: {Message}", item.Name, ex.Message);
             }
             finally
             {
@@ -122,7 +122,7 @@ public sealed partial class TorrentSubtitles
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogDebug("Subtitle {File} not added: {Message}", file.Path, ex.Message);
+                _logger.LogInformation("Subtitle {File} not added: {Message}", file.Path, ex.Message);
             }
         }
 
@@ -131,9 +131,13 @@ public sealed partial class TorrentSubtitles
         // Jellyfin caches folder listings: make it look again, so its next check of the title finds them.
         _services.GetService<IDirectoryService>()?.GetFilePaths(dir, true);
 
-        if (written.Count > 0 || state.Files.Count > 0)
+        if (written.Count > 0)
         {
             _logger.LogInformation("{Item}: {Count} subtitle file(s) from the release added ({Names})", item.Name, written.Count, string.Join(", ", written.Select(n => n[(baseName.Length + 1)..])));
+        }
+        else
+        {
+            _logger.LogInformation("{Item}: the release ({Release}) has no subtitle files{Removed}", item.Name, manager.Torrent?.Name ?? release, state.Files.Count > 0 ? "; the previous release's were removed" : string.Empty);
         }
     }
 
