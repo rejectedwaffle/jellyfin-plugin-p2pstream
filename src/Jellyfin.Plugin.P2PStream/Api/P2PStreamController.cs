@@ -371,6 +371,10 @@ public class P2PStreamController : ControllerBase
             else
             {
                 Add("Torrents", true, "Hidden", $"Peers see {ip}, not your address.");
+                if (mode == Torrent.NetworkMode.Interface)
+                {
+                    await AddIncomingRowAsync(ip, Add, ct).ConfigureAwait(false);
+                }
             }
         }
 
@@ -436,6 +440,53 @@ public class P2PStreamController : ControllerBase
         }
 
         return new { Mode = mode.ToString(), Rows = rows };
+    }
+
+    /// <summary>
+    /// Port forwarding: connects from outside the VPN (over the normal connection) to the VPN's public address on the
+    /// port the engine listens on. If it connects, the VPN forwards that port to us and peers can connect in.
+    /// </summary>
+    private async Task AddIncomingRowAsync(string vpnIp, Action<string, bool?, string, string> add, CancellationToken ct)
+    {
+        var forwarded = _engine.ForwardedPort;
+        var port = forwarded ?? Plugin.Instance!.Configuration.ListenPort;
+        string error;
+        if (System.Net.IPAddress.TryParse(vpnIp, out var address))
+        {
+            try
+            {
+                using var socket = new System.Net.Sockets.Socket(address.AddressFamily, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp);
+                using var t = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                t.CancelAfter(TimeSpan.FromSeconds(8));
+                await socket.ConnectAsync(new System.Net.IPEndPoint(address, port), t.Token).ConfigureAwait(false);
+                add("Port forwarding", true, "Open", $"Peers can connect in: port {port} on {vpnIp} reaches this server through the VPN.");
+                return;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                error = "no answer";
+            }
+            catch (System.Net.Sockets.SocketException ex)
+            {
+                error = ex.Message;
+            }
+        }
+        else
+        {
+            error = "the VPN's address wasn't recognized";
+        }
+
+        if (forwarded is null)
+        {
+            var file = Plugin.Instance!.Configuration.ListenPortFile;
+            add("Port forwarding", null, "Not set up", string.IsNullOrWhiteSpace(file)
+                ? $"Peers can't connect in (port {port}: {error}), so only connections we make work, which is slower. If your VPN forwards a port, set the forwarded port file in the VPN box."
+                : $"The forwarded port file can't be used ({_engine.ListenPortFileStatus}). Peers can't connect in, which is slower.");
+        }
+        else
+        {
+            add("Port forwarding", false, "Closed", $"Nothing answers on port {port} at {vpnIp} from outside ({error}). Check that the VPN's port forwarding is running and the port file is current.");
+        }
     }
 
     /// <summary>How torrent traffic leaves the server right now, and the network interfaces to choose from.</summary>

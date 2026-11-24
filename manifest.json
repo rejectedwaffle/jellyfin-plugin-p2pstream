@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.9.11.0",
+                             "changelog":  "Network tab: Privacy method box, with VPN and Proxy settings in their own boxes (shown for the chosen method). The Test checks port forwarding: whether peers can connect in through the VPN.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.9.11.0/p2pstream_0.9.11.0.zip",
+                             "checksum":  "d7205c53dadb4635efa9b874e7d4aaf2",
+                             "timestamp":  "2026-11-24T08:47:42Z"
+                         },
+                         {
                              "version":  "0.9.10.0",
                              "changelog":  "Listen port file (Network \u003e Connection): listen on the port a VPN\u0027s port-forwarding script writes to a file, so peers can connect in through the VPN.",
                              "targetAbi":  "12.4.0.0",

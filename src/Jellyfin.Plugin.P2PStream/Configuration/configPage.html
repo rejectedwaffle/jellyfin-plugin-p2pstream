@@ -358,14 +358,25 @@
                 <section class="p2p-panel" data-panel="network">
                     <div class="p2p-grid">
                         <div class="p2p-card">
-                            <h3><span class="material-icons">shield</span>Privacy</h3>
+                            <h3><span class="material-icons">shield</span>Privacy method</h3>
                             <div class="selectContainer">
-                                <select is="emby-select" data-key="TorrentNetwork" id="p2pNetMode" label="Torrent traffic">
+                                <select is="emby-select" data-key="TorrentNetwork" id="p2pNetMode" label="Torrent traffic goes">
                                     <option value="direct">Direct</option>
                                     <option value="interface">Only through a VPN (network interface)</option>
                                     <option value="proxy">Only through the proxy</option>
                                 </select>
                             </div>
+                            <div id="p2pSearchFollow">
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="SearchesFollowTorrentTraffic" id="p2pSearchFollowBox" /><span>Send searches and TMDB lookups the same way</span></label>
+                                <div class="p2p-desc">Through the VPN or proxy chosen above, so sites don't see your address either. If it stops working, searches stop too.</div>
+                            </div>
+                            <div class="p2p-desc" id="p2pNetHelp"></div>
+                            <div id="p2pNetStatus" class="p2p-netstatus"></div>
+                            <div style="margin:.2em 0 .6em"><button is="emby-button" type="button" class="raised p2p-nettest"><span>Test</span></button> <span class="p2p-muted">Shows the address the internet sees, and whether peers can connect in. Save first.</span></div>
+                            <div class="p2p-testrows" data-rows="all"></div>
+                        </div>
+                        <div class="p2p-card" id="p2pVpnCard">
+                            <h3><span class="material-icons">vpn_key</span>VPN</h3>
                             <div id="p2pNetIface">
                                 <input type="hidden" data-key="BindInterface" id="p2pBindIface" />
                                 <div class="selectContainer">
@@ -376,18 +387,14 @@
                                     <input is="emby-input" type="text" id="p2pIfaceOther" label="Interface name or its IP address" autocomplete="off" />
                                 </div>
                             </div>
-                            <div id="p2pSearchFollow">
-                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="SearchesFollowTorrentTraffic" id="p2pSearchFollowBox" /><span>Send searches and TMDB lookups the same way</span></label>
-                                <div class="p2p-desc">Through the VPN or proxy chosen above, so sites don't see your address either. If it stops working, searches stop too.</div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="ListenPortFile" label="Forwarded port file (optional)" autocomplete="off" />
+                                <div class="fieldDescription">Through a VPN, peers can only connect to you on the port the VPN forwards. If your VPN's port-forwarding script writes that port to a file, put the file's path here (e.g. /run/pia-port). It's checked every 15 seconds and used instead of the listen port.</div>
                             </div>
-                            <div class="p2p-desc" id="p2pNetHelp"></div>
-                            <div id="p2pNetStatus" class="p2p-netstatus"></div>
-                            <div style="margin:.2em 0 .6em"><button is="emby-button" type="button" class="raised p2p-nettest"><span>Test</span></button> <span class="p2p-muted">Shows the address the internet sees. Save first.</span></div>
-                            <div class="p2p-testrows" data-rows="all"></div>
+                            <div id="p2pPortFileStatus" class="p2p-netstatus"></div>
                         </div>
-                        <div class="p2p-card">
+                        <div class="p2p-card" id="p2pProxyCard">
                             <h3><span class="material-icons">vpn_lock</span>Proxy</h3>
-                            <p class="p2p-muted">Only used when Torrent traffic is set to "Only through the proxy" (and for searches too, if "Send searches and TMDB lookups the same way" is ticked).</p>
                             <div id="p2pProxyUse" class="p2p-netstatus"></div>
                             <div class="inputContainer"><input is="emby-input" type="text" data-key="ProxyUrl" label="Proxy address (e.g. socks5://127.0.0.1:1080)" autocomplete="off" /></div>
                             <div class="p2p-row">
@@ -401,15 +408,12 @@
                             <h3><span class="material-icons">lan</span>Connection</h3>
                             <div class="inputContainer">
                                 <input is="emby-input" type="number" min="1" max="65535" data-key="ListenPort" data-type="int" label="Listen port" />
-                                <div class="fieldDescription">Forward this port (TCP and UDP) on your router for much better speeds.</div>
+                                <div class="fieldDescription" id="p2pListenPortHint">Forward this port (TCP and UDP) on your router for much better speeds.</div>
                             </div>
-                            <div class="inputContainer">
-                                <input is="emby-input" type="text" data-key="ListenPortFile" label="Listen port file (optional, for a VPN's forwarded port)" autocomplete="off" />
-                                <div class="fieldDescription">Through a VPN, peers can only connect to you on the port the VPN forwards. If your VPN's port-forwarding script writes that port to a file, put the file's path here (e.g. /run/vpn-port). It's checked every 15 seconds and used instead of the listen port.</div>
+                            <div id="p2pUpnp">
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="EnablePortForwarding" /><span>Forward the port automatically (UPnP / NAT-PMP)</span></label>
+                                <div class="p2p-desc">Works if your router allows it.</div>
                             </div>
-                            <div id="p2pPortFileStatus" class="p2p-netstatus"></div>
-                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="EnablePortForwarding" /><span>Forward the port automatically (UPnP / NAT-PMP)</span></label>
-                            <div class="p2p-desc">Works if your router allows it.</div>
                             <div class="p2p-row">
                                 <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="MaxDownloadKbps" data-type="int" label="Max download (KB/s, 0 = unlimited)" /></div>
                                 <div class="inputContainer"><input is="emby-input" type="number" min="0" data-key="MaxUploadKbps" data-type="int" label="Max upload (KB/s, 0 = unlimited)" /></div>
@@ -678,12 +682,19 @@
             // ---------- privacy (network mode, VPN interface) ----------
             var netHelp = {
                 direct: '',
-                'interface': 'Every torrent connection (peers, trackers, DHT, web seeds) is tied to the VPN\'s network interface. If the VPN drops, torrents stop until it\'s back: nothing goes out any other way. Pick the interface the VPN creates inside the Jellyfin machine or container.',
-                proxy: 'Peers and trackers go through the proxy below (SOCKS5 is best: it also carries UDP trackers). DHT and incoming connections are off. If the proxy stops answering, torrents stop.'
+                'interface': 'Every torrent connection (peers, trackers, DHT, web seeds) is tied to the VPN\'s network interface. If the VPN drops, torrents stop until it\'s back: nothing goes out any other way. Choose the VPN\'s interface in the VPN box.',
+                proxy: 'Peers and trackers go through the proxy set in the Proxy box (SOCKS5 is best: it also carries UDP trackers). DHT and incoming connections are off. If the proxy stops answering, torrents stop.'
             };
             function updateNetForm() {
                 var mode = page.querySelector('#p2pNetMode').value || 'direct';
-                page.querySelector('#p2pNetIface').style.display = mode === 'interface' ? '' : 'none';
+                page.querySelector('#p2pVpnCard').style.display = mode === 'interface' ? '' : 'none';
+                page.querySelector('#p2pProxyCard').style.display = mode === 'proxy' ? '' : 'none';
+                page.querySelector('#p2pUpnp').style.display = mode === 'direct' ? '' : 'none';
+                page.querySelector('#p2pListenPortHint').textContent = {
+                    direct: 'Forward this port (TCP and UDP) on your router for much better speeds.',
+                    'interface': 'Through the VPN, the forwarded port from the VPN box is used instead, when one is set.',
+                    proxy: 'Not used through a proxy: a proxy can\'t accept incoming connections.'
+                }[mode] || '';
                 page.querySelector('#p2pSearchFollow').style.display = mode === 'direct' ? 'none' : '';
                 page.querySelector('#p2pNetHelp').textContent = netHelp[mode] || '';
             }
