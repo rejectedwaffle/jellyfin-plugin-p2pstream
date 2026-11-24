@@ -453,6 +453,21 @@ public class P2PStreamController : ControllerBase
         string error;
         if (System.Net.IPAddress.TryParse(vpnIp, out var address))
         {
+            // The engine only listens while a torrent runs. If the port is free, listen on it ourselves for the test.
+            System.Net.Sockets.Socket? standIn = null;
+            try
+            {
+                standIn = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.InterNetwork, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp);
+                Torrent.NetworkGuard.BindToInterface(standIn, Torrent.NetworkGuard.State, System.Net.Sockets.AddressFamily.InterNetwork, port);
+                standIn.Listen(4);
+            }
+            catch (Exception)
+            {
+                standIn?.Dispose(); // in use: the engine is listening on it
+                standIn = null;
+            }
+
+            using var standInLease = standIn;
             try
             {
                 using var socket = new System.Net.Sockets.Socket(address.AddressFamily, System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp);

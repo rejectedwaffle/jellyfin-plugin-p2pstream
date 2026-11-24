@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.9.12.0",
+                             "changelog":  "The port forwarding test works while no torrent is running (it listens on the forwarded port itself for the check).",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.9.12.0/p2pstream_0.9.12.0.zip",
+                             "checksum":  "9893017f89179184a7fad7ee11935c68",
+                             "timestamp":  "2026-11-24T08:49:39Z"
+                         },
+                         {
                              "version":  "0.9.11.0",
                              "changelog":  "Network tab: Privacy method box, with VPN and Proxy settings in their own boxes (shown for the chosen method). The Test checks port forwarding: whether peers can connect in through the VPN.",
                              "targetAbi":  "12.4.0.0",
