@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.9.24.0",
+                             "changelog":  "Clearer advice for the minimum seeders for 4K setting.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.9.24.0/p2pstream_0.9.24.0.zip",
+                             "checksum":  "180f30cd65d739b5289d263da80bf6ed",
+                             "timestamp":  "2026-11-24T10:21:17Z"
+                         },
+                         {
                              "version":  "0.9.23.0",
                              "changelog":  "Optional: minimum seeders for 4K (Playback \u003e What Auto picks). A 4K release with fewer seeders is tried after the best 1080p one. Suggested: 50.",
                              "targetAbi":  "12.4.0.0",
