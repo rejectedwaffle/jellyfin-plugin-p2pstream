@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.9.21.0",
+                             "changelog":  "Jellyfin\u0027s forced stream re-check on every play of a .strm title now gets only the first 40 MB of the release (it read up to 200 s of video, over 6 minutes for a 4K release). Play no longer waits for the plugin\u0027s own check.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.9.21.0/p2pstream_0.9.21.0.zip",
+                             "checksum":  "2f0edfa32d3b7eaad70f6b7ad6a2be3f",
+                             "timestamp":  "2026-11-24T10:07:18Z"
+                         },
+                         {
                              "version":  "0.9.20.0",
                              "changelog":  "Deep requesting now also works while a reader waits on its next piece (as Jellyfin\u0027s checks and ffmpeg do); it only holds back until the first piece after a start or seek arrives.",
                              "targetAbi":  "12.4.0.0",

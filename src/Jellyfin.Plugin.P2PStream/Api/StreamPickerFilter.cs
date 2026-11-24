@@ -49,6 +49,15 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         var path = http.Request.Path.Value ?? string.Empty;
         var enabled = Plugin.Instance?.Configuration.StreamPicker == true;
 
+        // While Jellyfin answers a Play request for one of our titles, its forced re-check of the stream gets only the
+        // start of the release (see PlaybackInfoWindow).
+        IDisposable? checkWindow = null;
+        if (PlaybackInfoPath().IsMatch(path) && context.ActionArguments.TryGetValue("itemId", out var playArg) && playArg is Guid playId
+            && _libraryManager.GetItemById(playId) is { } playItem && StreamPicker.TryGetRequest(playItem, out _, out var playRequest))
+        {
+            checkWindow = PlaybackInfoWindow.Begin(playRequest.Key);
+        }
+
         if (enabled && PlaybackInfoPath().IsMatch(path))
         {
             try
@@ -71,7 +80,15 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             versionLookup = lookupId;
         }
 
-        var executed = await next().ConfigureAwait(false);
+        ActionExecutedContext executed;
+        try
+        {
+            executed = await next().ConfigureAwait(false);
+        }
+        finally
+        {
+            checkWindow?.Dispose();
+        }
 
         if (enabled && HttpMethods.IsGet(http.Request.Method) && ItemPath().IsMatch(path))
         {
@@ -253,9 +270,9 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
     }
 
     /// <summary>
-    /// Auto is about to play and Jellyfin doesn't know the tracks of the release it will play: if the plugin checked that
-    /// release (or is checking it, from when the title's page opened), save its tracks so Jellyfin doesn't read the start
-    /// of the torrent a second time before answering.
+    /// Auto is about to play and Jellyfin doesn't know the tracks of the release it will play: if the plugin has already
+    /// checked that release, save its tracks (Jellyfin still re-checks the stream, but this keeps the item's tracks right
+    /// if that check fails).
     /// </summary>
     private async Task UseCheckedTracksAsync(ActionExecutingContext context, BaseItem item, MediaRequest request)
     {
@@ -280,9 +297,9 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             }
 
             var started = DateTime.UtcNow;
-            // Wait for a running check rather than letting Jellyfin start its own: Jellyfin's analyses 20x more video, so
-            // starting over is always slower than waiting (measured: our check done 15 s after a 45 s wait, Jellyfin's 30 s+).
-            var probe = await _prober.WaitForProbeAsync(id, TimeSpan.FromSeconds(150), context.HttpContext.RequestAborted).ConfigureAwait(false);
+            // Only if it's already done: Jellyfin re-checks a .strm stream on every play anyway (now limited to the start of
+            // the release, see PlaybackInfoWindow), so waiting for ours would only add time.
+            var probe = await _prober.WaitForProbeAsync(id, TimeSpan.Zero, context.HttpContext.RequestAborted).ConfigureAwait(false);
             if (probe?.Streams is not { Count: > 0 })
             {
                 return; // Jellyfin checks it itself, as before

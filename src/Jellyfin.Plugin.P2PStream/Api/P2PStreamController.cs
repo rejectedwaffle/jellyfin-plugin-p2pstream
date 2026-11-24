@@ -807,7 +807,9 @@ public class P2PStreamController : ControllerBase
             return Problem(ex.Message, statusCode: StatusCodes.Status502BadGateway);
         }
 
-        await ServeAsync(resolved.Session, resolved.FileIndex).ConfigureAwait(false);
+        // Jellyfin's forced re-check of the stream while it answers a Play request: give it only the start.
+        var forCheck = !probe && PlaybackInfoWindow.IsActive(req.Key);
+        await ServeAsync(resolved.Session, resolved.FileIndex, forCheck).ConfigureAwait(false);
         return new EmptyResult();
     }
 
@@ -815,7 +817,7 @@ public class P2PStreamController : ControllerBase
     /// Serves a torrent file with HTTP range support. Reads block until the pieces arrive;
     /// MonoTorrent moves piece priority to wherever the stream is reading.
     /// </summary>
-    private async Task ServeAsync(TorrentSession session, int fileIndex)
+    private async Task ServeAsync(TorrentSession session, int fileIndex, bool forJellyfinCheck = false)
     {
         var file = session.Manager.Files[fileIndex];
         var length = file.Length;
@@ -859,10 +861,16 @@ public class P2PStreamController : ControllerBase
             lease.Position = start;
 
             var remaining = end - start + 1;
-            var sinceTouch = Stopwatch.StartNew();
-            while (remaining > 0)
+            var cutAt = forJellyfinCheck && start == 0 && remaining > PlaybackInfoWindow.CheckBytes ? remaining - PlaybackInfoWindow.CheckBytes : 0;
+            if (cutAt > 0)
             {
-                var read = await lease.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), aborted).ConfigureAwait(false);
+                _logger.LogInformation("Giving Jellyfin's stream check the first {Mb} MB of {File}", PlaybackInfoWindow.CheckBytes >> 20, Path.GetFileName(file.Path));
+            }
+
+            var sinceTouch = Stopwatch.StartNew();
+            while (remaining > cutAt)
+            {
+                var read = await lease.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining - cutAt)), aborted).ConfigureAwait(false);
                 if (read == 0)
                 {
                     break;
