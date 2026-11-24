@@ -29,6 +29,8 @@ public sealed class DeepStreamingRequester : IStreamingPieceRequester
     private IPiecePicker? _low;
     private ReadOnlyBitField[] _others = [];
     private ReadOnlyBitField[] _haves = [];
+    private int _lastStart = -1;
+    private bool _primed;
 
     /// <summary>False if this MonoTorrent version doesn't have the expected internals; then it behaves exactly like the stock one.</summary>
     public static bool Supported => HighPickerProperty is not null && LowPickerProperty is not null;
@@ -83,11 +85,25 @@ public sealed class DeepStreamingRequester : IStreamingPieceRequester
         var windowPieces = (int)Math.Max(UrgentPieces * 2, WindowBytes / Math.Max(1, _data.PieceLength));
         var windowEnd = (int)Math.Min(_data.PieceCount - 1L, (long)start + windowPieces - 1);
 
-        // While the player waits for its current piece, leave requesting to the stock logic: it asks several peers for
-        // that piece at once, which it can't do once their queues are full (measured: first byte 7-11 s instead of ~6 s).
-        if (!Array.Exists(_haves, b => b.Length > start && b[start]))
+        // Right after a start or a seek, leave requesting to the stock logic until the first piece is in: it asks several
+        // peers for that piece at once, which it can't do once their queues are full (measured: first byte 7-11 s instead
+        // of ~6 s). After that, go deep even while a reader waits: readers (Jellyfin's checks, ffmpeg) read in order and
+        // wait on nearly every next piece, so stepping aside whenever one waits would mean never going deep at all.
+        if (start < _lastStart || start > _lastStart + windowPieces)
         {
-            return;
+            _primed = false; // a jump back or far ahead: a new start or a seek
+        }
+
+        _lastStart = start;
+
+        if (!_primed)
+        {
+            if (!Array.Exists(_haves, b => b.Length > start && b[start]))
+            {
+                return;
+            }
+
+            _primed = true;
         }
 
         var target = peer.MaxPendingRequests;
