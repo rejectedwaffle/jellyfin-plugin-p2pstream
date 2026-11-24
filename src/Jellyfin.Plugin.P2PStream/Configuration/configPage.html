@@ -279,6 +279,11 @@
                             </div>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PreferStreamingSizes" /><span>Prefer streaming-friendly sizes</span></label>
                             <div class="p2p-desc">Well-seeded releases under about 15 GB (4K) or 8 GB (1080p) are tried before huge remuxes, which start slowly (episodes: 6 GB and 3 GB). The big ones stay in the Version menu.</div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="number" min="0" data-key="Min4KSeeders" data-type="int" label="Minimum seeders for 4K (0 = off)" />
+                                <div class="fieldDescription">A 4K release with fewer seeders is tried after the best 1080p one: a small swarm can't download 4K fast enough to start quickly. It stays in the Version menu.</div>
+                                <div class="fieldDescription"><b>Suggested: 50.</b> 4K needs about 3 MB/s. Releases with 90+ seeders reached 5 MB/s here, one with 17 managed 0.4 MB/s. Use 30 on a fast connection without a VPN, or 80+ if 4K still starts slowly.</div>
+                            </div>
                             <div class="p2p-row">
                                 <div class="inputContainer"><input is="emby-input" type="number" min="1" max="10" data-key="CandidatesToTry" data-type="int" label="Releases to try" /></div>
                                 <div class="inputContainer"><input is="emby-input" type="number" min="10" data-key="MetadataTimeoutSeconds" data-type="int" label="Give up after (s)" /></div>

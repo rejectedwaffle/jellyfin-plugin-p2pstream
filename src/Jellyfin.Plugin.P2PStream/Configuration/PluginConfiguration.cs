@@ -203,6 +203,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets a value indicating whether well-seeded, reasonably sized releases rank above huge ones of the same resolution.</summary>
     public bool PreferStreamingSizes { get; set; } = true;
 
+    /// <summary>
+    /// Gets or sets the fewest seeders a 4K release needs to be preferred (0 = off). A 4K release with fewer ranks after
+    /// the best 1080p one: a thin swarm can't download 4K fast enough to start quickly or play smoothly.
+    /// </summary>
+    public int Min4KSeeders { get; set; }
+
     /// <summary>Gets or sets a value indicating whether a title's releases are listed in Jellyfin's Version menu (Elementum-style picker).</summary>
     public bool StreamPicker { get; set; } = true;
 

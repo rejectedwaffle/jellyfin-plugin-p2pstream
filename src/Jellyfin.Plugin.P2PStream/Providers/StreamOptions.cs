@@ -19,7 +19,7 @@ public sealed class StreamOptions
     private readonly SourceHub _sources;
     private readonly TmdbClient _tmdb;
     private readonly ILogger<StreamOptions> _logger;
-    private readonly ConcurrentDictionary<string, (DateTime At, List<ReleaseCandidate> Releases)> _cache = new();
+    private readonly ConcurrentDictionary<string, (DateTime At, List<ReleaseCandidate> Releases, string Rules)> _cache = new();
     private readonly ConcurrentDictionary<string, Task<List<ReleaseCandidate>>> _inflight = new();
     private readonly ConcurrentDictionary<string, ProbeInfo> _probes = new();
 
@@ -68,7 +68,8 @@ public sealed class StreamOptions
 
     public bool TryGetCached(MediaRequest request, out List<ReleaseCandidate> releases)
     {
-        if (_cache.TryGetValue(request.Key, out var hit) && DateTime.UtcNow - hit.At < CacheAge)
+        // A list ranked under other settings (e.g. preferred resolution just changed) is searched and ranked again.
+        if (_cache.TryGetValue(request.Key, out var hit) && DateTime.UtcNow - hit.At < CacheAge && hit.Rules == ReleaseRanker.RulesStamp())
         {
             releases = hit.Releases;
             return true;
@@ -160,7 +161,7 @@ public sealed class StreamOptions
             var list = ranked.Where(chosen.Contains).ToList(); // keep the ranking order
             if (list.Count > 0)
             {
-                _cache[request.Key] = (DateTime.UtcNow, list); // an empty result (sources down, VPN off) isn't kept, so the next try searches again
+                _cache[request.Key] = (DateTime.UtcNow, list, ReleaseRanker.RulesStamp()); // an empty result (sources down, VPN off) isn't kept, so the next try searches again
             }
             _logger.LogInformation("Found {Count} streams for {Request}", list.Count, request);
             return list;

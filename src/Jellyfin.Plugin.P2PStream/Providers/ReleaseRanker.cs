@@ -33,7 +33,7 @@ public static partial class ReleaseRanker
     public static string RulesStamp()
     {
         var c = Plugin.Instance!.Configuration;
-        return string.Join('|', RulesVersion, c.PreferredResolution, c.Language ?? string.Empty, c.PreferStreamingSizes);
+        return string.Join('|', RulesVersion, c.PreferredResolution, c.Language ?? string.Empty, c.PreferStreamingSizes, c.Min4KSeeders);
     }
 
     public static List<ReleaseCandidate> Rank(IEnumerable<ReleaseCandidate> releases, MediaRequest? request)
@@ -83,7 +83,7 @@ public static partial class ReleaseRanker
         return list
             .OrderBy(r => r.IsSeasonPack)
             .ThenBy(r => english && IsForeignLanguage(r.Title) ? 1 : 0)
-            .ThenBy(r => ResolutionTier(r.Resolution, pref))
+            .ThenBy(r => Weak4K(r, c.Min4KSeeders) ? Math.Max(ResolutionTier(r.Resolution, pref), ResolutionTier(1080, pref) + 0.00001) : ResolutionTier(r.Resolution, pref))
             .ThenBy(r => c.PreferStreamingSizes && !StreamingFriendly(r, request) ? 1 : 0)
             .ThenByDescending(r => r.Seeders)
             .ToList();
@@ -297,6 +297,9 @@ public static partial class ReleaseRanker
         // No season info at all: probably a "complete series" pack.
         return EpisodeMatch.Pack;
     }
+
+    /// <summary>A 4K release with fewer seeders than the "minimum seeders for 4K" setting (unknown counts don't count).</summary>
+    public static bool Weak4K(ReleaseCandidate r, int min4KSeeders) => min4KSeeders > 0 && r.Resolution >= 2160 && r.Seeders >= 0 && r.Seeders < min4KSeeders;
 
     private static double ResolutionTier(int res, int pref)
     {
