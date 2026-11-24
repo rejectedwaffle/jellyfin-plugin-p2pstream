@@ -28,7 +28,7 @@ public sealed partial class TorrentSubtitles
     private readonly StreamResolver _resolver;
     private readonly IServiceProvider _services;
     private readonly ILogger<TorrentSubtitles> _logger;
-    private readonly ConcurrentDictionary<Guid, Task> _running = new();
+    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _running = new();
 
     public TorrentSubtitles(StreamResolver resolver, IServiceProvider services, ILogger<TorrentSubtitles> logger)
     {
@@ -48,8 +48,12 @@ public sealed partial class TorrentSubtitles
             return;
         }
 
-        var task = _running.GetOrAdd(item.Id, key => Task.Run(async () =>
+        // One at a time per title, but every call gets its own turn: if another version was picked while the previous
+        // one's subtitles were being fetched, this turn fetches the new one's (a turn for the same release ends at once).
+        var gate = _running.GetOrAdd(item.Id, _ => new SemaphoreSlim(1, 1));
+        var task = Task.Run(async () =>
         {
+            await gate.WaitAsync().ConfigureAwait(false);
             try
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
@@ -62,9 +66,9 @@ public sealed partial class TorrentSubtitles
             }
             finally
             {
-                _running.TryRemove(item.Id, out _);
+                gate.Release();
             }
-        }));
+        });
 
         try
         {
