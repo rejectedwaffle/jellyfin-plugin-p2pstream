@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "0.9.15.0",
+                             "changelog":  "Per-device limits: each device gets a full-width name field, with its limits on the line below.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.9.15.0/p2pstream_0.9.15.0.zip",
+                             "checksum":  "b60fe2a82e1b29709fff04969c0ab22e",
+                             "timestamp":  "2026-11-24T09:08:14Z"
+                         },
+                         {
                              "version":  "0.9.14.0",
                              "changelog":  "Settings layout: in Storage and Test results, a name that wraps no longer pushes its explanation down.",
                              "targetAbi":  "12.4.0.0",

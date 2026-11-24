@@ -101,8 +101,12 @@
                 #P2PStreamConfigPage .p2p-testrow .ok { color: #6cc070; }
                 #P2PStreamConfigPage .p2p-testrow .bad { color: #e5734d; }
                 #P2PStreamConfigPage .p2p-testrow .warn { color: #e5a00d; }
-                #P2PStreamConfigPage .p2p-rules td { padding: .3em .35em; }
-                #P2PStreamConfigPage .p2p-rules input.p2p-plain, #P2PStreamConfigPage .p2p-rules select.p2p-plain { width: 100%; box-sizing: border-box; }
+                #P2PStreamConfigPage .p2p-rule-row { padding: .55em 0; border-top: 1px solid rgba(128,128,128,.18); }
+                #P2PStreamConfigPage .p2p-rule-row .rule-match { width: 100%; box-sizing: border-box; }
+                #P2PStreamConfigPage .p2p-rule-limits { display: flex; align-items: center; flex-wrap: wrap; gap: .4em .9em; margin-top: .45em; font-size: .92em; }
+                #P2PStreamConfigPage .p2p-rule-limits label { display: flex; align-items: center; gap: .4em; }
+                #P2PStreamConfigPage .p2p-rule-limits .rule-size { width: 4.5em; }
+                #P2PStreamConfigPage .p2p-rule-limits .rule-remove { margin-left: auto; }
                 #P2PStreamConfigPage .p2p-trakt-code { font-size: 1.6em; font-weight: 700; letter-spacing: .12em; color: #00a4dc; }
                 #P2PStreamConfigPage .p2p-card select, #P2PStreamConfigPage .p2p-card input { max-width: 100%; box-sizing: border-box; }
                 #P2PStreamConfigPage #p2pStatus, #P2PStreamConfigPage #p2pCatalogs, #P2PStreamConfigPage #p2pSearchTable, #P2PStreamConfigPage .p2p-scroll { overflow-x: auto; }
@@ -292,7 +296,7 @@
                         <div class="p2p-card">
                             <h3><span class="material-icons">devices</span>Per-device limits</h3>
                             <p class="p2p-muted">Caps what <b>Auto</b> plays on a device, e.g. a TV that can't handle 4K. "Device" matches the device's name, its name in Dashboard &gt; Devices, or the app. Picking a version in the Version menu always plays that version.</p>
-                            <div class="p2p-scroll"><table class="p2p-rules"><thead><tr><th>Device</th><th>Max resolution</th><th>Max GB</th><th></th></tr></thead><tbody id="p2pRules"></tbody></table></div>
+                            <div id="p2pRules"></div>
                             <datalist id="p2pDeviceList"></datalist>
                             <div style="margin:.6em 0 .8em"><button is="emby-button" type="button" class="raised" id="p2pAddRule"><span>Add a device</span></button></div>
                         </div>
@@ -835,22 +839,23 @@
             var resOptions = [[0, 'Any'], [2160, '4K'], [1440, '1440p'], [1080, '1080p'], [720, '720p'], [480, '480p']];
             function ruleRow(r) {
                 r = r || { Match: '', MaxResolution: 1080, MaxSizeGb: 0 };
-                var tr = document.createElement('tr');
-                tr.className = 'p2p-rule-row';
-                tr.innerHTML = '<td><input type="text" class="p2p-plain rule-match" list="p2pDeviceList" placeholder="e.g. Living Room TV" value="' + esc(r.Match || '') + '" /></td>' +
-                    '<td><select class="p2p-plain rule-res">' + resOptions.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === (r.MaxResolution || 0) ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></td>' +
-                    '<td><input type="number" min="0" class="p2p-plain rule-size" style="width:4.5em" value="' + (r.MaxSizeGb || 0) + '" title="0 = any size" /></td>' +
-                    '<td><a href="#" class="src-edit rule-remove">remove</a></td>';
-                page.querySelector('#p2pRules').appendChild(tr);
+                var row = document.createElement('div');
+                row.className = 'p2p-rule-row';
+                row.innerHTML = '<input type="text" class="p2p-plain rule-match" list="p2pDeviceList" placeholder="Device, e.g. Living Room TV" aria-label="Device" value="' + esc(r.Match || '') + '" />' +
+                    '<div class="p2p-rule-limits">' +
+                    '<label>Max resolution <select class="p2p-plain rule-res">' + resOptions.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === (r.MaxResolution || 0) ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
+                    '<label>Max GB <input type="number" min="0" class="p2p-plain rule-size" value="' + (r.MaxSizeGb || 0) + '" title="0 = any size" /></label>' +
+                    '<a href="#" class="src-edit rule-remove">remove</a></div>';
+                page.querySelector('#p2pRules').appendChild(row);
             }
             function readRules() {
                 return Array.prototype.map.call(page.querySelectorAll('.p2p-rule-row'), function (tr) {
                     return { Match: tr.querySelector('.rule-match').value.trim(), MaxResolution: parseInt(tr.querySelector('.rule-res').value, 10) || 0, MaxSizeGb: parseInt(tr.querySelector('.rule-size').value, 10) || 0 };
                 }).filter(function (r) { return r.Match; });
             }
-            page.querySelector('#p2pAddRule').addEventListener('click', function () { ruleRow(); setDirty(true); page.querySelector('#p2pRules tr:last-child .rule-match').focus(); });
+            page.querySelector('#p2pAddRule').addEventListener('click', function () { ruleRow(); setDirty(true); page.querySelector('#p2pRules .p2p-rule-row:last-child .rule-match').focus(); });
             page.querySelector('#p2pRules').addEventListener('click', function (e) {
-                if (e.target.classList.contains('rule-remove')) { e.preventDefault(); e.target.closest('tr').remove(); setDirty(true); }
+                if (e.target.classList.contains('rule-remove')) { e.preventDefault(); e.target.closest('.p2p-rule-row').remove(); setDirty(true); }
             });
             function loadDevices() {
                 api('GET', 'P2PStream/Devices').then(function (list) {
