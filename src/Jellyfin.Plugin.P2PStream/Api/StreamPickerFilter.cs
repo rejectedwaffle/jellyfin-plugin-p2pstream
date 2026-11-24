@@ -61,6 +61,16 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             }
         }
 
+        // Apps look a chosen version up as an item before playing it: answer with the title it belongs to.
+        Guid? versionLookup = null;
+        if (enabled && HttpMethods.IsGet(http.Request.Method) && ItemPath().IsMatch(path)
+            && context.ActionArguments.TryGetValue("itemId", out var lookupArg) && lookupArg is Guid lookupId
+            && StreamPicker.TryGetVersionOwner(lookupId, out var owner))
+        {
+            context.ActionArguments["itemId"] = owner;
+            versionLookup = lookupId;
+        }
+
         var executed = await next().ConfigureAwait(false);
 
         if (enabled && HttpMethods.IsGet(http.Request.Method) && ItemPath().IsMatch(path))
@@ -68,6 +78,11 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             try
             {
                 await AddVersionsAsync(http, executed).ConfigureAwait(false);
+                if (versionLookup is { } v && executed.Result is ObjectResult { Value: BaseItemDto dto }
+                    && dto.MediaSources?.FirstOrDefault(m => string.Equals(m.Id, v.ToString("N"), StringComparison.OrdinalIgnoreCase)) is { MediaStreams.Count: > 0 } chosenSource)
+                {
+                    dto.MediaStreams = chosenSource.MediaStreams.ToArray(); // that version's tracks (for remembered audio/subtitle choices)
+                }
             }
             catch (Exception)
             {
@@ -184,13 +199,23 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         }
 
         // "Best 1080p" and the like: the best-ranked release at that resolution (the list is ranked, best first).
-        if (ResolutionChoice().Match(chosen) is { Success: true } choice)
+        var resolution = ResolutionChoice().Match(chosen) is { Success: true } choice
+            ? int.Parse(choice.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)
+            : releases.Select(r => r.Resolution).Distinct()
+                .FirstOrDefault(res => string.Equals(chosen, StreamPicker.VersionId(item, "res" + res.ToString(System.Globalization.CultureInfo.InvariantCulture)), StringComparison.OrdinalIgnoreCase));
+        if (resolution > 0)
         {
-            var resolution = int.Parse(choice.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
             chosen = releases.Where(r => r.Resolution == resolution).Select(StreamOptions.IdFor).FirstOrDefault() ?? chosen;
         }
 
-        var release = releases.FirstOrDefault(r => StreamOptions.IdFor(r) == chosen);
+        // A release: by its Version menu id (or its plain release id, as older pages used).
+        var release = releases.FirstOrDefault(r => StreamOptions.IdFor(r) == chosen)
+            ?? releases.FirstOrDefault(r => string.Equals(StreamPicker.VersionId(item, StreamOptions.IdFor(r)), chosen, StringComparison.OrdinalIgnoreCase));
+        if (release is not null)
+        {
+            chosen = StreamOptions.IdFor(release);
+        }
+
         if (release is null)
         {
             return; // not one of ours
@@ -349,7 +374,8 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         {
             var best = g.First();
             var source = StreamPicker.BuildSources(item, url, [best], _options)[0];
-            source.Id = source.ETag = "p2pres" + g.Key.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            source.Id = StreamPicker.RegisterVersion(item, "res" + g.Key.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            source.ETag = "p2pres" + g.Key.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var label = g.Key == 2160 ? "4K" : g.Key + "p";
             var size = best.Size > 0 ? $" · {best.Size / (double)(1L << 30):0.0} GB" : string.Empty;
             var seeds = best.Seeders >= 0 ? $" · {best.Seeders} seeds" : string.Empty;

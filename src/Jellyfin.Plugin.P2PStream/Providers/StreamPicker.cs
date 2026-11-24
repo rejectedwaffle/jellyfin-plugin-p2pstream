@@ -18,6 +18,27 @@ namespace Jellyfin.Plugin.P2PStream.Providers;
 /// </summary>
 public static partial class StreamPicker
 {
+    private static readonly ConcurrentDictionary<Guid, Guid> VersionOwners = new();
+
+    /// <summary>
+    /// The id a version gets in the Version menu. Jellyfin apps look a chosen version up as a library item
+    /// (GET Items/{id}) before playing it, so it must be shaped like an item id, and unique per title (the same release
+    /// can be offered for several episodes). <paramref name="key"/> is the release id, or "res1080" and the like.
+    /// </summary>
+    public static string VersionId(BaseItem item, string key)
+        => Convert.ToHexString(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(item.Id.ToString("N") + "|" + key))).ToLowerInvariant();
+
+    /// <summary>Gives a version its id and remembers which title it belongs to (for the item lookup).</summary>
+    public static string RegisterVersion(BaseItem item, string key)
+    {
+        var id = VersionId(item, key);
+        VersionOwners[Guid.ParseExact(id, "N")] = item.Id;
+        return id;
+    }
+
+    /// <summary>The title a version id (from the Version menu) belongs to.</summary>
+    public static bool TryGetVersionOwner(Guid versionId, out Guid itemId) => VersionOwners.TryGetValue(versionId, out itemId);
+
     /// <summary>Gets the play request behind a .strm item written by this plugin.</summary>
     public static bool TryGetRequest(BaseItem item, out string strmUrl, out MediaRequest request)
     {
@@ -75,7 +96,7 @@ public static partial class StreamPicker
             var id = StreamOptions.IdFor(r);
             var source = (templateJson is null ? null : JsonSerializer.Deserialize<MediaSourceInfo>(templateJson))
                 ?? new MediaSourceInfo { IsRemote = true, SupportsDirectStream = true, SupportsTranscoding = true, SupportsProbing = true };
-            source.Id = id;
+            source.Id = RegisterVersion(item, id);
             source.ETag = id;
             source.Name = StreamOptions.Label(r);
             source.Path = strmUrl + "?release=" + id;
