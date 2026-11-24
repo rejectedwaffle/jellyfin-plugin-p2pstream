@@ -33,6 +33,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<StreamOptions>();
         serviceCollection.AddSingleton<StreamProber>();
         serviceCollection.AddSingleton<StreamResolver>();
+        serviceCollection.AddSingleton<TorrentSubtitles>();
 
         // Catalog and search
         serviceCollection.AddSingleton<TmdbClient>();

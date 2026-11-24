@@ -215,6 +215,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets a value indicating whether opening a title's page starts loading Auto's release, so playback starts sooner.</summary>
     public bool PrewarmOnOpen { get; set; } = true;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether subtitle files that come with a release (.srt and the like) are offered in
+    /// Jellyfin's subtitle menu. They're small, so they don't need the whole release downloaded first.
+    /// </summary>
+    public bool TorrentSubtitles { get; set; } = true;
+
     /// <summary>Gets or sets how many releases the Version menu lists.</summary>
     public int StreamPickerMax { get; set; } = 15;
 

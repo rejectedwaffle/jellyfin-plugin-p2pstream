@@ -297,6 +297,8 @@
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="ProbeStreams" /><span>Check the top streams' tracks</span></label>
                             <div class="p2p-desc">Reads the video, audio and subtitle tracks of the top releases so they show in the Version menu. Uses some bandwidth per title page.</div>
                             <div class="inputContainer"><input is="emby-input" type="number" min="1" max="5" data-key="ProbeStreamCount" data-type="int" label="Streams to check" /></div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="TorrentSubtitles" /><span>Offer the release's subtitle files</span></label>
+                            <div class="p2p-desc">Many releases include separate subtitle files (.srt and the like). They're added to the subtitle menu, labelled by language. Unlike subtitles inside the video, they don't need the whole release downloaded first.</div>
                         </div>
                         <div class="p2p-card">
                             <h3><span class="material-icons">devices</span>Per-device limits</h3>

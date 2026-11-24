@@ -29,12 +29,14 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
     private readonly StreamOptions _options;
     private readonly StreamResolver _resolver;
     private readonly StreamProber _prober;
+    private readonly TorrentSubtitles _subtitles;
     private readonly ILibraryManager _libraryManager;
     private readonly IServiceProvider _services;
     private readonly ILogger<StreamPickerFilter> _logger;
 
-    public StreamPickerFilter(StreamOptions options, StreamResolver resolver, StreamProber prober, ILibraryManager libraryManager, IServiceProvider services, ILogger<StreamPickerFilter> logger)
+    public StreamPickerFilter(StreamOptions options, StreamResolver resolver, StreamProber prober, TorrentSubtitles subtitles, ILibraryManager libraryManager, IServiceProvider services, ILogger<StreamPickerFilter> logger)
     {
+        _subtitles = subtitles;
         _options = options;
         _resolver = resolver;
         _prober = prober;
@@ -52,10 +54,14 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         // While Jellyfin answers a Play request for one of our titles, its forced re-check of the stream gets only the
         // start of the release (see PlaybackInfoWindow).
         IDisposable? checkWindow = null;
+        BaseItem? playItem = null;
+        MediaRequest? playRequest = null;
         if (PlaybackInfoPath().IsMatch(path) && context.ActionArguments.TryGetValue("itemId", out var playArg) && playArg is Guid playId
-            && _libraryManager.GetItemById(playId) is { } playItem && StreamPicker.TryGetRequest(playItem, out _, out var playRequest))
+            && _libraryManager.GetItemById(playId) is { } found && StreamPicker.TryGetRequest(found, out _, out var foundRequest))
         {
-            checkWindow = PlaybackInfoWindow.Begin(playRequest.Key);
+            playItem = found;
+            playRequest = foundRequest;
+            checkWindow = PlaybackInfoWindow.Begin(foundRequest.Key);
         }
 
         if (enabled && PlaybackInfoPath().IsMatch(path))
@@ -68,6 +74,13 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             {
                 _logger.LogWarning("Could not apply the chosen version: {Message}", ex.Message);
             }
+        }
+
+        // The release's own subtitle files, next to the .strm before Jellyfin's per-play check looks for them. After the
+        // chosen version is pinned, so they're that release's.
+        if (checkWindow is not null && playItem is not null && playRequest is not null)
+        {
+            await _subtitles.EnsureAsync(playItem, playRequest, TimeSpan.FromSeconds(12), http.RequestAborted).ConfigureAwait(false);
         }
 
         // Apps look a chosen version up as an item before playing it: answer with the title it belongs to.
@@ -140,6 +153,10 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         }
 
         _resolver.Prewarm(request);
+        if (Plugin.Instance?.Configuration.PrewarmOnOpen == true)
+        {
+            _ = _subtitles.EnsureAsync(item, request, TimeSpan.Zero, CancellationToken.None); // ready before Play is pressed
+        }
 
         // Auto plays the remembered pick, or else tries the top-ranked release first. Name it, and if that release has been
         // checked, show its tracks on Auto too (Jellyfin otherwise only knows them after Auto has played once).
