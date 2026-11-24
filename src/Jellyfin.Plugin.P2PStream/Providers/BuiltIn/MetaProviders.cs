@@ -99,7 +99,7 @@ public sealed class NyaaProvider : SearchProvider
             return []; // TMDB says it isn't anime: Nyaa won't have it, and a search would only find unrelated anime
         }
 
-        // Fansub releases are usually named by the romaji title ("Sousou no Frieren - 12"), which TMDB lists as an
+        // Fansub releases are usually named by the romaji title ("<romaji title> - 12"), which TMDB lists as an
         // alternative title, so search the English title and those together.
         var titles = new[] { request.Title! }.Concat(request.AltTitles).Distinct(StringComparer.OrdinalIgnoreCase).Take(4).ToList();
         async Task<List<ReleaseCandidate>> SearchAll(Func<string, string> query) =>

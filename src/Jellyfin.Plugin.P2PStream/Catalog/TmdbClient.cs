@@ -79,7 +79,7 @@ public sealed class TmdbClient
 
     /// <summary>
     /// The names anime releases use besides the English title: romaji first (fansub groups name releases
-    /// "Sousou no Frieren - 12"), then other Latin-script titles. Up to three, without the main title.
+    /// "&lt;romaji title&gt; - 12"), then other Latin-script titles. Up to three, without the main title.
     /// </summary>
     public static IReadOnlyList<string> PickAltTitles(string main, string? original, JsonArray? alternatives)
     {

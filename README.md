@@ -13,7 +13,7 @@ Seeking works, because the engine fetches pieces wherever playback jumps to.
 - **Subtitles from the release:** subtitle files that come with a release (.srt, .ass, .vtt) appear in Jellyfin's subtitle menu, labelled by language, without downloading the whole release first.
 - **Per-device limits:** cap what Auto plays on a device (e.g. the living room TV gets the best release up to 1080p and 8 GB). Choosing a version in the Version menu always wins.
 - **Privacy:** send torrent traffic only through a VPN's network interface (with a kill switch: if the VPN drops, torrents stop instead of using another connection) or only through a SOCKS5/HTTP proxy. Works with a VPN's forwarded port ([guide](docs/port-forwarding.md)). Optionally share only while watching, and cap the disk space streaming may use.
-- **Anime:** Nyaa is searched with TMDB's romaji titles too ("Sousou no Frieren" as well as "Frieren: Beyond Journey's End"), and only for titles that are anime.
+- **Anime:** Nyaa is searched with TMDB's romaji (Japanese) titles as well as the English ones, and only for titles that are anime.
 - **Source health:** each source on the Sources tab shows its last result count, or why it failed.
 - **Search for any movie or show** from Jellyfin's search bar, in any client. Matches from TMDB are added to your library.
 - **Burst-style quality filters:** preferred and allowed resolutions, allowed release types (BluRay, WEB-DL, ... TeleSync, Cam), size ranges for movies, episodes and season packs, required and excluded keywords, minimum seeders (and optionally a higher minimum for 4K).
