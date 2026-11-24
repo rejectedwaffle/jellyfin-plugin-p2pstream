@@ -30,8 +30,11 @@
                 #P2PStreamConfigPage .p2p-sizes input { width: 100%; box-sizing: border-box; }
                 #P2PStreamConfigPage .p2p-card h3 .material-icons { color: #00a4dc; font-size: 1.2em; }
                 #P2PStreamConfigPage .p2p-muted { opacity: .7; font-size: .9em; }
+                #P2PStreamConfigPage .p2p-actionrow { display: flex; align-items: center; gap: .8em; margin: .2em 0 .6em; }
+                #P2PStreamConfigPage .p2p-actionrow > button { flex: none; margin: 0; }
                 #P2PStreamConfigPage .p2p-row { display: flex; gap: .75em; align-items: flex-end; flex-wrap: wrap; }
                 #P2PStreamConfigPage .p2p-row > .inputContainer, #P2PStreamConfigPage .p2p-row > .selectContainer { flex: 1 1 10em; }
+                #P2PStreamConfigPage .p2p-row .inputLabel, #P2PStreamConfigPage .p2p-row .selectLabel { white-space: nowrap; }
                 #P2PStreamConfigPage .checkboxContainer { margin-bottom: .2em; }
                 /* Jellyfin gives checkbox labels a fixed height; let ours grow so multi-line labels (sources) don't overlap the next row. */
                 #P2PStreamConfigPage .emby-checkbox-label { height: auto; min-height: 2.2em; }
@@ -66,9 +69,10 @@
                 #P2PStreamConfigPage .src-edit:hover { text-decoration: underline; }
                 #P2PStreamConfigPage .src-url-row { padding: 0 0 .5em 2.6em; }
                 #P2PStreamConfigPage .p2p-indexer { border: 1px solid rgba(128,128,128,.3); border-radius: 6px; padding: .6em .9em; margin-bottom: .6em; }
-                #P2PStreamConfigPage .p2p-checks { columns: 2; margin-bottom: .6em; }
-                #P2PStreamConfigPage .p2p-checks.three { columns: 3; }
-                #P2PStreamConfigPage .p2p-checks .checkboxContainer { break-inside: avoid; }
+                #P2PStreamConfigPage .p2p-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(10em, 1fr)); column-gap: .8em; margin-bottom: .6em; }
+                #P2PStreamConfigPage .p2p-checks.three { grid-template-columns: repeat(auto-fill, minmax(7.5em, 1fr)); }
+                #P2PStreamConfigPage .p2p-checks .checkboxContainer { min-width: 0; }
+                #P2PStreamConfigPage .p2p-checks .checkboxContainer span { white-space: normal; overflow-wrap: anywhere; }
                 #P2PStreamConfigPage .p2p-savebar { position: fixed; right: 2em; bottom: 2em; z-index: 999; display: flex; align-items: center; gap: .9em; padding: .45em .45em .45em 1.1em; background: #252525; color: #eee; border: 1px solid rgba(255,255,255,.12); border-radius: 2em; box-shadow: 0 6px 24px rgba(0,0,0,.5); font-weight: 600; opacity: 0; transform: translateY(1em); pointer-events: none; transition: opacity .15s, transform .15s; }
                 #P2PStreamConfigPage .p2p-savebar.show { opacity: 1; transform: none; pointer-events: auto; }
                 #P2PStreamConfigPage .p2p-savebar .p2p-dot { width: .6em; height: .6em; border-radius: 50%; background: #e5a00d; box-shadow: 0 0 0 3px rgba(229,160,13,.25); }
@@ -109,7 +113,6 @@
                     #P2PStreamConfigPage .p2p-tab-btn .material-icons { font-size: 1.7em; }
                     #P2PStreamConfigPage .p2p-card { padding: .7em .8em .3em; }
                     #P2PStreamConfigPage .p2p-desc { margin-left: 2.2em; }
-                    #P2PStreamConfigPage .p2p-checks.three { columns: 2; }
                     #P2PStreamConfigPage .p2p-testrow { grid-template-columns: 1.2em 1fr; }
                     #P2PStreamConfigPage .p2p-testrow b, #P2PStreamConfigPage .p2p-testrow .p2p-verdict, #P2PStreamConfigPage .p2p-testrow .p2p-why { grid-column: 2; }
                     #P2PStreamConfigPage .p2p-savebar { left: .75em; right: .75em; bottom: .75em; justify-content: space-between; }
@@ -273,7 +276,7 @@
                             <div class="p2p-desc">Well-seeded releases under about 15 GB (4K) or 8 GB (1080p) are tried before huge remuxes, which start slowly (episodes: 6 GB and 3 GB). The big ones stay in the Version menu.</div>
                             <div class="p2p-row">
                                 <div class="inputContainer"><input is="emby-input" type="number" min="1" max="10" data-key="CandidatesToTry" data-type="int" label="Releases to try" /></div>
-                                <div class="inputContainer"><input is="emby-input" type="number" min="10" data-key="MetadataTimeoutSeconds" data-type="int" label="Give up on one after (s)" /></div>
+                                <div class="inputContainer"><input is="emby-input" type="number" min="10" data-key="MetadataTimeoutSeconds" data-type="int" label="Give up after (s)" /></div>
                             </div>
                             <div class="fieldDescription" style="margin:-.6em 0 1em">If a release won't start (no peers send its file list in time), the next best is tried, up to this many.</div>
                         </div>
@@ -302,8 +305,8 @@
                             <h3><span class="material-icons">aspect_ratio</span>Resolutions</h3>
                             <p class="p2p-muted">Allowed (releases that don't say are always allowed):</p>
                             <div data-list="AllowedResolutions" data-type="int" class="p2p-checks three">
-                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="2160" /><span>4K/2160p</span></label>
-                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="1440" /><span>2K/1440p</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="2160" /><span>4K/<wbr>2160p</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="1440" /><span>2K/<wbr>1440p</span></label>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="1080" /><span>1080p</span></label>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="720" /><span>720p</span></label>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="480" /><span>480p</span></label>
@@ -314,16 +317,16 @@
                             <h3><span class="material-icons">movie_filter</span>Release types</h3>
                             <p class="p2p-muted">Allowed (releases that don't say are always allowed):</p>
                             <div data-list="AllowedReleaseTypes" class="p2p-checks">
-                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="bluray" /><span>BRRip/BDRip/BluRay</span></label>
-                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="webdl" /><span>WEB-DL/WEBRip</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="bluray" /><span>BRRip/<wbr>BDRip/<wbr>BluRay</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="webdl" /><span>WEB-DL/<wbr>WEBRip</span></label>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="hdrip" /><span>HDRip</span></label>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="hdtv" /><span>HDTV</span></label>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="dvdrip" /><span>DVDRip</span></label>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="dvdscr" /><span>DVDScr</span></label>
-                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="screener" /><span>Screener/SCR</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="screener" /><span>Screener/<wbr>SCR</span></label>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="3d" /><span>3D</span></label>
-                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="telesync" /><span>TeleSync/TS/TC</span></label>
-                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="cam" /><span>Cam/HDCam</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="telesync" /><span>TeleSync/<wbr>TS/<wbr>TC</span></label>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" value="cam" /><span>Cam/<wbr>HDCam</span></label>
                             </div>
                         </div>
                         <div class="p2p-card">
@@ -372,7 +375,7 @@
                             </div>
                             <div class="p2p-desc" id="p2pNetHelp"></div>
                             <div id="p2pNetStatus" class="p2p-netstatus"></div>
-                            <div style="margin:.2em 0 .6em"><button is="emby-button" type="button" class="raised p2p-nettest"><span>Test</span></button> <span class="p2p-muted">Shows the address the internet sees, and whether peers can connect in. Save first.</span></div>
+                            <div class="p2p-actionrow"><button is="emby-button" type="button" class="raised p2p-nettest"><span>Test</span></button><span class="p2p-muted">Shows the address the internet sees, and whether peers can connect in. Save first.</span></div>
                             <div class="p2p-testrows" data-rows="all"></div>
                         </div>
                         <div class="p2p-card" id="p2pVpnCard">
