@@ -26,6 +26,7 @@ public static class GuardedFactories
         Func<AddressFamily, HttpClient> http = NetworkGuard.CreateTorrentHttpClient;
         return Factories.Default
             .WithSocketConnectorCreator(() => connector)
+            .WithStreamingPieceRequesterCreator(() => DeepStreamingRequester.Supported ? new DeepStreamingRequester() : new MonoTorrent.PiecePicking.StreamingPieceRequester())
             .WithPeerConnectionCreator("ipv4", uri => new SocketPeerConnection(uri, connector))
             .WithPeerConnectionCreator("ipv6", uri => new SocketPeerConnection(uri, connector))
             .WithHttpClientCreator(family => http(family)) // web seeds
