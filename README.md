@@ -75,7 +75,8 @@ and replaying start instantly. The token in the URL lets players stream without 
 ```
 dotnet build src/Jellyfin.Plugin.P2PStream -c Release          # build only
 ./scripts/package.ps1 -Changelog "What changed"               # zip + meta.json + manifest.json entry
-gh release create v<version> artifacts/p2pstream_<version>.zip  # publish, then commit and push manifest.json
+git commit -am "<version>" && git push                          # commit the version bump and manifest.json first
+gh release create v<version> artifacts/p2pstream_<version>.zip --target main  # then publish (tags the pushed commit)
 ```
 Bump `AssemblyVersion` in the `.csproj` first. Requires the .NET 10 SDK.
 
