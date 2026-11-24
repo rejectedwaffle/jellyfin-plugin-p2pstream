@@ -452,6 +452,8 @@ public class P2PStreamController : ControllerBase
             DeviceBinding = Torrent.NetworkGuard.DeviceBindingWorks,
             IsLinux = OperatingSystem.IsLinux(),
             Interfaces = Torrent.NetworkGuard.ListInterfaces(),
+            _engine.ListenPortFileStatus,
+            ListeningOn = _engine.ForwardedPort ?? Plugin.Instance!.Configuration.ListenPort,
             DiskMb = _engine.TotalDiskBytes >> 20,
             DownloadFolderMb = FolderBytes(Plugin.Instance!.DownloadPath) >> 20,
             DownloadFolder = Plugin.Instance.DownloadPath,

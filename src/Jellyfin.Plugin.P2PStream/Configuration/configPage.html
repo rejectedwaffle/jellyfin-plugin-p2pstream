@@ -403,6 +403,11 @@
                                 <input is="emby-input" type="number" min="1" max="65535" data-key="ListenPort" data-type="int" label="Listen port" />
                                 <div class="fieldDescription">Forward this port (TCP and UDP) on your router for much better speeds.</div>
                             </div>
+                            <div class="inputContainer">
+                                <input is="emby-input" type="text" data-key="ListenPortFile" label="Listen port file (optional, for a VPN's forwarded port)" autocomplete="off" />
+                                <div class="fieldDescription">Through a VPN, peers can only connect to you on the port the VPN forwards. If your VPN's port-forwarding script writes that port to a file, put the file's path here (e.g. /run/vpn-port). It's checked every 15 seconds and used instead of the listen port.</div>
+                            </div>
+                            <div id="p2pPortFileStatus" class="p2p-netstatus"></div>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="EnablePortForwarding" /><span>Forward the port automatically (UPnP / NAT-PMP)</span></label>
                             <div class="p2p-desc">Works if your router allows it.</div>
                             <div class="p2p-row">
@@ -742,7 +747,11 @@
                         }).join('');
                 });
             }
-            function loadNetwork() { api('GET', 'P2PStream/Network').then(renderNetwork).catch(function () { /* older server */ }); }
+            function showPortFile(n) {
+                var el = page.querySelector('#p2pPortFileStatus');
+                if (el) { el.textContent = n.ListenPortFileStatus || (n.ListeningOn ? 'Listening on port ' + n.ListeningOn : ''); }
+            }
+            function loadNetwork() { api('GET', 'P2PStream/Network').then(function (n) { renderNetwork(n); showPortFile(n); }).catch(function () { /* older server */ }); }
 
             // ---------- stream token ----------
             function showToken() {

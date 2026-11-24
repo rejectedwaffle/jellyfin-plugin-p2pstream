@@ -88,6 +88,12 @@ public class PluginConfiguration : BasePluginConfiguration
     // ---- Engine ----
     public int ListenPort { get; set; } = 55125;
 
+    /// <summary>
+    /// Gets or sets a file holding the port to listen on instead (optional). A VPN's port-forwarding script writes the
+    /// port it was given there (gluetun, PIA or ProtonVPN scripts and the like); it's checked every 15 seconds.
+    /// </summary>
+    public string ListenPortFile { get; set; } = string.Empty;
+
     public string DownloadPath { get; set; } = string.Empty;
 
     public bool KeepFilesAfterPlayback { get; set; }

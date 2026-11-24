@@ -51,13 +51,15 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         NetworkGuard.SetLogger(m => _logger.LogInformation("{Message}", m));
         await NetworkGuard.RefreshAsync(cancellationToken).ConfigureAwait(false);
 
+        await ReadListenPortFileAsync().ConfigureAwait(false); // listen on the VPN's forwarded port from the start
+
         // Every connection the engine makes goes through NetworkGuard (VPN binding / proxy / kill switch).
         _engine = new ClientEngine(BuildSettings(), GuardedFactories.Create());
         NetworkGuard.Changed += OnNetworkChanged;
         plugin.ConfigurationChanged += OnConfigurationChanged;
         _cleanupTimer = new Timer(_ => _ = CleanupAsync(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         _networkTimer = new Timer(_ => _ = RefreshNetworkAsync(), null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
-        _logger.LogInformation("P2P Stream engine started on port {Port}, downloads in {Path}. {Network}", Config.ListenPort, plugin.DownloadPath, NetworkGuard.State.Message);
+        _logger.LogInformation("P2P Stream engine started on port {Port}, downloads in {Path}. {Network}", _forwardedPort ?? Config.ListenPort, plugin.DownloadPath, NetworkGuard.State.Message);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -289,12 +291,77 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         }
     }
 
+    private int? _forwardedPort;
+
+    /// <summary>The port read from the listen port file (the port a VPN forwards to us), used instead of the listen port.</summary>
+    public int? ForwardedPort => _forwardedPort;
+
+    /// <summary>What the listen port file says, for the settings page.</summary>
+    public string ListenPortFileStatus { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// Reads the listen port file, if one is set, and listens on the port in it. A VPN's port-forwarding script keeps
+    /// that file current; the port can change whenever the VPN reconnects.
+    /// </summary>
+    private async Task ReadListenPortFileAsync()
+    {
+        var path = Config.ListenPortFile?.Trim();
+        int? port = null;
+        if (string.IsNullOrEmpty(path))
+        {
+            ListenPortFileStatus = string.Empty;
+        }
+        else
+        {
+            try
+            {
+                var text = (await File.ReadAllTextAsync(path).ConfigureAwait(false)).Trim();
+                var digits = System.Text.RegularExpressions.Regex.Match(text, @"\d{1,5}").Value; // "41234", "port=41234"
+                if (int.TryParse(digits, out var p) && p is > 0 and < 65536)
+                {
+                    port = p;
+                    ListenPortFileStatus = $"Using port {p} from {path}";
+                }
+                else
+                {
+                    ListenPortFileStatus = $"{path} holds no port number; using the listen port {Config.ListenPort}";
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                ListenPortFileStatus = $"Can't read {path} ({ex.Message}); using the listen port {Config.ListenPort}";
+            }
+        }
+
+        await SetForwardedPortAsync(port).ConfigureAwait(false);
+    }
+
+    private async Task SetForwardedPortAsync(int? port)
+    {
+        if (_forwardedPort == port)
+        {
+            return;
+        }
+
+        _forwardedPort = port;
+        if (_engine is { } engine)
+        {
+            await engine.UpdateSettingsAsync(BuildSettings()).ConfigureAwait(false);
+            _logger.LogInformation(port is null ? "Listening on the normal port {Port} again" : "Listening on the VPN's forwarded port {Port}", port ?? Config.ListenPort);
+        }
+    }
+
     private EngineSettings BuildSettings()
     {
         var c = Config;
         var plugin = Plugin.Instance!;
         var port = c.ListenPort is > 0 and < 65536 ? c.ListenPort : 55125;
         var net = NetworkGuard.State;
+        if (_forwardedPort is int forwarded)
+        {
+            port = forwarded;
+        }
+
         var listen = new Dictionary<string, IPEndPoint>();
         IPEndPoint? dht = null;
         switch (net.Mode)
@@ -381,6 +448,15 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         catch (Exception ex)
         {
             _logger.LogDebug("Network check failed: {Message}", ex.Message);
+        }
+
+        try
+        {
+            await ReadListenPortFileAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Applying the listen port file failed: {Message}", ex.Message);
         }
 
         await KeepDhtRunningAsync().ConfigureAwait(false);
