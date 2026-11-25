@@ -128,6 +128,27 @@ public sealed class StreamOptions
         _probes[releaseId] = info;
     }
 
+    /// <summary>The top releases, plus the best few of every resolution, so "Best 1080p" exists even when 4K fills the top.</summary>
+    private static List<ReleaseCandidate> Pick(List<ReleaseCandidate> ranked)
+    {
+        var c = Plugin.Instance!.Configuration;
+        var keep = Math.Max(Math.Clamp(c.StreamPickerMax, 1, 50), Math.Max(1, c.CandidatesToTry));
+        var chosen = new HashSet<ReleaseCandidate>(ranked.Take(keep));
+        foreach (var group in ranked.GroupBy(r => r.Resolution))
+        {
+            chosen.UnionWith(group.Take(3));
+        }
+
+        return ranked.Where(chosen.Contains).ToList(); // keep the ranking order
+    }
+
+    /// <summary>The same torrent from several sources: keep the copy with the most seeders (as the source hub does).</summary>
+    private static List<ReleaseCandidate> Dedupe(IEnumerable<ReleaseCandidate> releases) =>
+        releases
+            .GroupBy(r => string.IsNullOrEmpty(r.InfoHash) ? "u:" + (r.DownloadUrl ?? r.MagnetPageUrl ?? r.Title) : r.InfoHash!.ToLowerInvariant())
+            .Select(g => g.OrderByDescending(r => r.Seeders).First())
+            .ToList();
+
     /// <summary>Drops expired lists, then the oldest ones over <see cref="MaxCachedLists"/>.</summary>
     private void TrimCache()
     {
@@ -196,17 +217,35 @@ public sealed class StreamOptions
                 throw new StreamNotFoundException("Couldn't look this title up on TMDB, so there's nothing to search for. Check the TMDB key, and the proxy if one is set.");
             }
 
-            var c = Plugin.Instance!.Configuration;
-            var ranked = ReleaseRanker.Rank(await _sources.SearchAsync(request, CancellationToken.None).ConfigureAwait(false), request);
-            var keep = Math.Max(Math.Clamp(c.StreamPickerMax, 1, 50), Math.Max(1, c.CandidatesToTry));
-            // The top releases, plus the best few of every resolution, so "Best 1080p" exists even when 4K fills the top.
-            var chosen = new HashSet<ReleaseCandidate>(ranked.Take(keep));
-            foreach (var group in ranked.GroupBy(r => r.Resolution))
+            // Everything the sources returned, so releases from a slow source can be ranked in with them later.
+            var found = new List<ReleaseCandidate>();
+            var foundLock = new object();
+            var stamp = ListStamp();
+            void AddLate(string source, List<ReleaseCandidate> late)
             {
-                chosen.UnionWith(group.Take(3));
+                List<ReleaseCandidate> merged;
+                lock (foundLock)
+                {
+                    found = Dedupe(found.Concat(late));
+                    merged = Pick(ReleaseRanker.Rank(found, request));
+                }
+
+                // Only into a list that's still current (not one ranked under other settings, or already replaced).
+                if (merged.Count > 0 && _cache.TryGetValue(request.Key, out var current) && current.Rules == stamp && current.Rules == ListStamp())
+                {
+                    _cache[request.Key] = (current.At, merged, stamp);
+                    _logger.LogInformation("Added {Count} late releases from {Source} to {Request}", late.Count, source, request);
+                }
             }
 
-            var list = ranked.Where(chosen.Contains).ToList(); // keep the ranking order
+            var results = await _sources.SearchAsync(request, CancellationToken.None, AddLate).ConfigureAwait(false);
+            List<ReleaseCandidate> list;
+            lock (foundLock)
+            {
+                found = Dedupe(found.Concat(results));
+                list = Pick(ReleaseRanker.Rank(found, request));
+            }
+
             if (list.Count > 0)
             {
                 _cache[request.Key] = (DateTime.UtcNow, list, ListStamp()); // an empty result (sources down, VPN off) isn't kept, so the next try searches again

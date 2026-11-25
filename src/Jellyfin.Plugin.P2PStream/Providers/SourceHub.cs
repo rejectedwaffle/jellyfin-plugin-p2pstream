@@ -34,8 +34,9 @@ public sealed class SourceHub
     public static List<Configuration.RssSource> EnabledFeeds =>
         (Plugin.Instance?.Configuration.RssSources ?? []).Where(f => f.Enabled && !string.IsNullOrWhiteSpace(f.Url)).ToList();
 
-    public Task<List<ReleaseCandidate>> SearchAsync(MediaRequest request, CancellationToken ct)
-        => RunAsync(p => p.SearchAsync(request, ct), () => _torznab.SearchAsync(request, ct), f => RssFeedSource.SearchAsync(f, request, ct), request.ToString(), ct, waitForAll: false);
+    /// <param name="onLate">Called with the releases of a source that answered after the search went on without it.</param>
+    public Task<List<ReleaseCandidate>> SearchAsync(MediaRequest request, CancellationToken ct, Action<string, List<ReleaseCandidate>>? onLate = null)
+        => RunAsync(p => p.SearchAsync(request, ct), () => _torznab.SearchAsync(request, ct), f => RssFeedSource.SearchAsync(f, request, ct), request.ToString(), ct, waitForAll: false, onLate);
 
     // The settings page's test search waits for every source, so it can report each one.
     public Task<List<ReleaseCandidate>> SearchTextAsync(string query, CancellationToken ct)
@@ -47,7 +48,8 @@ public sealed class SourceHub
         Func<Configuration.RssSource, Task<List<ReleaseCandidate>>> feedSearch,
         string what,
         CancellationToken ct,
-        bool waitForAll)
+        bool waitForAll,
+        Action<string, List<ReleaseCandidate>>? onLate = null)
     {
         if (!HasSources)
         {
@@ -82,6 +84,30 @@ public sealed class SourceHub
             foreach (var straggler in named.Where(n => !n.Task.IsCompleted))
             {
                 _logger.LogInformation("Not waiting for {Name} for {What}: no answer yet, the other sources already found releases", straggler.Name, what);
+                if (onLate is not null)
+                {
+                    // A slow source's releases still join the title's list when they arrive (for the Version menu and
+                    // later plays); only this search doesn't wait for them.
+                    var name = straggler.Name;
+                    _ = straggler.Task.ContinueWith(
+                        t =>
+                        {
+                            try
+                            {
+                                if (t.IsCompletedSuccessfully && t.Result.Count > 0)
+                                {
+                                    onLate(name, t.Result);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogDebug("Could not add late releases from {Name}: {Message}", name, ex.Message);
+                            }
+                        },
+                        CancellationToken.None,
+                        TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+                }
             }
         }
         else
