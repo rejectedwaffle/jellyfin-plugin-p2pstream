@@ -773,7 +773,7 @@
                 var disk = page.querySelector('#p2pDiskHint');
                 function mb(v) { return v >= 1024 ? (v / 1024).toFixed(1) + ' GB' : v + ' MB'; }
                 if (disk) {
-                    disk.textContent = 'A target for the torrents the plugin is running, checked every few minutes: over it, the least recently watched ones nobody is watching are removed. Not a hard cap: a title being watched is never removed, so a large release can go over it, and files kept after playback aren't counted.';
+                    disk.textContent = "A target for the torrents the plugin is running, checked every few minutes: over it, the least recently watched ones nobody is watching are removed. Not a hard cap: a title being watched is never removed, so a large release can go over it, and files kept after playback aren't counted.";
                 }
                 var stores = page.querySelectorAll('.p2p-storage');
                 stores.forEach(function (store) {
