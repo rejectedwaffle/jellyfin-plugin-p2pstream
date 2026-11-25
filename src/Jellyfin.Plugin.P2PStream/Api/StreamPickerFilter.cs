@@ -31,12 +31,14 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
     private readonly StreamResolver _resolver;
     private readonly StreamProber _prober;
     private readonly TorrentSubtitles _subtitles;
+    private readonly UserPicks _userPicks;
     private readonly ILibraryManager _libraryManager;
     private readonly IServiceProvider _services;
     private readonly ILogger<StreamPickerFilter> _logger;
 
-    public StreamPickerFilter(StreamOptions options, StreamResolver resolver, StreamProber prober, TorrentSubtitles subtitles, ILibraryManager libraryManager, IServiceProvider services, ILogger<StreamPickerFilter> logger)
+    public StreamPickerFilter(StreamOptions options, StreamResolver resolver, StreamProber prober, TorrentSubtitles subtitles, UserPicks userPicks, ILibraryManager libraryManager, IServiceProvider services, ILogger<StreamPickerFilter> logger)
     {
+        _userPicks = userPicks;
         _subtitles = subtitles;
         _options = options;
         _resolver = resolver;
@@ -193,7 +195,12 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             return;
         }
 
-        _resolver.Prewarm(request);
+        // This person's own choice for the title, if they made one (and it's still listed).
+        var userId = await UserIdAsync(http).ConfigureAwait(false);
+        var ownId = userId is null ? null : _userPicks.Get(userId, request.Key);
+        var own = ownId is null ? null : releases.FirstOrDefault(r => StreamOptions.IdFor(r) == ownId);
+
+        _resolver.Prewarm(request, releaseId: own is null ? null : ownId);
         if (Plugin.Instance?.Configuration.PrewarmOnOpen == true)
         {
             _ = _subtitles.EnsureAsync(item, request, TimeSpan.Zero, CancellationToken.None); // ready before Play is pressed
@@ -203,7 +210,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         // checked, show its tracks on Auto too (Jellyfin otherwise only knows them after Auto has played once).
         // A device with limits (Quality > Per-device limits) gets the best release within them instead.
         var auto = dto.MediaSources[0];
-        var current = _resolver.CurrentPickTitle(request);
+        var current = own is not null ? ReleaseRanker.CleanTitle(own.Title) : _resolver.CurrentPickTitleFor(request, userId);
         var autoRelease = current is null ? releases[0] : releases.FirstOrDefault(r => r.Title == current);
         var (rule, _) = await DeviceRules.FindAsync(http, _services).ConfigureAwait(false);
         if (rule is not null && (autoRelease is null || !DeviceRules.Allows(rule, autoRelease)) && DeviceRules.BestWithin(rule, releases) is { } fits)
@@ -290,6 +297,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             string.IsNullOrEmpty(chosen) || string.Equals(chosen, staticId, StringComparison.OrdinalIgnoreCase) ? "Auto" : chosen);
         if (string.IsNullOrEmpty(chosen) || string.Equals(chosen, staticId, StringComparison.OrdinalIgnoreCase))
         {
+            await ApplyOwnPickAsync(context, item, request).ConfigureAwait(false);
             await ApplyDeviceRuleAsync(context, item, request).ConfigureAwait(false); // Auto
             await UseCheckedTracksAsync(context, item, request).ConfigureAwait(false);
             return;
@@ -337,7 +345,13 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             }
         }
 
-        _resolver.Pin(request, chosen);
+        var chooser = await UserIdAsync(context.HttpContext).ConfigureAwait(false);
+        _resolver.Pin(request, chosen, chosenBy: chooser);
+        if (chooser is not null)
+        {
+            _userPicks.Set(chooser, request.Key, chosen); // this person's Auto plays it from now on; other people's doesn't
+        }
+
         _logger.LogInformation("Playing chosen version {Release} for {Item}", release.Title, item.Name);
 
         // Play through the title's normal source; the play endpoint now serves the chosen release.
@@ -398,6 +412,74 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
     }
 
     /// <summary>
+    /// Auto, for the person asking: the version they chose for this title before, if they did; otherwise not a version
+    /// someone else chose (they get the best match). Versions chosen before choices were per person stay shared.
+    /// </summary>
+    private async Task ApplyOwnPickAsync(ActionExecutingContext context, BaseItem item, MediaRequest request)
+    {
+        var userId = await UserIdAsync(context.HttpContext).ConfigureAwait(false);
+        if (userId is null)
+        {
+            return;
+        }
+
+        var ownId = _userPicks.Get(userId, request.Key);
+        if (ownId is null)
+        {
+            if (_resolver.ForgetOthersPick(request, userId))
+            {
+                ClearSavedTracks(item);
+                _logger.LogInformation("{Item}: best match for this person (the last pick was someone else's choice)", item.Name);
+            }
+
+            return;
+        }
+
+        if (!_options.TryGetCached(request, out var releases))
+        {
+            releases = await _options.GetAsync(request, context.HttpContext.RequestAborted).WaitAsync(PlayBudget).ConfigureAwait(false);
+        }
+
+        var own = releases.FirstOrDefault(r => StreamOptions.IdFor(r) == ownId);
+        if (own is null)
+        {
+            _userPicks.Remove(userId, request.Key); // no longer listed: Auto picks again
+            _resolver.ForgetOthersPick(request, userId);
+            return;
+        }
+
+        if (!_resolver.IsCurrentPick(request, ownId))
+        {
+            if (_options.TryGetProbe(StreamOptions.ProbeKey(request, ownId), out var probe) && probe.Streams is { Count: > 0 })
+            {
+                _services.GetService<IMediaStreamRepository>()?.SaveMediaStreams(item.Id, probe.Streams, CancellationToken.None);
+            }
+            else
+            {
+                ClearSavedTracks(item);
+            }
+        }
+
+        _resolver.Pin(request, ownId, chosenBy: userId);
+        _logger.LogInformation("{Item}: playing this person's chosen version {Release}", item.Name, own.Title);
+    }
+
+    /// <summary>The id of the Jellyfin user making the request (no dashes), or null (an API key, or not signed in).</summary>
+    private async Task<string?> UserIdAsync(HttpContext http)
+    {
+        try
+        {
+            var auth = _services.GetService<MediaBrowser.Controller.Net.IAuthorizationContext>();
+            var info = auth is null ? null : await auth.GetAuthorizationInfo(http).ConfigureAwait(false);
+            return info?.User?.Id.ToString("N");
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Auto on a device with limits: play the best release within them (if Auto's usual pick doesn't fit). On a device
     /// without limits, undo a pick that only a limited device made, so it gets the best match again.
     /// </summary>
@@ -420,7 +502,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             releases = await _options.GetAsync(request, context.HttpContext.RequestAborted).WaitAsync(PlayBudget).ConfigureAwait(false);
         }
 
-        var auto = _resolver.AutoRelease(request, releases);
+        var auto = _resolver.PinnedRelease(request, releases) ?? _resolver.AutoRelease(request, releases);
         if (auto is null || DeviceRules.Allows(rule, auto))
         {
             return; // Auto's pick already fits

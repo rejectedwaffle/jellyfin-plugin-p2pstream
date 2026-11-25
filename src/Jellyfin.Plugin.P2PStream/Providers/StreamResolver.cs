@@ -136,11 +136,24 @@ public sealed class StreamResolver
     // next for everyone, until a device without limits plays it again.
     private readonly ConcurrentDictionary<string, byte> _rulePicks = new();
 
+    // Who chose each pinned release in the Version menu (user id), carried into the remembered pick.
+    private readonly ConcurrentDictionary<string, string> _pinOwners = new();
+
     /// <summary>Plays <paramref name="releaseId"/> the next time this title is played through its normal source.</summary>
     /// <param name="byDeviceRule">True when a device rule chose it, so other devices go back to the best match.</param>
-    public void Pin(MediaRequest req, string releaseId, bool byDeviceRule = false)
+    /// <param name="chosenBy">The user who chose it (null for a device rule's pick or an unknown user).</param>
+    public void Pin(MediaRequest req, string releaseId, bool byDeviceRule = false, string? chosenBy = null)
     {
         _pinned[req.Key] = releaseId;
+        if (chosenBy is not null && !byDeviceRule)
+        {
+            _pinOwners[req.Key] = chosenBy;
+        }
+        else
+        {
+            _pinOwners.TryRemove(req.Key, out _);
+        }
+
         if (byDeviceRule)
         {
             _rulePicks[req.Key] = 0;
@@ -158,15 +171,54 @@ public sealed class StreamResolver
     public bool ForgetDeviceRulePick(MediaRequest req)
     {
         var flagged = _rulePicks.TryRemove(req.Key, out _);
-        if (!flagged && !(_cache.TryGet(req.Key, out var e) && e.ByDeviceRule))
+        var remembered = _cache.TryGet(req.Key, out var e) && e.ByDeviceRule;
+        if (!flagged && !remembered)
         {
             return false;
         }
 
-        _pinned.TryRemove(req.Key, out _);
-        _cache.Remove(req.Key);
+        if (flagged)
+        {
+            _pinned.TryRemove(req.Key, out _); // only a device rule's pin; a person's own pick made just now stays
+        }
+
+        if (remembered)
+        {
+            _cache.Remove(req.Key);
+        }
+
         return true;
     }
+
+    /// <summary>
+    /// For a person playing Auto who hasn't chosen a version of this title: if the current pick is someone else's choice,
+    /// forget it, so this person gets the best match. Picks from before choices were per person have no owner and stay.
+    /// Returns true if it did.
+    /// </summary>
+    public bool ForgetOthersPick(MediaRequest req, string userId)
+    {
+        var changed = false;
+        if (_pinOwners.TryGetValue(req.Key, out var owner) && owner != userId)
+        {
+            _pinned.TryRemove(req.Key, out _);
+            _pinOwners.TryRemove(req.Key, out _);
+            changed = true;
+        }
+
+        if (_cache.TryGet(req.Key, out var e) && e.Chosen && e.ChosenBy is { } by && by != userId)
+        {
+            _cache.Remove(req.Key);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>The current pick's title for this person: null when it's someone else's choice (Auto plays the best match for them).</summary>
+    public string? CurrentPickTitleFor(MediaRequest req, string? userId) =>
+        _cache.TryGet(req.Key, out var e) && !(userId is not null && e.Chosen && e.ChosenBy is { } by && by != userId)
+            ? ReleaseRanker.CleanTitle(e.Title)
+            : null;
 
     /// <summary>The release pinned to play next (a chosen version or a device rule's pick), if it's in the list.</summary>
     public ReleaseCandidate? PinnedRelease(MediaRequest req, IReadOnlyList<ReleaseCandidate> ranked) =>
@@ -213,9 +265,10 @@ public sealed class StreamResolver
 
             if (_pinned.TryRemove(req.Key, out var pinned))
             {
+                _pinOwners.TryRemove(req.Key, out var pinOwner);
                 try
                 {
-                    return await ResolveChosenAsync(req, pinned, remember: true, ct).ConfigureAwait(false);
+                    return await ResolveChosenAsync(req, pinned, remember: true, ct, pinOwner).ConfigureAwait(false);
                 }
                 catch (StreamNotFoundException ex)
                 {
@@ -288,7 +341,7 @@ public sealed class StreamResolver
         return videos.OrderByDescending(x => x.File.Length).First().Index;
     }
 
-    private async Task<ResolvedStream> ResolveChosenAsync(MediaRequest req, string releaseId, bool remember, CancellationToken ct)
+    private async Task<ResolvedStream> ResolveChosenAsync(MediaRequest req, string releaseId, bool remember, CancellationToken ct, string? chosenBy = null)
     {
         if (_started.TryGetValue(releaseId, out var known))
         {
@@ -301,7 +354,7 @@ public sealed class StreamResolver
             {
                 if (remember)
                 {
-                    _cache.Set(req.Key, known.InfoHash, index, session.Manager.Torrent?.Name ?? releaseId, chosen: true, byDeviceRule: _rulePicks.ContainsKey(req.Key));
+                    _cache.Set(req.Key, known.InfoHash, index, session.Manager.Torrent?.Name ?? releaseId, chosen: true, byDeviceRule: _rulePicks.ContainsKey(req.Key), chosenBy);
                 }
 
                 return new ResolvedStream(session, index);
@@ -312,7 +365,7 @@ public sealed class StreamResolver
         var chosen = releases.FirstOrDefault(r => StreamOptions.IdFor(r) == releaseId)
             ?? throw new StreamNotFoundException("That stream is no longer listed. Reopen the title to refresh the list, or use Auto.");
         // A background check (not something being played) gives up on a release with no peers sooner, and remembers it.
-        var started = await TryStartAsync(req, chosen, remember, ct, chosenByUser: true, remember ? null : BackgroundMetadataTimeout).ConfigureAwait(false);
+        var started = await TryStartAsync(req, chosen, remember, ct, chosenByUser: true, remember ? null : BackgroundMetadataTimeout, chosenBy).ConfigureAwait(false);
         if (started is null && !remember)
         {
             _dead[releaseId] = DateTime.UtcNow;
@@ -321,7 +374,7 @@ public sealed class StreamResolver
         return started ?? throw new StreamNotFoundException($"Couldn't start \"{chosen.Title}\" (no peers, or no matching video file). Try another version.");
     }
 
-    private async Task<ResolvedStream?> TryStartAsync(MediaRequest req, ReleaseCandidate release, bool remember, CancellationToken ct, bool chosenByUser = false, TimeSpan? metadataTimeout = null)
+    private async Task<ResolvedStream?> TryStartAsync(MediaRequest req, ReleaseCandidate release, bool remember, CancellationToken ct, bool chosenByUser = false, TimeSpan? metadataTimeout = null, string? chosenBy = null)
     {
         try
         {
@@ -334,7 +387,7 @@ public sealed class StreamResolver
                 // Remember it: Auto uses this release next time, and repeat requests skip the lookup.
                 if (remember)
                 {
-                    _cache.Set(req.Key, source.InfoHash, index, release.Title, chosenByUser, byDeviceRule: chosenByUser && _rulePicks.ContainsKey(req.Key));
+                    _cache.Set(req.Key, source.InfoHash, index, release.Title, chosenByUser, byDeviceRule: chosenByUser && _rulePicks.ContainsKey(req.Key), chosenBy);
                 }
 
                 _started[StreamOptions.IdFor(release)] = (source.InfoHash, index);

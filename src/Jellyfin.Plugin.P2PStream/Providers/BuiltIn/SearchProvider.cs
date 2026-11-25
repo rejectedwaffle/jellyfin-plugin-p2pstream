@@ -60,7 +60,10 @@ public abstract class SearchProvider
                 && ex is HttpRequestException or OperationCanceledException or IOException or InvalidOperationException
                     or System.Text.Json.JsonException or System.Xml.XmlException)
             {
-                last = ex;
+                // Say what happened: "the operation was canceled" really means the address didn't answer in time.
+                last = ex is OperationCanceledException
+                    ? new TimeoutException($"{(Uri.TryCreate(url, UriKind.Absolute, out var u) ? u.Host : url)} didn't answer within 12 s", ex)
+                    : ex;
             }
         }
 

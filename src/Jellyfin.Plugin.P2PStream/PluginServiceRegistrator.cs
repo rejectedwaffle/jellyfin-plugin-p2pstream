@@ -33,6 +33,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<StreamOptions>();
         serviceCollection.AddSingleton<StreamProber>();
         serviceCollection.AddSingleton<StreamResolver>();
+        serviceCollection.AddSingleton<UserPicks>();
         serviceCollection.AddSingleton<TorrentSubtitles>();
         serviceCollection.AddHostedService<NextEpisodePreloader>();
 

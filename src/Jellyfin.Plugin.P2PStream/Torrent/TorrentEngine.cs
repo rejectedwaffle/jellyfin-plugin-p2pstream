@@ -447,9 +447,10 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             MaximumConnections = 200,
 
             // Many peers don't answer (behind NAT, or gone). Trying more at once, and giving up on each sooner, finds the
-            // ones that do much faster than the default 8 attempts with 10 s each.
-            MaximumHalfOpenConnections = 40,
-            ConnectionTimeout = TimeSpan.FromSeconds(7),
+            // ones that do much faster than the default 8 attempts with 10 s each. Measured on a cold start: with 40 at a
+            // time and 7 s each, working through ~100 known peers took about 20 s before 5 were connected.
+            MaximumHalfOpenConnections = 80,
+            ConnectionTimeout = TimeSpan.FromSeconds(4),
             DiskCacheBytes = 32 * 1024 * 1024
         };
         return b.ToSettings();

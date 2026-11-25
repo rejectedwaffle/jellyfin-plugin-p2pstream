@@ -102,8 +102,19 @@ public sealed class NyaaProvider : SearchProvider
         // Fansub releases are usually named by the romaji title ("<romaji title> - 12"), which TMDB lists as an
         // alternative title, so search the English title and those together.
         var titles = new[] { request.Title! }.Concat(request.AltTitles).Distinct(StringComparer.OrdinalIgnoreCase).Take(4).ToList();
-        async Task<List<ReleaseCandidate>> SearchAll(Func<string, string> query) =>
-            Merge(await Task.WhenAll(titles.Select(t => QuietAsync(query(t), ct))).ConfigureAwait(false));
+        async Task<List<ReleaseCandidate>> SearchAll(Func<string, string> query)
+        {
+            var outcomes = await Task.WhenAll(titles.Select(t => QuietAsync(query(t), ct))).ConfigureAwait(false);
+
+            // Every title failed: the site itself isn't answering. Say so (instead of "found nothing"), so the source's
+            // health shows it and searches stop waiting for it for a while.
+            if (outcomes.All(o => o.Error is not null))
+            {
+                throw outcomes[0].Error!;
+            }
+
+            return Merge(outcomes.Select(o => o.Results));
+        }
 
         if (request.Kind == MediaKind.Movie)
         {
@@ -115,15 +126,15 @@ public sealed class NyaaProvider : SearchProvider
     }
 
     /// <summary>One title's search; a failure of an extra title doesn't fail the others.</summary>
-    private async Task<List<ReleaseCandidate>> QuietAsync(string query, CancellationToken ct)
+    private async Task<(List<ReleaseCandidate> Results, Exception? Error)> QuietAsync(string query, CancellationToken ct)
     {
         try
         {
-            return await QueryAsync(query, ct).ConfigureAwait(false);
+            return (await QueryAsync(query, ct).ConfigureAwait(false), null);
         }
-        catch (Exception) when (!ct.IsCancellationRequested)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            return [];
+            return ([], ex);
         }
     }
 

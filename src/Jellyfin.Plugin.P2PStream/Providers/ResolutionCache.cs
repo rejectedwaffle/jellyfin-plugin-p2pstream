@@ -46,9 +46,10 @@ public sealed class ResolutionCache
 
     /// <param name="chosen">True when someone picked this release (Version menu or a device rule), not Auto's ranking.</param>
     /// <param name="byDeviceRule">True when a device rule picked it (kept across restarts, so other devices still get Auto's pick).</param>
-    public void Set(string key, string infoHash, int fileIndex, string title, bool chosen, bool byDeviceRule = false)
+    /// <param name="chosenBy">The user who chose it in the Version menu (their Auto keeps it; other people's Auto doesn't).</param>
+    public void Set(string key, string infoHash, int fileIndex, string title, bool chosen, bool byDeviceRule = false, string? chosenBy = null)
     {
-        Entries[key] = new Entry(infoHash, fileIndex, title, DateTime.UtcNow, chosen, chosen ? null : ReleaseRanker.RulesStamp(), chosen && byDeviceRule);
+        Entries[key] = new Entry(infoHash, fileIndex, title, DateTime.UtcNow, chosen, chosen ? null : ReleaseRanker.RulesStamp(), chosen && byDeviceRule, chosen && !byDeviceRule ? chosenBy : null);
         Save();
     }
 
@@ -107,5 +108,5 @@ public sealed class ResolutionCache
 
     /// <param name="Chosen">Picked in the Version menu or by a device rule (kept when the ranking rules change).</param>
     /// <param name="Rules">For Auto's picks, the <see cref="ReleaseRanker.RulesStamp"/> it was made under.</param>
-    public sealed record Entry(string InfoHash, int FileIndex, string Title, DateTime Created, bool Chosen = false, string? Rules = null, bool ByDeviceRule = false);
+    public sealed record Entry(string InfoHash, int FileIndex, string Title, DateTime Created, bool Chosen = false, string? Rules = null, bool ByDeviceRule = false, string? ChosenBy = null);
 }
