@@ -170,7 +170,14 @@ public sealed partial class TorrentSubtitles
         }
         else
         {
-            _logger.LogInformation("{Item}: the release ({Release}) has no subtitle files{Removed}", item.Name, manager.Torrent?.Name ?? release, state.Files.Count > 0 ? "; the previous release's were removed" : string.Empty);
+            if (state.Files.Count > 0)
+            {
+                _logger.LogInformation("{Item}: the release ({Release}) has no subtitle files; the previous release's were removed", item.Name, manager.Torrent?.Name ?? release);
+            }
+            else
+            {
+                _logger.LogInformation("{Item}: the release ({Release}) has no subtitle files", item.Name, manager.Torrent?.Name ?? release);
+            }
         }
     }
 

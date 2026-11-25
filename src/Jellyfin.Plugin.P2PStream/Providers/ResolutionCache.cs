@@ -31,7 +31,7 @@ public sealed class ResolutionCache
             // Auto's own pick, made under other ranking rules or quality settings: let Auto pick again.
             if (!entry.Chosen && entry.Rules != ReleaseRanker.RulesStamp())
             {
-                _logger.LogInformation("Ranking rules or quality settings changed since Auto picked \"{Title}\"; picking again", entry.Title);
+                _logger.LogInformation("Ranking rules or quality settings changed since Auto picked {Title}; picking again", entry.Title);
                 Remove(key);
                 entry = null!;
                 return false;

@@ -211,8 +211,9 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         {
             var auth = _services.GetService<MediaBrowser.Controller.Net.IAuthorizationContext>();
             var user = auth is null ? null : (await auth.GetAuthorizationInfo(http).ConfigureAwait(false)).User;
-            var item = user is null ? null : _libraryManager.GetItemById(id);
-            return item is not null && item.IsVisible(user!, false) ? item : null;
+            // GetItemById with the user checks library access too (as Jellyfin's own endpoints do); BaseItem.IsVisible
+            // only checks parental ratings and tags.
+            return user is null ? null : _libraryManager.GetItemById<BaseItem>(id, user);
         }
         catch (Exception)
         {

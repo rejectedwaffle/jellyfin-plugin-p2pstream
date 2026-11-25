@@ -123,7 +123,7 @@ public sealed class SearchImporter
             var first = await FirstPassAsync(movies, shows, CancellationToken.None).ConfigureAwait(false);
             if (first.Added.Count > 0)
             {
-                _logger.LogInformation("Search \"{Term}\" added {Count} titles", term, first.Added.Count);
+                _logger.LogInformation("Search {Term} added {Count} titles", term, first.Added.Count);
             }
 
             if (first.Shows.Count > 0)
@@ -134,7 +134,7 @@ public sealed class SearchImporter
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Search import for \"{Term}\" failed: {Message}", term, ex.Message);
+            _logger.LogWarning("Search import for {Term} failed: {Message}", term, ex.Message);
         }
         finally
         {
