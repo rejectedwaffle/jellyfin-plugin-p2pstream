@@ -272,6 +272,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets the catalog folder that shows added by search go into (add a library with it).</summary>
     public string SearchShowLibrary { get; set; } = "P2P Shows";
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the libraries search imports into are hidden from every user's library
+    /// list and home screen ("My media"). Search and Continue Watching still include their titles.
+    /// </summary>
+    public bool HideSearchLibraries { get; set; }
+
     /// <summary>Gets or sets a value indicating whether Jellyfin searches also look up TMDB and add matches to the library.</summary>
     public bool SearchIntegration { get; set; } = true;
 
