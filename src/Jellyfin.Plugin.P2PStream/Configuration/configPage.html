@@ -200,6 +200,10 @@
                                 <input is="emby-input" type="number" min="0" data-key="SearchImportDays" data-type="int" label="Keep titles added by search for (days, 0 = forever)" />
                                 <div class="fieldDescription">After this, a title a search added is removed if nobody has played, started or favourited it (checked at each catalog sync). Searching for it again restarts the time. Titles added with "Add any movie or show" are always kept.</div>
                             </div>
+                            <div class="p2p-row" style="align-items:center;margin:.2em 0 .6em">
+                                <button is="emby-button" type="button" class="raised" id="p2pSearchCleanup"><span>Clean up now</span></button>
+                                <span class="p2p-muted" id="p2pSearchCleanupResult"></span>
+                            </div>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="HideSearchLibraries" /><span>Hide the search libraries from everyone's library list</span></label>
                             <div class="p2p-desc">They stay out of the library list and home screen, for every user (new ones too). Search still finds their titles and Continue Watching still shows them. Anyone can show them again under their own Settings &gt; Home.</div>
                         </div>
@@ -1022,6 +1026,39 @@
 
             // The folder a dropdown stands for (data-prev holds it while "New library..." is showing).
             function chosenFolder(sel) { return sel.value && sel.value !== '__new__' ? sel.value : sel.getAttribute('data-prev'); }
+
+            // ---------- search libraries: clean up now (lists first, removes only after Remove) ----------
+            (function () {
+                var btn = page.querySelector('#p2pSearchCleanup');
+                var out = page.querySelector('#p2pSearchCleanupResult');
+                if (!btn || !out) { return; }
+                function fail(err) { explain(err).then(function (d) { out.textContent = d; }); btn.disabled = false; }
+                btn.addEventListener('click', function () {
+                    btn.disabled = true;
+                    out.textContent = 'Checking...';
+                    api('POST', 'P2PStream/Search/Cleanup?dryRun=true', {}).then(function (r) {
+                        btn.disabled = false;
+                        var titles = r.Titles || [];
+                        if (!r.Days) { out.textContent = 'Search titles are kept forever (0 days), so there is nothing to clean up.'; return; }
+                        if (!titles.length) { out.textContent = 'Nothing to clean up: every search title is newer than ' + r.Days + ' days, or someone played, started or favourited it.'; return; }
+                        var shown = titles.slice(0, 8).map(esc).join(', ') + (titles.length > 8 ? ' and ' + (titles.length - 8) + ' more' : '');
+                        out.innerHTML = titles.length + ' title' + (titles.length === 1 ? '' : 's') + ' added by search over ' + r.Days + ' days ago that nobody played: ' + shown +
+                            '. <a href="#" class="src-edit" id="p2pSearchCleanupYes">Remove</a> &middot; <a href="#" class="src-edit" id="p2pSearchCleanupNo">Cancel</a>';
+                    }).catch(fail);
+                });
+                out.addEventListener('click', function (e) {
+                    if (e.target.id === 'p2pSearchCleanupNo') { e.preventDefault(); out.textContent = ''; return; }
+                    if (e.target.id !== 'p2pSearchCleanupYes') { return; }
+                    e.preventDefault();
+                    btn.disabled = true;
+                    out.textContent = 'Removing...';
+                    api('POST', 'P2PStream/Search/Cleanup?dryRun=false', {}).then(function (r) {
+                        btn.disabled = false;
+                        var n = (r.Titles || []).length;
+                        out.textContent = 'Removed ' + n + ' title' + (n === 1 ? '' : 's') + '. They leave the library with the next scan of the search folders.';
+                    }).catch(fail);
+                });
+            })();
 
             // ---------- unused catalog folders ----------
             function renderUnusedFolders(data) {

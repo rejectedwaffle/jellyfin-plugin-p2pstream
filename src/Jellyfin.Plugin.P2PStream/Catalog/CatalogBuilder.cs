@@ -163,12 +163,15 @@ public sealed partial class CatalogBuilder
     /// played, started or favourited (a show counts as touched if any episode was). Titles added by hand, folders that a
     /// catalog also writes into (the catalog sync prunes those), and folders with real video files are left alone.
     /// </summary>
-    private async Task PruneSearchFoldersAsync(ISet<string> catalogFolders, CancellationToken ct)
+    /// <param name="dryRun">Only list what would be removed (the settings page's "Clean up now" asks first).</param>
+    /// <returns>The titles removed (or that would be), as "Title (Year)".</returns>
+    private async Task<List<string>> PruneSearchFoldersAsync(ISet<string> catalogFolders, CancellationToken ct, bool dryRun = false)
     {
+        var result = new List<string>();
         var days = Plugin.Instance!.Configuration.SearchImportDays;
         if (days <= 0)
         {
-            return;
+            return result;
         }
 
         var users = _users.GetUsers().ToList();
@@ -185,7 +188,11 @@ public sealed partial class CatalogBuilder
             {
                 if (!SearchImports.TryGetValue(dir, out var added))
                 {
-                    SearchImports[dir] = DateTime.UtcNow; // from before this was tracked: its time starts now
+                    if (!dryRun)
+                    {
+                        SearchImports[dir] = DateTime.UtcNow; // from before this was tracked: its time starts now
+                    }
+
                     continue;
                 }
 
@@ -194,16 +201,29 @@ public sealed partial class CatalogBuilder
                     continue;
                 }
 
+                var title = TmdbFolder().Replace(Path.GetFileName(dir), string.Empty).Trim();
+                if (dryRun)
+                {
+                    result.Add(title);
+                    continue;
+                }
+
                 try
                 {
                     Directory.Delete(dir, true);
                     SearchImports.TryRemove(dir, out _);
                     removed++;
+                    result.Add(title);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning("Could not remove {Dir}: {Message}", dir, ex.Message);
                 }
+            }
+
+            if (dryRun)
+            {
+                continue;
             }
 
             SaveSearchImports();
@@ -220,6 +240,32 @@ public sealed partial class CatalogBuilder
                     _logger.LogWarning("Could not rescan {Folder} after the clean-up: {Message}", Path.GetFileName(root), ex.Message);
                 }
             }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// The settings page's "Clean up now": the same rules as the clean-up at each catalog sync. With
+    /// <paramref name="dryRun"/> it only lists what would go.
+    /// </summary>
+    public async Task<List<string>> CleanUpSearchFoldersAsync(bool dryRun, CancellationToken ct)
+    {
+        if (!await _running.WaitAsync(0, ct).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("A catalog sync is running; try again in a minute.");
+        }
+
+        try
+        {
+            var defs = await CatalogDefinitions.GetAllAsync(_tmdb, ct, _trakt).ConfigureAwait(false);
+            var catalogFolders = defs.Select(CatalogDefinitions.Effective).Where(e => e.Enabled)
+                .Select(e => CanonicalFolder(e.Library)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return await PruneSearchFoldersAsync(catalogFolders, ct, dryRun).ConfigureAwait(false);
+        }
+        finally
+        {
+            _running.Release();
         }
     }
 

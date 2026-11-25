@@ -778,6 +778,30 @@ public class P2PStreamController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// "Clean up now" for the search libraries: with <paramref name="dryRun"/> lists the titles that would be removed
+    /// (added by a search longer ago than the keep time, and nobody played, started or favourited them); without, removes them.
+    /// </summary>
+    [HttpPost("Search/Cleanup")]
+    [Authorize(Policy = AdminPolicy)]
+    public async Task<ActionResult<object>> CleanUpSearchLibraries([FromQuery] bool dryRun = true)
+    {
+        try
+        {
+            var titles = await _catalog.CleanUpSearchFoldersAsync(dryRun, HttpContext.RequestAborted).ConfigureAwait(false);
+            if (!dryRun)
+            {
+                _logger.LogInformation("Search libraries cleaned up from the settings page: {Count} titles removed", titles.Count);
+            }
+
+            return new { Titles = titles, Days = Plugin.Instance!.Configuration.SearchImportDays };
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Problem(ex.Message, statusCode: StatusCodes.Status409Conflict);
+        }
+    }
+
     [HttpPost("Catalogs/{id}/Sync")]
     [Authorize(Policy = AdminPolicy)]
     public IActionResult SyncOneCatalog(string id)
