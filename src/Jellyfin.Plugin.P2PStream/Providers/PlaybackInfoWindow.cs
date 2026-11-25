@@ -16,13 +16,21 @@ public static class PlaybackInfoWindow
 
     private static readonly ConcurrentDictionary<string, int> Active = new();
 
+    // Windows whose one capped read was used: only Jellyfin's own check (the first read from the start) is cut short,
+    // not another player that happens to start at the same moment.
+    private static readonly ConcurrentDictionary<string, byte> Used = new();
+
     public static IDisposable Begin(string key)
     {
         Active.AddOrUpdate(key, 1, (_, n) => n + 1);
+        Used.TryRemove(key, out _);
         return new Mark(key);
     }
 
     public static bool IsActive(string key) => Active.TryGetValue(key, out var n) && n > 0;
+
+    /// <summary>True once per window: the read that gets capped.</summary>
+    public static bool TakeCheck(string key) => IsActive(key) && Used.TryAdd(key, 0);
 
     private sealed class Mark(string key) : IDisposable
     {
@@ -32,7 +40,10 @@ public static class PlaybackInfoWindow
         {
             if (Interlocked.Exchange(ref _done, 1) == 0)
             {
-                Active.AddOrUpdate(key, 0, (_, n) => Math.Max(0, n - 1));
+                if (Active.AddOrUpdate(key, 0, (_, n) => Math.Max(0, n - 1)) == 0)
+                {
+                    Used.TryRemove(key, out _);
+                }
             }
         }
     }

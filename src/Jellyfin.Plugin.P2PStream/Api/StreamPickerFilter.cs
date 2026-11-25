@@ -51,24 +51,29 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         var path = http.Request.Path.Value ?? string.Empty;
         var enabled = Plugin.Instance?.Configuration.StreamPicker == true;
 
-        // While Jellyfin answers a Play request for one of our titles, its forced re-check of the stream gets only the
-        // start of the release (see PlaybackInfoWindow).
-        IDisposable? checkWindow = null;
+        // A Play request: only for a title the requesting user may see (Jellyfin checks that itself, but only after this
+        // filter; nothing may start a torrent or write files for an item the user can't access).
         BaseItem? playItem = null;
-        MediaRequest? playRequest = null;
-        if (PlaybackInfoPath().IsMatch(path) && context.ActionArguments.TryGetValue("itemId", out var playArg) && playArg is Guid playId
-            && _libraryManager.GetItemById(playId) is { } found && StreamPicker.TryGetRequest(found, out _, out var foundRequest))
+        if (PlaybackInfoPath().IsMatch(path) && context.ActionArguments.TryGetValue("itemId", out var playArg) && playArg is Guid playId)
         {
-            playItem = found;
-            playRequest = foundRequest;
-            checkWindow = PlaybackInfoWindow.Begin(foundRequest.Key);
+            playItem = await VisibleItemAsync(http, playId).ConfigureAwait(false);
+            if (playItem is null)
+            {
+                await next().ConfigureAwait(false); // not ours to prepare: let Jellyfin answer (and refuse) as usual
+                return;
+            }
         }
 
-        if (enabled && PlaybackInfoPath().IsMatch(path))
+        // While Jellyfin answers the Play request, its forced re-check of the stream gets only the start of the release
+        // (see PlaybackInfoWindow). Held from here until Jellyfin has answered, whatever happens in between.
+        MediaRequest? playRequest = playItem is not null && StreamPicker.TryGetRequest(playItem, out _, out var foundRequest) ? foundRequest : null;
+        using var checkWindow = playRequest is not null ? PlaybackInfoWindow.Begin(playRequest.Key) : null;
+
+        if (enabled && playItem is not null)
         {
             try
             {
-                await UseChosenVersionAsync(context).ConfigureAwait(false);
+                await UseChosenVersionAsync(context, playItem).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -78,14 +83,13 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
 
         // The release's own subtitle files, next to the .strm before Jellyfin's per-play check looks for them. After the
         // chosen version is pinned, so they're that release's.
-        if (checkWindow is not null && playItem is not null && playRequest is not null)
+        if (playItem is not null && playRequest is not null)
         {
             await _subtitles.EnsureAsync(playItem, playRequest, TimeSpan.FromSeconds(12), http.RequestAborted).ConfigureAwait(false);
         }
-        else if (PlaybackInfoPath().IsMatch(path) && context.ActionArguments.TryGetValue("itemId", out var addedArg) && addedArg is Guid addedId
-            && _libraryManager.GetItemById(addedId) is { } added && StreamPicker.TryGetTorrentFile(added, out var addedHash, out var addedIndex))
+        else if (playItem is not null && StreamPicker.TryGetTorrentFile(playItem, out var addedHash, out var addedIndex))
         {
-            await _subtitles.EnsureForTorrentAsync(added, addedHash, addedIndex, TimeSpan.FromSeconds(12), http.RequestAborted).ConfigureAwait(false);
+            await _subtitles.EnsureForTorrentAsync(playItem, addedHash, addedIndex, TimeSpan.FromSeconds(12), http.RequestAborted).ConfigureAwait(false);
         }
 
         // Apps look a chosen version up as an item before playing it: answer with the title it belongs to.
@@ -98,15 +102,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             versionLookup = lookupId;
         }
 
-        ActionExecutedContext executed;
-        try
-        {
-            executed = await next().ConfigureAwait(false);
-        }
-        finally
-        {
-            checkWindow?.Dispose();
-        }
+        var executed = await next().ConfigureAwait(false);
 
         if (enabled && HttpMethods.IsGet(http.Request.Method) && ItemPath().IsMatch(path))
         {
@@ -134,7 +130,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             return;
         }
 
-        var item = _libraryManager.GetItemById(dto.Id);
+        var item = await VisibleItemAsync(http, dto.Id).ConfigureAwait(false);
         if (item is null || !StreamPicker.TryGetRequest(item, out var url, out var request))
         {
             return;
@@ -199,7 +195,26 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
     }
 
     // ---------------- playback: honour the chosen version ----------------
-    private async Task UseChosenVersionAsync(ActionExecutingContext context)
+    /// <summary>
+    /// The item, only if the user making the request may see it (the same check Jellyfin applies); null for anyone
+    /// else, and for requests without a signed-in user.
+    /// </summary>
+    private async Task<BaseItem?> VisibleItemAsync(HttpContext http, Guid id)
+    {
+        try
+        {
+            var auth = _services.GetService<MediaBrowser.Controller.Net.IAuthorizationContext>();
+            var user = auth is null ? null : (await auth.GetAuthorizationInfo(http).ConfigureAwait(false)).User;
+            var item = user is null ? null : _libraryManager.GetItemById(id);
+            return item is not null && item.IsVisible(user!, false) ? item : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private async Task UseChosenVersionAsync(ActionExecutingContext context, BaseItem item)
     {
         if (!context.ActionArguments.TryGetValue("itemId", out var idArg) || idArg is not Guid itemId)
         {
@@ -211,8 +226,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         var chosen = context.ActionArguments.TryGetValue("mediaSourceId", out var q) ? q as string : null;
         chosen ??= bodies.Select(b => b!.GetType().GetProperty("MediaSourceId")!.GetValue(b) as string).FirstOrDefault(s => !string.IsNullOrEmpty(s));
 
-        var item = _libraryManager.GetItemById(itemId);
-        if (item is null || !StreamPicker.TryGetRequest(item, out _, out var request))
+        if (item.Id != itemId || !StreamPicker.TryGetRequest(item, out _, out var request))
         {
             return;
         }

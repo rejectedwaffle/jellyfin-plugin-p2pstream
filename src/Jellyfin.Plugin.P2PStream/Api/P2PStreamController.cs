@@ -828,8 +828,8 @@ public class P2PStreamController : ControllerBase
         }
 
         // Jellyfin's forced re-check of the stream while it answers a Play request: give it only the start.
-        var forCheck = !probe && PlaybackInfoWindow.IsActive(req.Key);
-        await ServeAsync(resolved.Session, resolved.FileIndex, forCheck).ConfigureAwait(false);
+        var checkKey = !probe && PlaybackInfoWindow.IsActive(req.Key) ? req.Key : null;
+        await ServeAsync(resolved.Session, resolved.FileIndex, checkKey).ConfigureAwait(false);
         return new EmptyResult();
     }
 
@@ -837,7 +837,9 @@ public class P2PStreamController : ControllerBase
     /// Serves a torrent file with HTTP range support. Reads block until the pieces arrive;
     /// MonoTorrent moves piece priority to wherever the stream is reading.
     /// </summary>
-    private async Task ServeAsync(TorrentSession session, int fileIndex, bool forJellyfinCheck = false)
+    /// <param name="checkKey">Set while Jellyfin answers a Play request for this title: the first read from the start of
+    /// the file (Jellyfin's own stream check) is cut at <see cref="PlaybackInfoWindow.CheckBytes"/>.</param>
+    private async Task ServeAsync(TorrentSession session, int fileIndex, string? checkKey = null)
     {
         var file = session.Manager.Files[fileIndex];
         var length = file.Length;
@@ -881,7 +883,9 @@ public class P2PStreamController : ControllerBase
             lease.Position = start;
 
             var remaining = end - start + 1;
-            var cutAt = forJellyfinCheck && start == 0 && remaining > PlaybackInfoWindow.CheckBytes ? remaining - PlaybackInfoWindow.CheckBytes : 0;
+            var cutAt = checkKey is not null && start == 0 && remaining > PlaybackInfoWindow.CheckBytes && PlaybackInfoWindow.TakeCheck(checkKey)
+                ? remaining - PlaybackInfoWindow.CheckBytes
+                : 0;
             if (cutAt > 0)
             {
                 _logger.LogInformation("Giving Jellyfin's stream check the first {Mb} MB of {File}", PlaybackInfoWindow.CheckBytes >> 20, Path.GetFileName(file.Path));
