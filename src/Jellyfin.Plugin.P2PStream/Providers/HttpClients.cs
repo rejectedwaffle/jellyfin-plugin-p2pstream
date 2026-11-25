@@ -54,17 +54,22 @@ internal static class HttpClients
 
             // Old clients aren't disposed: requests may still be in flight on them.
             var proxy = useProxy ? BuildProxy(c?.ProxyUrl, c?.ProxyUser, c?.ProxyPassword) : null; // only when searches follow torrent traffic, and that's the proxy
-            _noRedirect = Create(false, proxy, viaVpn);
-            _default = Create(true, proxy, viaVpn);
+
+            // Searches must go through the proxy but its address is missing or invalid: refuse, never go direct.
+            var blocked = useProxy && proxy is null
+                ? "Searches are set to go through the proxy, but the proxy address isn't valid (Network > Proxy)"
+                : null;
+            _noRedirect = Create(false, proxy, viaVpn, blocked);
+            _default = Create(true, proxy, viaVpn, blocked);
             _proxyKey = key;
         }
     }
 
     private static IWebProxy? BuildProxy(string? url, string? user, string? password)
     {
-        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri))
+        if (!Torrent.NetworkGuard.TryParseProxy(url, out var uri, out _))
         {
-            return null;
+            return null; // same validation as torrent traffic (scheme and host)
         }
 
         var proxy = new WebProxy(uri);
@@ -76,7 +81,7 @@ internal static class HttpClients
         return proxy;
     }
 
-    private static HttpClient Create(bool followRedirects, IWebProxy? proxy, bool viaVpn)
+    private static HttpClient Create(bool followRedirects, IWebProxy? proxy, bool viaVpn, string? blocked)
     {
         var handler = new SocketsHttpHandler
         {
@@ -86,7 +91,11 @@ internal static class HttpClients
             UseProxy = proxy is not null,
             Proxy = proxy
         };
-        if (viaVpn)
+        if (blocked is not null)
+        {
+            handler.ConnectCallback = (_, _) => throw new Torrent.NetworkBlockedException(blocked);
+        }
+        else if (viaVpn)
         {
             handler.ConnectCallback = async (context, ct) =>
             {

@@ -66,10 +66,20 @@ public sealed class StreamOptions
         return string.Join(" · ", parts) + " — " + title;
     }
 
+    /// <summary>The ranking rules plus which sources are searched: a list made under other ones is searched again.</summary>
+    private static string ListStamp()
+    {
+        var c = Plugin.Instance!.Configuration;
+        var sources = string.Join(',', (c.Sources ?? []).Select(x => $"{x.Id}:{x.Enabled}:{x.BaseUrl}"))
+            + ";" + string.Join(',', (c.Indexers ?? []).Select(x => $"{x.Url}:{x.Enabled}"))
+            + ";" + string.Join(',', (c.RssSources ?? []).Select(x => $"{x.Url}:{x.Enabled}"));
+        return ReleaseRanker.RulesStamp() + "|" + sources;
+    }
+
     public bool TryGetCached(MediaRequest request, out List<ReleaseCandidate> releases)
     {
         // A list ranked under other settings (e.g. preferred resolution just changed) is searched and ranked again.
-        if (_cache.TryGetValue(request.Key, out var hit) && DateTime.UtcNow - hit.At < CacheAge && hit.Rules == ReleaseRanker.RulesStamp())
+        if (_cache.TryGetValue(request.Key, out var hit) && DateTime.UtcNow - hit.At < CacheAge && hit.Rules == ListStamp())
         {
             releases = hit.Releases;
             return true;
@@ -161,7 +171,7 @@ public sealed class StreamOptions
             var list = ranked.Where(chosen.Contains).ToList(); // keep the ranking order
             if (list.Count > 0)
             {
-                _cache[request.Key] = (DateTime.UtcNow, list, ReleaseRanker.RulesStamp()); // an empty result (sources down, VPN off) isn't kept, so the next try searches again
+                _cache[request.Key] = (DateTime.UtcNow, list, ListStamp()); // an empty result (sources down, VPN off) isn't kept, so the next try searches again
             }
             _logger.LogInformation("Found {Count} streams for {Request}", list.Count, request);
             return list;

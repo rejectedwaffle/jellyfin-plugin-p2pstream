@@ -27,13 +27,32 @@ public static partial class ReleaseRanker
     private const int RulesVersion = 2; // 2: foreign-language releases rank lower (0.9.4)
 
     /// <summary>
-    /// Identifies the rules and settings that decide Auto's pick. A pick Auto remembered under a different stamp is
+    /// Identifies the rules and settings that decide Auto's pick, including every filter (a release a filter now excludes
+    /// must not stay picked). A pick Auto remembered under a different stamp is
     /// dropped and made again (picks someone chose in the Version menu are kept).
     /// </summary>
     public static string RulesStamp()
     {
         var c = Plugin.Instance!.Configuration;
-        return string.Join('|', RulesVersion, c.PreferredResolution, c.Language ?? string.Empty, c.PreferStreamingSizes, c.Min4KSeeders);
+        static string List<T>(IEnumerable<T>? values) => values is null ? string.Empty : string.Join(',', values.Select(v => v?.ToString()?.Trim().ToLowerInvariant()).Order(StringComparer.Ordinal));
+        return string.Join(
+            '|',
+            RulesVersion,
+            c.PreferredResolution,
+            c.Language ?? string.Empty,
+            c.PreferStreamingSizes,
+            c.Min4KSeeders,
+            c.MinSeeders,
+            List(c.AllowedResolutions),
+            List(c.AllowedReleaseTypes),
+            (c.RequiredKeywords ?? string.Empty).Trim().ToLowerInvariant(),
+            (c.ExcludedKeywords ?? string.Empty).Trim().ToLowerInvariant(),
+            c.MinSizeGb,
+            c.MaxSizeGb,
+            c.EpisodeMinSizeGb,
+            c.EpisodeMaxSizeGb,
+            c.SeasonMinSizeGb,
+            c.SeasonMaxSizeGb);
     }
 
     public static List<ReleaseCandidate> Rank(IEnumerable<ReleaseCandidate> releases, MediaRequest? request)

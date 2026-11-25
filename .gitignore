@@ -8,3 +8,6 @@ release/
 # Local-only Claude Code context: holds machine paths, server and share details, and chat transcripts
 CLAUDE.md
 .claude/
+
+# Local security audit (describes weaknesses; never publish)
+CODEBASE-AUDIT.md
