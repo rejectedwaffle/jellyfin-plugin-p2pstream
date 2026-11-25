@@ -125,7 +125,11 @@
                     #P2PStreamConfigPage .p2p-savebar { left: .75em; right: .75em; bottom: .75em; justify-content: space-between; }
                 }
                 #P2PStreamConfigPage .p2p-warn { border-left: 3px solid #e5a00d; padding: .4em .8em; margin: .5em 0 1em; background: rgba(229,160,13,.1); }
-            </style>
+                            #P2PStreamConfigPage .p2p-disk { margin: .2em 0 .6em; }
+                #P2PStreamConfigPage .p2p-diskbar { height: .45em; border-radius: .25em; background: rgba(128,128,128,.25); overflow: hidden; margin-top: .3em; }
+                #P2PStreamConfigPage .p2p-diskbar span { display: block; height: 100%; background: #00a4dc; }
+                #P2PStreamConfigPage .p2p-diskbar span.full { background: #e0623a; }
+</style>
 
             <h2 class="sectionTitle">P2P Stream</h2>
 
@@ -194,6 +198,7 @@
                             <div style="height:1em"></div>
                             <div class="inputContainer">
                                 <input is="emby-input" type="number" min="0" data-key="SearchImportDays" data-type="int" label="Keep titles added by search for (days, 0 = forever)" />
+                                <div class="fieldDescription">After this, a title a search added is removed if nobody has played, started or favourited it (checked at each catalog sync). Searching for it again restarts the time. Titles added with "Add any movie or show" are always kept.</div>
                             </div>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="HideSearchLibraries" /><span>Hide the search libraries from everyone's library list</span></label>
                             <div class="p2p-desc">They stay out of the library list and home screen, for every user (new ones too). Search still finds their titles and Continue Watching still shows them. Anyone can show them again under their own Settings &gt; Home.</div>
@@ -779,7 +784,17 @@
                 stores.forEach(function (store) {
                     if (!n.Storage) { return; }
                     var total = n.Storage.reduce(function (a, s) { return a + s.Mb; }, 0);
-                    store.innerHTML = '<div class="p2p-muted" style="margin:.2em 0">Space the plugin uses now: <b>' + mb(total) + '</b></div>' +
+                    // The disk(s) the plugin's folders are on: total size and what's left.
+                    var disks = (n.Disks || []).map(function (d) {
+                        var used = d.TotalMb > 0 ? Math.round(100 * (d.TotalMb - d.FreeMb) / d.TotalMb) : 0;
+                        var many = (n.Disks || []).length > 1;
+                        return '<div class="p2p-disk">' +
+                            '<div><b>Disk' + (many ? ' (' + esc(d.Holds) + ')' : '') + ':</b> ' + mb(d.FreeMb) + ' free of ' + mb(d.TotalMb) + ' <span class="p2p-muted">(' + used + '% used)</span></div>' +
+                            '<div class="p2p-diskbar"><span style="width:' + used + '%"' + (used >= 90 ? ' class="full"' : '') + '></span></div>' +
+                            '</div>';
+                    }).join('');
+                    store.innerHTML = disks +
+                        '<div class="p2p-muted" style="margin:.2em 0">Space the plugin uses now: <b>' + mb(total) + '</b></div>' +
                         n.Storage.map(function (s) {
                             return '<div class="p2p-testrow"><span class="neutral">•</span><b>' + esc(s.Name) + '</b><span class="p2p-verdict">' + mb(s.Mb) + '</span><span class="p2p-why">' + esc(s.Note) + '</span></div>';
                         }).join('');

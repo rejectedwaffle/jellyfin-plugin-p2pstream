@@ -91,6 +91,11 @@ public sealed class SearchImporter
         }
 
         var dirs = await ImportAsync(isMovie ? [item] : [], isMovie ? [] : [item], ct).ConfigureAwait(false);
+        foreach (var dir in dirs)
+        {
+            _catalog.MarkKept(dir); // asked for by name: the search clean-up never removes it
+        }
+
         return dirs.FirstOrDefault() ?? CatalogBuilder.FindExistingAnywhere(isMovie, tmdbId) ?? string.Empty;
     }
 

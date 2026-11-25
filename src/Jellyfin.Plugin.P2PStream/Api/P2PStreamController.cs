@@ -552,8 +552,72 @@ public class P2PStreamController : ControllerBase
                 new { Name = "Saved torrents", Mb = FolderBytes(Path.Combine(Plugin.Instance.DataFolderPath, "torrents")) >> 20, Note = "so replays start instantly; unused for 30 days are deleted" },
                 new { Name = "Engine cache", Mb = FolderBytes(Path.Combine(Plugin.Instance.DataFolderPath, "cache")) >> 20, Note = "resume data and peer lists; unused for 30 days are deleted" },
                 new { Name = "Catalog files", Mb = FolderBytes(Plugin.Instance.CatalogPath) >> 20, Note = ".strm files for catalogs and search (artwork is kept by Jellyfin, not here)" }
-            }
+            },
+            Disks = DisksFor(
+                ("downloads", Plugin.Instance.DownloadPath),
+                ("plugin data", Plugin.Instance.DataFolderPath),
+                ("catalog files", Plugin.Instance.CatalogPath))
         };
+    }
+
+    /// <summary>
+    /// The disks the plugin's folders are on (each disk once, with the folders on it): total and free space. The mount
+    /// that holds a folder is the one with the longest matching root, so a folder on its own mount (Linux) is right.
+    /// </summary>
+    private static List<object> DisksFor(params (string What, string Path)[] folders)
+    {
+        DriveInfo[] drives;
+        try
+        {
+            drives = DriveInfo.GetDrives().Where(d => d.IsReady && d.TotalSize > 0).ToArray();
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+
+        var found = new Dictionary<string, (DriveInfo Drive, List<string> What)>(StringComparer.Ordinal);
+        foreach (var (what, path) in folders)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                continue;
+            }
+
+            string full;
+            try
+            {
+                full = System.IO.Path.GetFullPath(path);
+            }
+            catch (Exception)
+            {
+                continue;
+            }
+
+            var drive = drives
+                .Where(d => full.StartsWith(d.RootDirectory.FullName, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+                .OrderByDescending(d => d.RootDirectory.FullName.Length)
+                .FirstOrDefault();
+            if (drive is null)
+            {
+                continue;
+            }
+
+            if (!found.TryGetValue(drive.RootDirectory.FullName, out var entry))
+            {
+                entry = (drive, new List<string>());
+                found[drive.RootDirectory.FullName] = entry;
+            }
+
+            entry.What.Add(what);
+        }
+
+        return found.Values.Select(e => (object)new
+        {
+            TotalMb = e.Drive.TotalSize >> 20,
+            FreeMb = e.Drive.AvailableFreeSpace >> 20,
+            Holds = string.Join(", ", e.What)
+        }).ToList();
     }
 
     /// <summary>Space the files in a folder take (0 if it can't be read).</summary>

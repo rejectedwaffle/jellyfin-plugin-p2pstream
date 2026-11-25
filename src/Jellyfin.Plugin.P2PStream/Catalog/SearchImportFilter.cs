@@ -1,5 +1,7 @@
+using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Jellyfin.Plugin.P2PStream.Catalog;
 
@@ -19,7 +21,7 @@ public sealed class SearchImportFilter : IAsyncActionFilter
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        if (TryGetSearchTerm(context.HttpContext.Request, out var term))
+        if (TryGetSearchTerm(context.HttpContext.Request, out var term) && await IsSignedInUserAsync(context.HttpContext).ConfigureAwait(false))
         {
             try
             {
@@ -36,6 +38,23 @@ public sealed class SearchImportFilter : IAsyncActionFilter
         }
 
         await next().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Only a person's search adds titles. Requests made with an API key (scripts, or request tools that check what the
+    /// library has) carry no user and shouldn't fill the library with near-matches.
+    /// </summary>
+    private static async Task<bool> IsSignedInUserAsync(HttpContext http)
+    {
+        try
+        {
+            var auth = http.RequestServices.GetService<IAuthorizationContext>();
+            return auth is not null && (await auth.GetAuthorizationInfo(http).ConfigureAwait(false)).User is not null;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private static bool TryGetSearchTerm(HttpRequest request, out string term)

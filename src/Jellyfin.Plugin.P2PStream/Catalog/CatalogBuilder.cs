@@ -27,6 +27,8 @@ public sealed partial class CatalogBuilder
     private readonly LibrarySetup _libraries;
     private readonly ILibraryManager _libraryManager;
     private readonly ICollectionManager _collections;
+    private readonly IUserManager _users;
+    private readonly IUserDataManager _userData;
     private readonly ILogger<CatalogBuilder> _logger;
     private readonly SemaphoreSlim _running = new(1, 1);
     private readonly object _importsLock = new();
@@ -39,8 +41,12 @@ public sealed partial class CatalogBuilder
         LibrarySetup libraries,
         ILibraryManager libraryManager,
         ICollectionManager collections,
+        IUserManager users,
+        IUserDataManager userData,
         ILogger<CatalogBuilder> logger)
     {
+        _users = users;
+        _userData = userData;
         _tmdb = tmdb;
         _trakt = trakt;
         _urls = urls;
@@ -135,11 +141,105 @@ public sealed partial class CatalogBuilder
         return dir;
     }
 
-    /// <summary>Records that a folder was added by a search, so pruning leaves it alone for SearchImportDays.</summary>
+    /// <summary>
+    /// Records that a folder was added (or found again) by a search: it's kept for SearchImportDays from now. A title
+    /// added by hand stays kept.
+    /// </summary>
     public void MarkSearchImport(string dir)
     {
-        SearchImports[dir] = DateTime.UtcNow;
+        SearchImports.AddOrUpdate(dir, DateTime.UtcNow, (_, old) => old == DateTime.MaxValue ? old : DateTime.UtcNow);
         SaveSearchImports();
+    }
+
+    /// <summary>A title someone added by hand ("Add any movie or show"): never removed by the search clean-up.</summary>
+    public void MarkKept(string dir)
+    {
+        SearchImports[dir] = DateTime.MaxValue;
+        SaveSearchImports();
+    }
+
+    /// <summary>
+    /// Removes titles from the search folders that a search added more than SearchImportDays ago and that nobody has
+    /// played, started or favourited (a show counts as touched if any episode was). Titles added by hand, folders that a
+    /// catalog also writes into (the catalog sync prunes those), and folders with real video files are left alone.
+    /// </summary>
+    private async Task PruneSearchFoldersAsync(ISet<string> catalogFolders, CancellationToken ct)
+    {
+        var days = Plugin.Instance!.Configuration.SearchImportDays;
+        if (days <= 0)
+        {
+            return;
+        }
+
+        var users = _users.GetUsers().ToList();
+        foreach (var (root, isMovie) in new[] { (FolderFor(SearchImporter.MovieLibrary), true), (FolderFor(SearchImporter.ShowLibrary), false) }
+            .DistinctBy(f => f.Item1, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!Directory.Exists(root) || catalogFolders.Contains(CanonicalFolder(root)))
+            {
+                continue;
+            }
+
+            var removed = 0;
+            foreach (var dir in Directory.GetDirectories(root).Where(d => TmdbFolder().IsMatch(Path.GetFileName(d))))
+            {
+                if (!SearchImports.TryGetValue(dir, out var added))
+                {
+                    SearchImports[dir] = DateTime.UtcNow; // from before this was tracked: its time starts now
+                    continue;
+                }
+
+                if (added == DateTime.MaxValue || DateTime.UtcNow - added < TimeSpan.FromDays(days) || HoldsRealMedia(dir) || WasTouched(dir, users))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    Directory.Delete(dir, true);
+                    SearchImports.TryRemove(dir, out _);
+                    removed++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Could not remove {Dir}: {Message}", dir, ex.Message);
+                }
+            }
+
+            SaveSearchImports();
+            if (removed > 0)
+            {
+                _logger.LogInformation("Search folder {Folder}: removed {Count} titles nobody played in {Days} days", Path.GetFileName(root), removed, days);
+                try
+                {
+                    await _libraries.ScanIfInLibraryAsync(root, [], removed, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    // The next library scan picks the removals up; the other search folder is still cleaned.
+                    _logger.LogWarning("Could not rescan {Folder} after the clean-up: {Message}", Path.GetFileName(root), ex.Message);
+                }
+            }
+        }
+    }
+
+    /// <summary>True if anyone has played, started or favourited the title (for a show: the show or any of its episodes).</summary>
+    private bool WasTouched(string dir, List<Jellyfin.Database.Implementations.Entities.User> users)
+    {
+        var strm = Directory.EnumerateFiles(dir, "*.strm", SearchOption.TopDirectoryOnly).FirstOrDefault();
+        var item = strm is not null ? _libraryManager.FindByPath(strm, false) : _libraryManager.FindByPath(dir, true);
+        if (item is null)
+        {
+            return false; // not in the library, so nobody can have watched it
+        }
+
+        var items = new List<BaseItem> { item };
+        if (item is MediaBrowser.Controller.Entities.TV.Series)
+        {
+            items.AddRange(_libraryManager.GetItemList(new InternalItemsQuery { AncestorIds = [item.Id], IncludeItemTypes = [BaseItemKind.Episode], Recursive = true }));
+        }
+
+        return users.Any(u => items.Any(i => _userData.GetUserData(u, i) is { } d && (d.Played || d.PlaybackPositionTicks > 0 || d.IsFavorite)));
     }
 
     /// <summary>
@@ -286,6 +386,20 @@ public sealed partial class CatalogBuilder
                 catch (Exception ex) when (!ct.IsCancellationRequested)
                 {
                     _logger.LogWarning("Collection {Name} failed: {Message}", def.DefaultFolder, ex.Message);
+                }
+            }
+
+            // 5. On a full sync: titles that searches added long ago and nobody watched.
+            if (onlyId is null)
+            {
+                try
+                {
+                    var catalogFolders = jobs.Where(j => j.Entry.Enabled).Select(j => CanonicalFolder(j.Entry.Library)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    await PruneSearchFoldersAsync(catalogFolders, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    _logger.LogWarning("Search folder clean-up failed: {Message}", ex.Message);
                 }
             }
 
