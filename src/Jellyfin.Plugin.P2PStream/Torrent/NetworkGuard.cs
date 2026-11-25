@@ -308,7 +308,11 @@ public static class NetworkGuard
     // ------------------------------------------------------------------ connecting
 
     /// <summary>Opens a TCP connection the way the current mode allows. <paramref name="host"/> may be a name or an IP address.</summary>
-    public static async Task<Socket> ConnectTcpAsync(string host, int port, CancellationToken ct, AddressFamily family = AddressFamily.Unspecified)
+    /// <param name="publicOnly">
+    /// For links that came from the internet (trackers and web seeds in a torrent): refuse addresses inside your own
+    /// network (<see cref="AddressPolicy"/>). The resolved address is the one connected to, so a name can't change in between.
+    /// </param>
+    public static async Task<Socket> ConnectTcpAsync(string host, int port, CancellationToken ct, AddressFamily family = AddressFamily.Unspecified, string? publicOnly = null)
     {
         var s = Require();
         switch (s.Mode)
@@ -316,6 +320,11 @@ public static class NetworkGuard
             case NetworkMode.Interface:
             {
                 var target = await ResolveAsync(host, family, s, ct).ConfigureAwait(false);
+                if (publicOnly is not null)
+                {
+                    AddressPolicy.Require(target, host, publicOnly);
+                }
+
                 var socket = new Socket(target.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
                 try
                 {
@@ -331,13 +340,31 @@ public static class NetworkGuard
             }
 
             case NetworkMode.Proxy:
+                // The proxy makes the connection from its own network; only a literal address is checked here.
+                if (publicOnly is not null && IPAddress.TryParse(host, out var proxied))
+                {
+                    AddressPolicy.Require(proxied, host, publicOnly);
+                }
+
                 return await ConnectViaProxyAsync(s.Proxy!, host, port, ct).ConfigureAwait(false);
 
             default:
             {
                 Socket socket;
+                if (publicOnly is not null && !IPAddress.TryParse(host, out _))
+                {
+                    var addresses = await AddressPolicy.ResolvePublicAsync(host, publicOnly, ct, family).ConfigureAwait(false);
+                    host = (addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork) ?? addresses.FirstOrDefault()
+                        ?? throw new SocketException((int)SocketError.HostNotFound)).ToString();
+                }
+
                 if (IPAddress.TryParse(host, out var ip))
                 {
+                    if (publicOnly is not null)
+                    {
+                        AddressPolicy.Require(ip, host, publicOnly);
+                    }
+
                     socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
                     try
                     {
@@ -421,7 +448,7 @@ public static class NetworkGuard
     {
         lock (HandlerLock)
         {
-            return _torrentHandlers[slot] ??= CreateHandler(family, decompress: false);
+            return _torrentHandlers[slot] ??= CreateHandler(family, decompress: false, publicOnly: "tracker or web seed");
         }
     }
 
@@ -467,7 +494,7 @@ public static class NetworkGuard
         return client;
     }
 
-    private static SocketsHttpHandler CreateHandler(AddressFamily family, bool decompress, bool followRedirects = true) => new()
+    private static SocketsHttpHandler CreateHandler(AddressFamily family, bool decompress, bool followRedirects = true, string? publicOnly = null) => new()
     {
         AllowAutoRedirect = followRedirects,
         AutomaticDecompression = decompress ? DecompressionMethods.All : DecompressionMethods.None,
@@ -475,7 +502,7 @@ public static class NetworkGuard
         UseProxy = false,
         ConnectCallback = async (context, ct) =>
         {
-            var socket = await ConnectTcpAsync(context.DnsEndPoint.Host, context.DnsEndPoint.Port, ct, family).ConfigureAwait(false);
+            var socket = await ConnectTcpAsync(context.DnsEndPoint.Host, context.DnsEndPoint.Port, ct, family, publicOnly).ConfigureAwait(false);
             return new NetworkStream(socket, ownsSocket: true);
         }
     };

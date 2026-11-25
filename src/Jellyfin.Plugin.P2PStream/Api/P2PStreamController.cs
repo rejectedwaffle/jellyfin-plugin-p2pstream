@@ -159,7 +159,7 @@ public class P2PStreamController : ControllerBase
             var uri = body.Uri.Trim();
             var source = uri.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase)
                 ? TorrentSource.FromMagnet(uri)
-                : await _torznab.ToSourceAsync(new ReleaseCandidate { Title = uri, DownloadUrl = uri }, HttpContext.RequestAborted).ConfigureAwait(false);
+                : await _torznab.ToSourceAsync(new ReleaseCandidate { Title = uri, DownloadUrl = uri }, HttpContext.RequestAborted, trustedLink: true).ConfigureAwait(false);
             await _engine.AddAsync(source, HttpContext.RequestAborted).ConfigureAwait(false);
             var status = _engine.GetStatus().First(s => s.InfoHash == source.InfoHash);
             foreach (var f in status.Files.Where(f => f.IsVideo))

@@ -201,6 +201,11 @@ public sealed class GuardedUdpTrackerConnection : ITrackerConnection
                 throw new NetworkBlockedException("IPv6 UDP trackers are skipped through a proxy");
             }
 
+            if (IPAddress.TryParse(Uri.Host, out var proxied))
+            {
+                AddressPolicy.Require(proxied, Uri.Host, "tracker");
+            }
+
             using var relay = await Socks5UdpRelay.OpenAsync(state.Proxy, ct).ConfigureAwait(false);
             _ = RepeatAsync(t => relay.SendAsync(Uri.Host, Uri.Port, payload, t), ct);
             while (true)
@@ -217,6 +222,7 @@ public sealed class GuardedUdpTrackerConnection : ITrackerConnection
         var addresses = IPAddress.TryParse(Uri.Host, out var literal) ? [literal] : await Dns.GetHostAddressesAsync(Uri.Host, AddressFamily, ct).ConfigureAwait(false);
         var target = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily)
             ?? throw new SocketException((int)SocketError.HostNotFound);
+        AddressPolicy.Require(target, Uri.Host, "tracker"); // a tracker listed in a torrent can't point into your network
         using var socket = NetworkGuard.CreateUdpSocket(AddressFamily);
         var endpoint = new IPEndPoint(target, Uri.Port);
         _ = RepeatAsync(t => socket.SendToAsync(payload, SocketFlags.None, endpoint, t).AsTask(), ct);

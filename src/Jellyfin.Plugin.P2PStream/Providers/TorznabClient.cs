@@ -61,8 +61,10 @@ public sealed class TorznabClient
 
     /// <summary>
     /// Converts a release into something the engine can add: a magnet, or the bytes of a .torrent file.
+    /// <paramref name="trustedLink"/>: the link was typed by an administrator (Add a torrent), so it may point into the
+    /// home network; links from search results may not.
     /// </summary>
-    public async Task<TorrentSource> ToSourceAsync(ReleaseCandidate release, CancellationToken ct)
+    public async Task<TorrentSource> ToSourceAsync(ReleaseCandidate release, CancellationToken ct, bool trustedLink = false)
     {
         if (IsMagnet(release.MagnetUrl))
         {
@@ -76,7 +78,13 @@ public sealed class TorznabClient
 
         if (!string.IsNullOrEmpty(release.MagnetPageUrl))
         {
-            var page = await HttpClients.Default.GetStringAsync(new Uri(release.MagnetPageUrl), ct).ConfigureAwait(false);
+            var (redirected, body) = await FetchAsync(release.MagnetPageUrl!, trustedLink, ct).ConfigureAwait(false);
+            if (redirected is not null)
+            {
+                return TorrentSource.FromMagnet(redirected);
+            }
+
+            var page = Encoding.UTF8.GetString(body!);
             var m = System.Text.RegularExpressions.Regex.Match(page, @"href=""(magnet:\?xt=urn:btih:[^""]+)""", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (m.Success)
             {
@@ -90,7 +98,7 @@ public sealed class TorznabClient
         {
             try
             {
-                return await DownloadAsync(release.DownloadUrl!, ct).ConfigureAwait(false);
+                return await DownloadAsync(release.DownloadUrl!, trustedLink, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested && !string.IsNullOrEmpty(release.InfoHash))
             {
@@ -254,11 +262,57 @@ public sealed class TorznabClient
 
     private static long? ParseLong(string? s) => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
 
-    private static async Task<TorrentSource> DownloadAsync(string link, CancellationToken ct)
+    /// <summary>The largest .torrent file (or magnet page) that is downloaded; real ones are well under this.</summary>
+    private const int MaxDownloadBytes = 20 << 20;
+
+    private static readonly TimeSpan DownloadTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Hosts you typed yourself (indexers, RSS feeds, a source's address): links to them may point into your network,
+    /// as a Prowlarr or Jackett on your network does. Any other host a link or redirect leads to must be on the internet.
+    /// </summary>
+    private static HashSet<string> TrustedHosts()
     {
+        var c = Plugin.Instance?.Configuration;
+        var urls = (c?.Indexers.Select(i => i.Url) ?? [])
+            .Concat(c?.RssSources.Select(r => r.Url.Replace("{query}", "q", StringComparison.Ordinal)) ?? [])
+            .Concat(c?.Sources.Select(b => b.BaseUrl) ?? []);
+        var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var u in urls)
+        {
+            if (Uri.TryCreate(u?.Trim(), UriKind.Absolute, out var parsed) && parsed.Host.Length > 0)
+            {
+                hosts.Add(parsed.Host);
+            }
+        }
+
+        return hosts;
+    }
+
+    /// <summary>
+    /// Fetches a link from a search result, following redirects one at a time so each hop is checked against
+    /// <see cref="AddressPolicy"/> (unless it's a host you typed, or <paramref name="trusted"/>). Returns a magnet link
+    /// a redirect led to, or the body (at most <see cref="MaxDownloadBytes"/>).
+    /// </summary>
+    private static async Task<(string? Magnet, byte[]? Body)> FetchAsync(string link, bool trusted, CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(DownloadTimeout);
+        ct = timeout.Token;
+        var trustedHosts = trusted ? null : TrustedHosts();
         var url = new Uri(link);
         for (var hop = 0; hop < 6; hop++)
         {
+            if (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps)
+            {
+                throw new InvalidOperationException($"Unsupported link: {url.Scheme}");
+            }
+
+            if (trustedHosts is not null && !trustedHosts.Contains(url.Host))
+            {
+                await AddressPolicy.ResolvePublicAsync(url.IdnHost, "download link", ct).ConfigureAwait(false);
+            }
+
             using var resp = await HttpClients.NoRedirect.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
             var code = (int)resp.StatusCode;
             if (code is >= 300 and < 400)
@@ -272,7 +326,7 @@ public sealed class TorznabClient
 
                 if (IsMagnet(location))
                 {
-                    return TorrentSource.FromMagnet(location);
+                    return (location, null);
                 }
 
                 url = new Uri(url, location);
@@ -280,15 +334,44 @@ public sealed class TorznabClient
             }
 
             resp.EnsureSuccessStatusCode();
-            var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-            if (bytes.Length > 7 && Encoding.ASCII.GetString(bytes, 0, 7).Equals("magnet:", StringComparison.OrdinalIgnoreCase))
+            if (resp.Content.Headers.ContentLength > MaxDownloadBytes)
             {
-                return TorrentSource.FromMagnet(Encoding.UTF8.GetString(bytes));
+                throw new InvalidOperationException("The download is too large to be a .torrent file");
             }
 
-            return TorrentSource.FromTorrentBytes(bytes);
+            await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            using var buffer = new MemoryStream();
+            var chunk = new byte[81920];
+            int read;
+            while ((read = await stream.ReadAsync(chunk, ct).ConfigureAwait(false)) > 0)
+            {
+                if (buffer.Length + read > MaxDownloadBytes)
+                {
+                    throw new InvalidOperationException("The download is too large to be a .torrent file");
+                }
+
+                buffer.Write(chunk, 0, read);
+            }
+
+            return (null, buffer.ToArray());
         }
 
-        throw new InvalidOperationException("Too many redirects downloading torrent");
+        throw new InvalidOperationException("Too many redirects");
+    }
+
+    private static async Task<TorrentSource> DownloadAsync(string link, bool trusted, CancellationToken ct)
+    {
+        var (magnet, bytes) = await FetchAsync(link, trusted, ct).ConfigureAwait(false);
+        if (magnet is not null)
+        {
+            return TorrentSource.FromMagnet(magnet);
+        }
+
+        if (bytes!.Length > 7 && Encoding.ASCII.GetString(bytes, 0, 7).Equals("magnet:", StringComparison.OrdinalIgnoreCase))
+        {
+            return TorrentSource.FromMagnet(Encoding.UTF8.GetString(bytes));
+        }
+
+        return TorrentSource.FromTorrentBytes(bytes);
     }
 }
