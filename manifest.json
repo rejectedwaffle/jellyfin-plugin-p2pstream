@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "1.2.0.0",
+                             "changelog":  "Security and reliability release. New: option to hide the search libraries from the home screen while keeping them in search. Stream links shown to apps no longer include the stream token; making a new token is done on the server, with an option to stop old links at once, and rewriting links is much faster. Playback only answers for titles the user can see. Links from search results and torrents can\u0027t reach your home network, and .torrent downloads are size-limited. Searches set to use the proxy never fall back to a direct connection. Each torrent downloads into its own folder. Catalogs sharing a folder no longer remove each other\u0027s titles, and catalog collections only change collections the plugin made. Season packs play the right episode file. Plus fixes for subtitle files, Trakt sign-in, the torrent limit, cache sizes and setting descriptions.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v1.2.0.0/p2pstream_1.2.0.0.zip",
+                             "checksum":  "58d97eb3b6dd2335a301af8e51969bdd",
+                             "timestamp":  "2026-11-25T00:50:53Z"
+                         },
+                         {
                              "version":  "1.1.0.0",
                              "changelog":  "Pre-loads the next episode, playback safety fixes for season packs and subtitle files, subtitles for torrents you add, Trakt without a Client Secret, and removing unused catalog folders. See the release notes.",
                              "targetAbi":  "12.4.0.0",
