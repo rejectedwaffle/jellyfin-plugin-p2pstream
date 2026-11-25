@@ -5,7 +5,7 @@ Press play and the plugin finds a release, starts the torrent and streams it whi
 Seeking works, because the engine fetches pieces wherever playback jumps to.
 
 ## Features
-- **Built-in sources, nothing extra to install:** Internet Archive (public-domain films, on by default), plus Knaben (searches many trackers at once), Nyaa (anime), KickAss Torrents, YTS, EZTV and The Pirate Bay, which you switch on yourself. Each has an editable address in case a site moves. Torznab (Prowlarr/Jackett) is supported too.
+- **Built-in sources, nothing extra to install:** Internet Archive (films uploaded to archive.org, on by default), plus Knaben (searches many trackers at once), Nyaa (anime), KickAss Torrents, YTS, EZTV and The Pirate Bay, which you switch on yourself. Each has an editable address in case a site moves. Torznab (Prowlarr/Jackett) is supported too.
 - **Catalogs as libraries (Gelato-style):** TMDB lists (Trending, Trending Today, Popular, Top Rated, Now Playing, Upcoming, On The Air, Airing Today) and your own TMDB lists are written as `.strm` folders. Each catalog has Import, Collection, Max items and a target library. Artwork and metadata come from Jellyfin's own TMDB provider.
 - **Trakt catalogs:** with a free Trakt API Client ID: Trakt Trending, Popular, Anticipated and Box Office, a public watchlist, and any Trakt lists you name. Connect your account (enter a code at trakt.tv/activate) for your private watchlist and recommendations; no Client Secret needed.
 - **Available streams picker (Elementum-style):** a title's releases appear in Jellyfin's **Version** menu with resolution, size, seeds, quality and source, plus "Best 4K / Best 1080p" entries. Auto (best match) stays the default, and your pick is remembered.
@@ -90,7 +90,7 @@ repository in Jellyfin and install from there.
 ## Legal notice
 - P2P Stream is a BitTorrent client for Jellyfin. It doesn't host, index or distribute any media, and this repository
   contains none.
-- Out of the box, the only enabled source is the Internet Archive (public-domain and openly licensed films). Any other
+- Out of the box, the only enabled source is the Internet Archive (films uploaded to archive.org; the uploader states their rights, so check them). Any other
   source is something you choose to turn on or add.
 - You are responsible for what you download and share, and for following the copyright law where you live. Downloading or
   sharing copyrighted material without permission may be illegal. While a torrent plays, the plugin also uploads parts

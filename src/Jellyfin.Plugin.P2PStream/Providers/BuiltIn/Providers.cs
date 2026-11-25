@@ -4,14 +4,14 @@ using System.Text.Json.Nodes;
 
 namespace Jellyfin.Plugin.P2PStream.Providers.BuiltIn;
 
-/// <summary>Internet Archive: public-domain and freely licensed films, web-seeded by archive.org.</summary>
+/// <summary>Internet Archive: films uploaded to archive.org, web-seeded by archive.org. Their rights vary by upload.</summary>
 public sealed class ArchiveProvider : SearchProvider
 {
     public override string Id => "archive";
 
     public override string Name => "Internet Archive";
 
-    public override string Description => "Movies · public domain";
+    public override string Description => "Movies · archive.org";
 
     public override string DefaultUrl => "https://archive.org";
 

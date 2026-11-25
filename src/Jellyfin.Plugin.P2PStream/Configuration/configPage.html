@@ -459,7 +459,7 @@
                             <h3><span class="material-icons">folder</span>Storage</h3>
                             <div class="inputContainer">
                                 <input is="emby-input" type="number" min="0" data-key="MaxDiskGb" data-type="int" label="Disk space limit (GB, 0 = no limit)" />
-                                <div class="fieldDescription" id="p2pDiskHint">When streaming data goes over this, the least recently watched torrents are removed. A title being watched is never removed.</div>
+                                <div class="fieldDescription" id="p2pDiskHint">A target for the torrents the plugin is running, checked every few minutes: over it, the least recently watched ones nobody is watching are removed. Not a hard cap: a title being watched is never removed, so a large release can go over it, and files kept after playback aren't counted.</div>
                             </div>
                             <div class="p2p-testrows p2p-storage"></div>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="KeepFilesAfterPlayback" /><span>Keep downloaded files after torrents are removed</span></label>
@@ -773,7 +773,7 @@
                 var disk = page.querySelector('#p2pDiskHint');
                 function mb(v) { return v >= 1024 ? (v / 1024).toFixed(1) + ' GB' : v + ' MB'; }
                 if (disk) {
-                    disk.textContent = 'Over the limit, the least recently watched torrents are removed; a title being watched never is.';
+                    disk.textContent = 'A target for the torrents the plugin is running, checked every few minutes: over it, the least recently watched ones nobody is watching are removed. Not a hard cap: a title being watched is never removed, so a large release can go over it, and files kept after playback aren't counted.';
                 }
                 var stores = page.querySelectorAll('.p2p-storage');
                 stores.forEach(function (store) {

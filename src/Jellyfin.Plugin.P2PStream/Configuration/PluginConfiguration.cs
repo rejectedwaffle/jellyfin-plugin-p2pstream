@@ -258,8 +258,11 @@ public class PluginConfiguration : BasePluginConfiguration
 
     public int CatalogSyncHours { get; set; } = 24;
 
-    /// <summary>Gets or sets a value indicating whether the one-time 0.3.0 library cleanup has run (see LibrarySetup).</summary>
-    public bool LegacyLibraryCleanupDone { get; set; }
+    /// <summary>
+    /// Gets or sets a value indicating whether the one-time 0.3.0 library cleanup has run (see LibrarySetup). True for new
+    /// installs (nothing to clean); a settings file saved by 0.3.0 has it false, and the next catalog sync runs it.
+    /// </summary>
+    public bool LegacyLibraryCleanupDone { get; set; } = true;
 
     /// <summary>Gets or sets the Catalogs table rows. Missing rows fall back to defaults (and legacy MovieLists/ShowLists).</summary>
     public CatalogEntry[] Catalogs { get; set; } = [];

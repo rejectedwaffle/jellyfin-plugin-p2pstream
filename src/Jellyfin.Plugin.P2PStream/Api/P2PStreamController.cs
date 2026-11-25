@@ -391,7 +391,7 @@ public class P2PStreamController : ControllerBase
             }
             else
             {
-                Add("Torrents", true, "Hidden", $"Peers see {ip}, not your address.");
+                Add("Torrents", true, "Hidden", $"Traffic sent the way torrents go leaves from {ip}, not your address.");
                 if (mode == Torrent.NetworkMode.Interface)
                 {
                     await AddIncomingRowAsync(ip, Add, ct).ConfigureAwait(false);
@@ -495,7 +495,7 @@ public class P2PStreamController : ControllerBase
                 using var t = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 t.CancelAfter(TimeSpan.FromSeconds(8));
                 await socket.ConnectAsync(new System.Net.IPEndPoint(address, port), t.Token).ConfigureAwait(false);
-                add("Port forwarding", true, "Open", $"Peers can connect in: port {port} on {vpnIp} reaches this server through the VPN.");
+                add("Port forwarding", true, "Open", $"Port {port} on {vpnIp} answered. This is checked from the server itself; some VPNs answer that differently than for peers outside.");
                 return;
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -657,7 +657,6 @@ public class P2PStreamController : ControllerBase
     [Authorize(Policy = AdminPolicy)]
     public async Task<ActionResult<object>> GetCatalogs()
     {
-        _libraries.RunLegacyCleanupOnce();
         var trakt = HttpContext.RequestServices.GetService(typeof(TraktClient)) as TraktClient;
         var defs = await CatalogDefinitions.GetAllAsync(_tmdb, HttpContext.RequestAborted, trakt).ConfigureAwait(false);
         return new

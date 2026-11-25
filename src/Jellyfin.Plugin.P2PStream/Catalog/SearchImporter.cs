@@ -159,8 +159,6 @@ public sealed class SearchImporter
             return ([], [], showRoot);
         }
 
-        _libraries.RunLegacyCleanupOnce();
-
         // Each show's first season (season 0 is specials), looked up in parallel before writing anything.
         var firstSeasons = await Task.WhenAll(shows.Select(async s =>
         {
