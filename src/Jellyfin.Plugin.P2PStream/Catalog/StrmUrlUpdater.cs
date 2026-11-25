@@ -23,17 +23,21 @@ public sealed partial class StrmUrlUpdater : IHostedService
     private string _currentToken = string.Empty;
     private static (string Token, DateTime Until) _previous;
 
-    /// <summary>
-    /// True for the token used before the last change, for 10 minutes: whatever is playing (the player holds the old
-    /// link) keeps working while all links are rewritten.
-    /// </summary>
+    // While links are being rewritten (a big library takes a while), items not yet updated still hold the old token.
+    private static volatile bool _rewriting;
+
     /// <summary>The old token stops working at once (instead of 10 minutes after a new one was made).</summary>
     public static void RevokePrevious() => _previous = (string.Empty, DateTime.MinValue);
 
+    /// <summary>
+    /// True for the token used before the last change, for 10 minutes and for as long as links are still being
+    /// rewritten: whatever is playing (the player holds the old link) keeps working, and so does any title whose stored
+    /// link hasn't been updated yet.
+    /// </summary>
     public static bool IsRecentPreviousToken(string token)
     {
         var (old, until) = _previous;
-        return !string.IsNullOrEmpty(old) && DateTime.UtcNow < until && old == token;
+        return !string.IsNullOrEmpty(old) && (DateTime.UtcNow < until || _rewriting) && old == token;
     }
 
     public StrmUrlUpdater(StreamUrlBuilder urls, ILibraryManager libraryManager, ILogger<StrmUrlUpdater> logger)
@@ -50,6 +54,13 @@ public sealed partial class StrmUrlUpdater : IHostedService
         _current = Prefix;
         _currentToken = Plugin.Instance!.Configuration.StreamToken;
         Plugin.Instance.ConfigurationChanged += OnConfigurationChanged;
+
+        // Finishes a rewrite a restart cut short (and fixes links written while the address was different).
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromMinutes(1)).ConfigureAwait(false);
+            await RewriteAllAsync().ConfigureAwait(false);
+        });
         return Task.CompletedTask;
     }
 
@@ -86,6 +97,7 @@ public sealed partial class StrmUrlUpdater : IHostedService
     public async Task<(int Files, int Items)> RewriteAllAsync()
     {
         await _running.WaitAsync().ConfigureAwait(false);
+        _rewriting = true;
         try
         {
             var baseUrl = _urls.BaseUrl();
@@ -116,20 +128,44 @@ public sealed partial class StrmUrlUpdater : IHostedService
             }
 
             // Jellyfin keeps each .strm item's link in its database; update those too, so playback uses the new link at once.
+            // Saved a folder (a season, a movie folder) at a time: one by one took about a third of a second per item.
             var items = 0;
             var library = _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Episode, BaseItemKind.Video], Recursive = true, IsVirtualItem = false });
+            var changed = new List<BaseItem>();
             foreach (var item in library.Where(i => i.IsShortcut && i.ShortcutPath?.Contains("/P2PStream/", StringComparison.Ordinal) == true))
             {
                 var updated = Fix(item.ShortcutPath!);
                 if (updated != item.ShortcutPath)
                 {
                     item.ShortcutPath = updated;
-                    await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
-                    items++;
+                    changed.Add(item);
                 }
             }
 
-            _logger.LogInformation("Stream links updated to the new address/token: {Files} .strm files, {Items} library items", files, items);
+            foreach (var group in changed.GroupBy(i => i.ParentId))
+            {
+                var batch = group.ToList();
+                var parent = batch[0].GetParent();
+                if (parent is null)
+                {
+                    foreach (var item in batch)
+                    {
+                        await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    await _libraryManager.UpdateItemsAsync(batch, parent, ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
+                }
+
+                items += batch.Count;
+            }
+
+            if (files > 0 || items > 0)
+            {
+                _logger.LogInformation("Stream links updated to the new address/token: {Files} .strm files, {Items} library items", files, items);
+            }
+
             return (files, items);
         }
         catch (Exception ex)
@@ -139,6 +175,15 @@ public sealed partial class StrmUrlUpdater : IHostedService
         }
         finally
         {
+            _rewriting = false;
+            var (old, until) = _previous;
+            if (!string.IsNullOrEmpty(old))
+            {
+                // Players that read a link just before it was rewritten get a couple more minutes.
+                var minimum = DateTime.UtcNow.AddMinutes(2);
+                _previous = (old, until > minimum ? until : minimum);
+            }
+
             _running.Release();
         }
     }
