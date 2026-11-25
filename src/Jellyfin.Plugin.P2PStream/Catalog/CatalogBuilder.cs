@@ -397,19 +397,54 @@ public sealed partial class CatalogBuilder
             return;
         }
 
-        var box = _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.BoxSet], Name = name, Recursive = true })
-            .OfType<BoxSet>()
-            .FirstOrDefault();
+        // Only collections the plugin made (their ids are recorded) are ever changed. A collection with this name that
+        // the plugin didn't make is adopted only if every title in it is one of the plugin's catalog titles (collections
+        // from versions that didn't record ids); a collection of your own is left alone.
+        var owned = LoadOwnedCollections();
+        BoxSet? box = owned.TryGetValue(name, out var ownedId) ? _libraryManager.GetItemById(ownedId) as BoxSet : null;
         if (box is null)
         {
-            await _collections.CreateCollectionAsync(new CollectionCreationOptions { Name = name, ItemIdList = ids.Select(i => i.ToString("N")).ToList() }).ConfigureAwait(false);
+            var sameName = _libraryManager.GetItemList(new InternalItemsQuery { IncludeItemTypes = [BaseItemKind.BoxSet], Name = name, Recursive = true })
+                .OfType<BoxSet>()
+                .FirstOrDefault();
+            if (sameName is not null)
+            {
+                var catalogRoot = Path.GetFullPath(Plugin.Instance!.CatalogPath);
+                var members = sameName.GetLinkedChildren();
+                if (members.Count > 0 && members.All(m => !string.IsNullOrEmpty(m.Path) && Path.GetFullPath(m.Path).StartsWith(catalogRoot, StringComparison.OrdinalIgnoreCase)))
+                {
+                    box = sameName;
+                    owned[name] = box.Id;
+                    SaveOwnedCollections(owned);
+                }
+                else
+                {
+                    _logger.LogInformation("Collection {Name}: a collection with this name already exists and wasn't made by P2P Stream, so it's left alone", name);
+                    return;
+                }
+            }
+        }
+
+        if (box is null)
+        {
+            var created = await _collections.CreateCollectionAsync(new CollectionCreationOptions { Name = name, ItemIdList = ids.Select(i => i.ToString("N")).ToList() }).ConfigureAwait(false);
+            owned[name] = created.Id;
+            SaveOwnedCollections(owned);
             _logger.LogInformation("Created collection {Name} with {Count} titles", name, ids.Count);
             return;
         }
 
-        var current = box.GetLinkedChildren().Select(i => i.Id).ToHashSet();
+        var members = box.GetLinkedChildren();
+        var current = members.Select(i => i.Id).ToHashSet();
         var add = ids.Where(i => !current.Contains(i)).ToList();
-        var remove = current.Where(i => !ids.Contains(i)).ToList();
+
+        // Removed only if its folder is no longer one of the catalog's titles: a title that's still listed but that
+        // the library scan hasn't caught up with yet stays in.
+        var listed = dirs.Select(d => Path.TrimEndingDirectorySeparator(Path.GetFullPath(d)) + Path.DirectorySeparatorChar).ToList();
+        var remove = members
+            .Where(m => !ids.Contains(m.Id) && !(m.Path is { Length: > 0 } path && listed.Any(d => Path.GetFullPath(path).StartsWith(d, StringComparison.OrdinalIgnoreCase))))
+            .Select(m => m.Id)
+            .ToList();
         if (add.Count > 0)
         {
             await _collections.AddToCollectionAsync(box.Id, add).ConfigureAwait(false);
@@ -420,6 +455,26 @@ public sealed partial class CatalogBuilder
             await _collections.RemoveFromCollectionAsync(box.Id, remove).ConfigureAwait(false);
         }
     }
+
+    private static string OwnedCollectionsPath => Path.Combine(Plugin.Instance!.DataFolderPath, "collections.json");
+
+    /// <summary>Collections the plugin made or adopted: name to collection id.</summary>
+    private static Dictionary<string, Guid> LoadOwnedCollections()
+    {
+        try
+        {
+            return File.Exists(OwnedCollectionsPath)
+                ? new Dictionary<string, Guid>(JsonSerializer.Deserialize<Dictionary<string, Guid>>(File.ReadAllText(OwnedCollectionsPath)) ?? [], StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception)
+        {
+            return new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static void SaveOwnedCollections(Dictionary<string, Guid> owned) =>
+        File.WriteAllText(OwnedCollectionsPath, JsonSerializer.Serialize(owned));
 
     private static bool WriteStrm(string path, string url)
     {
