@@ -20,6 +20,10 @@ public sealed class TraktClient
     private readonly ILogger<TraktClient> _logger;
     private readonly object _lock = new();
     private DeviceLogin? _pending;
+
+    // Bumped by Disconnect and by each new sign-in: a sign-in poll or token refresh started under an older generation
+    // must not save tokens (that would reconnect an account that was just disconnected).
+    private int _generation;
     private string? _lastError;
 
     public TraktClient(ILogger<TraktClient> logger)
@@ -86,6 +90,7 @@ public sealed class TraktClient
     {
         lock (_lock)
         {
+            _generation++;
             _pending = null;
             if (File.Exists(TokenFile))
             {
@@ -205,17 +210,19 @@ public sealed class TraktClient
             DateTime.UtcNow.AddSeconds((int?)json["expires_in"] ?? 600));
         var deviceCode = (string?)json["device_code"] ?? string.Empty;
         var interval = Math.Max(1, (int?)json["interval"] ?? 5);
+        int generation;
         lock (_lock)
         {
+            generation = ++_generation;
             _pending = login;
             _lastError = null;
         }
 
-        _ = Task.Run(() => PollAsync(login, deviceCode, interval));
+        _ = Task.Run(() => PollAsync(login, deviceCode, interval, generation));
         return login;
     }
 
-    private async Task PollAsync(DeviceLogin login, string deviceCode, int interval)
+    private async Task PollAsync(DeviceLogin login, string deviceCode, int interval, int generation)
     {
         while (DateTime.UtcNow < login.Expires && ReferenceEquals(_pending, login))
         {
@@ -231,10 +238,10 @@ public sealed class TraktClient
                         var json = JsonNode.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false))!;
                         var tokens = ToTokens(json);
                         tokens.User = await TryGetUserAsync(tokens.AccessToken).ConfigureAwait(false);
-                        SaveTokens(tokens);
-                        lock (_lock)
+                        if (!SaveTokens(tokens, generation, clearPending: login))
                         {
-                            _pending = null;
+                            _logger.LogInformation("Trakt sign-in finished after it was cancelled; not saved");
+                            return;
                         }
 
                         _logger.LogInformation("Trakt account {User} connected", tokens.User);
@@ -245,7 +252,7 @@ public sealed class TraktClient
                         interval++;
                         continue;
                     default: // 404 bad code, 409 used, 410 expired, 418 denied
-                        _lastError = (int)resp.StatusCode switch
+                        var error = (int)resp.StatusCode switch
                         {
                             401 when ClientSecret.Length == 0 => "Trakt wants the app's Client Secret for this: add it (Accounts > Trakt), save, and connect again.",
                             410 => "The code expired. Try again.",
@@ -253,7 +260,15 @@ public sealed class TraktClient
                             409 => "That code was already used.",
                             _ => $"Trakt refused the sign-in (HTTP {(int)resp.StatusCode})."
                         };
-                        _pending = null;
+                        lock (_lock)
+                        {
+                            if (ReferenceEquals(_pending, login))
+                            {
+                                _pending = null; // an older poll never clears a newer sign-in
+                                _lastError = error;
+                            }
+                        }
+
                         return;
                 }
             }
@@ -263,10 +278,13 @@ public sealed class TraktClient
             }
         }
 
-        if (ReferenceEquals(_pending, login))
+        lock (_lock)
         {
-            _pending = null;
-            _lastError = "The code expired before it was entered. Try again.";
+            if (ReferenceEquals(_pending, login))
+            {
+                _pending = null;
+                _lastError = "The code expired before it was entered. Try again.";
+            }
         }
     }
 
@@ -293,17 +311,35 @@ public sealed class TraktClient
             .AddSeconds((long?)json["expires_in"] ?? 7776000).UtcDateTime
     };
 
-    private void SaveTokens(Tokens tokens)
+    /// <summary>Saves tokens only if nothing (Disconnect, a newer sign-in) happened since <paramref name="generation"/>.</summary>
+    private bool SaveTokens(Tokens tokens, int generation, DeviceLogin? clearPending = null)
     {
         lock (_lock)
         {
+            if (generation != _generation)
+            {
+                return false;
+            }
+
             File.WriteAllText(TokenFile, JsonSerializer.Serialize(tokens));
+            if (clearPending is not null && ReferenceEquals(_pending, clearPending))
+            {
+                _pending = null;
+            }
+
+            return true;
         }
     }
 
     /// <summary>The access token, refreshed when it's close to expiring. Null when no account is connected.</summary>
     private async Task<string?> AccessTokenAsync(CancellationToken ct)
     {
+        int generation;
+        lock (_lock)
+        {
+            generation = _generation;
+        }
+
         var tokens = LoadTokens();
         if (tokens is null || tokens.AccessToken.Length == 0)
         {
@@ -326,8 +362,7 @@ public sealed class TraktClient
             }), ct).ConfigureAwait(false);
             var fresh = ToTokens(json);
             fresh.User = tokens.User;
-            SaveTokens(fresh);
-            return fresh.AccessToken;
+            return SaveTokens(fresh, generation) ? fresh.AccessToken : null; // disconnected meanwhile: stay disconnected
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
