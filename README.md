@@ -65,6 +65,10 @@ the current port from a file that the VPN's port-forwarding script keeps up to d
 
 In proxy mode DHT is off; a SOCKS5 proxy still carries UDP trackers, an HTTP proxy doesn't.
 
+In VPN mode the plugin binds torrent sockets to the VPN, but name lookups (tracker and site names) use the system's DNS
+settings. If those point at your router or ISP, the names looked up are visible there. Use a DNS server reached through
+the VPN (most VPN configs set one) if that matters to you.
+
 ## How it works
 Each `.strm` file holds a URL such as `http://server:8096/P2PStream/play/<token>/movie/603`.
 When a player opens it, the plugin looks the title up on TMDB, searches the enabled sources, filters and ranks the
@@ -82,7 +86,10 @@ Bump `AssemblyVersion` in the `.csproj` first. Requires the .NET 10 SDK.
 
 For quick test builds without a release: `./scripts/package.ps1 -Dev` builds `<version>.<n>` into `artifacts/dev/`, and
 `./scripts/dev-serve.ps1` serves that folder on port 8765. Add `http://<your PC>:8765/manifest.json` as a second
-repository in Jellyfin and install from there.
+repository in Jellyfin and install from there. Anyone who can reach that port can offer your Jellyfin a plugin build, so
+only run it on a network you trust (`-Bind <LAN address>` limits it to one address).
+
+Every push to `main` is built by GitHub Actions (`.github/workflows/build.yml`); a warning fails the build.
 
 ## Notes
 - Some sites block automated searches or move domains. Use "change address" or the proxy setting.
