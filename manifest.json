@@ -8,28 +8,12 @@
         "category":  "General",
         "versions":  [
                          {
-                             "version":  "1.2.2.0",
-                             "changelog":  "Playing away from home works without a setting: each device is given stream links using the address it reached Jellyfin by (the home address at home, your reverse proxy\u0027s address away from home). Devices at home are unaffected if the outside address is turned off. A fixed address can still be set under Stream links.",
+                             "version":  "1.2.3.0",
+                             "changelog":  "Security and reliability release. New: stream links follow the address each device used, so playing away from home through a reverse proxy works without a setting; each person\u0027s Version choice is their own; an option to hide the search libraries from the home screen while keeping them in search. Security: playback and the Version menu respect library access; stream links shown to apps no longer include the stream token; new stream tokens are made on the server, optionally stopping old links at once; links from search results and torrents can\u0027t reach your home network; .torrent downloads are size-limited; searches set to use the proxy never go direct. Reliability: faster first play (searches don\u0027t wait for a site that isn\u0027t answering, which is then skipped for a few minutes; faster peer connections); each torrent downloads into its own folder; catalogs sharing a folder no longer remove each other\u0027s titles; catalog collections only change collections the plugin made; season packs play the right episode file; rewriting links after a new token takes about a minute instead of up to an hour; fixes for subtitle files, Trakt sign-in, the torrent limit, cache sizes, log messages and setting descriptions.",
                              "targetAbi":  "12.4.0.0",
-                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v1.2.2.0/p2pstream_1.2.2.0.zip",
-                             "checksum":  "6aca53b99e41b3e48f5f393b0c85a8b7",
-                             "timestamp":  "2026-11-25T01:44:50Z"
-                         },
-                         {
-                             "version":  "1.2.1.0",
-                             "changelog":  "Fix: when a user asks to play a title they can\u0027t access, the plugin no longer searches for it or starts a torrent (it now checks library access, not just parental ratings). Tidier log messages.",
-                             "targetAbi":  "12.4.0.0",
-                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v1.2.1.0/p2pstream_1.2.1.0.zip",
-                             "checksum":  "d618ad20ec4bb3d2dc490c7529d541cd",
-                             "timestamp":  "2026-11-25T01:26:21Z"
-                         },
-                         {
-                             "version":  "1.2.0.0",
-                             "changelog":  "Security and reliability release. New: option to hide the search libraries from the home screen while keeping them in search. Stream links shown to apps no longer include the stream token; making a new token is done on the server, with an option to stop old links at once, and rewriting links is much faster. Playback only answers for titles the user can see. Links from search results and torrents can\u0027t reach your home network, and .torrent downloads are size-limited. Searches set to use the proxy never fall back to a direct connection. Each torrent downloads into its own folder. Catalogs sharing a folder no longer remove each other\u0027s titles, and catalog collections only change collections the plugin made. Season packs play the right episode file. Plus fixes for subtitle files, Trakt sign-in, the torrent limit, cache sizes and setting descriptions.",
-                             "targetAbi":  "12.4.0.0",
-                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v1.2.0.0/p2pstream_1.2.0.0.zip",
-                             "checksum":  "58d97eb3b6dd2335a301af8e51969bdd",
-                             "timestamp":  "2026-11-25T00:50:53Z"
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v1.2.3.0/p2pstream_1.2.3.0.zip",
+                             "checksum":  "9b32601739e24239cb1167d7deb840b0",
+                             "timestamp":  "2026-11-25T02:08:18Z"
                          },
                          {
                              "version":  "1.1.0.0",
