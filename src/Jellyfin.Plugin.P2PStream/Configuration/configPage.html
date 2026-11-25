@@ -499,7 +499,7 @@
                             <h3><span class="material-icons">settings_ethernet</span>Stream links</h3>
                             <div class="inputContainer">
                                 <input is="emby-input" type="text" data-key="PublicBaseUrl" label="Server address in stream links (blank = automatic)" />
-                                <div class="fieldDescription">Leave blank unless some device can't play: then enter an address every device can reach, e.g. <code>http://192.168.1.10:8096</code>. Links are updated automatically when you save.</div>
+                                <div class="fieldDescription">Blank (recommended): each device is given links using the address it reached Jellyfin by, so devices at home use the home address and devices away from home use your reverse proxy's address. Only enter an address to force one for every device, e.g. <code>http://192.168.1.10:8096</code>. Links are updated automatically when you save.</div>
                             </div>
                             <input type="hidden" id="p2pToken" />
                             <div class="p2p-row" style="align-items:center;margin-bottom:.4em">

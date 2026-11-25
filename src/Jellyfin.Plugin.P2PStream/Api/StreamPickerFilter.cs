@@ -5,6 +5,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.MediaInfo;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -104,6 +105,11 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
 
         var executed = await next().ConfigureAwait(false);
 
+        if (playItem is not null && executed.Result is ObjectResult { Value: PlaybackInfoResponse info })
+        {
+            UseRequestAddress(http.Request, info);
+        }
+
         if (enabled && HttpMethods.IsGet(http.Request.Method) && ItemPath().IsMatch(path))
         {
             try
@@ -120,6 +126,40 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
                 // Never break a title's page because of the plugin.
             }
         }
+    }
+
+    /// <summary>
+    /// Apps that play a stream directly use the link in the Play answer. With no fixed address set (Stream links), that
+    /// link uses the address this app reached Jellyfin by: the home address for a device at home, the reverse proxy's
+    /// name for a device away from home. The .strm files keep the home address (Jellyfin itself reads them there).
+    /// </summary>
+    internal static void UseRequestAddress(HttpRequest request, PlaybackInfoResponse info)
+    {
+        var baseUrl = RequestBaseUrl(request);
+        if (baseUrl is null || info.MediaSources is null)
+        {
+            return;
+        }
+
+        foreach (var source in info.MediaSources)
+        {
+            if (!string.IsNullOrEmpty(source.Path))
+            {
+                source.Path = LinkBase().Replace(source.Path, baseUrl + "/P2PStream/", 1);
+            }
+        }
+    }
+
+    /// <summary>The address the request came in on, or null when a fixed address is set or the request has no host.</summary>
+    internal static string? RequestBaseUrl(HttpRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(Plugin.Instance?.Configuration.PublicBaseUrl) || !request.Host.HasValue
+            || (request.Scheme != "http" && request.Scheme != "https"))
+        {
+            return null;
+        }
+
+        return $"{request.Scheme}://{request.Host.Value}{request.PathBase.Value}".TrimEnd('/');
     }
 
     // ---------------- title page: list the versions ----------------
@@ -492,6 +532,10 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
 
         return list;
     }
+
+    // The start of one of the plugin's stream links, up to "/P2PStream/" (followed by play/ or stream/).
+    [GeneratedRegex(@"^https?://[^\s/]+(?:/[^\s]*?)?/P2PStream/(?=(?:play|stream)/)", RegexOptions.IgnoreCase)]
+    private static partial Regex LinkBase();
 
     [GeneratedRegex(@"Client=""([^""]*)""")]
     private static partial Regex ClientName();
