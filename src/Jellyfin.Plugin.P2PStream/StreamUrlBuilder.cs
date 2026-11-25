@@ -7,8 +7,15 @@ namespace Jellyfin.Plugin.P2PStream;
 /// <summary>
 /// Builds the URLs written into .strm files and shown on the config page.
 /// </summary>
-public sealed class StreamUrlBuilder
+public sealed partial class StreamUrlBuilder
 {
+    /// <summary>A stream link with its token replaced by "-" (for anything shown to apps or written to logs).</summary>
+    public static string Redact(string? url) =>
+        string.IsNullOrEmpty(url) ? url ?? string.Empty : TokenInLink().Replace(url, "/P2PStream/${kind}/-/");
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"/P2PStream/(?<kind>play|stream)/[^/?#]+/", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex TokenInLink();
+
     private readonly IServerApplicationHost _host;
 
     public StreamUrlBuilder(IServerApplicationHost host)

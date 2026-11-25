@@ -27,6 +27,9 @@ public sealed partial class StrmUrlUpdater : IHostedService
     /// True for the token used before the last change, for 10 minutes: whatever is playing (the player holds the old
     /// link) keeps working while all links are rewritten.
     /// </summary>
+    /// <summary>The old token stops working at once (instead of 10 minutes after a new one was made).</summary>
+    public static void RevokePrevious() => _previous = (string.Empty, DateTime.MinValue);
+
     public static bool IsRecentPreviousToken(string token)
     {
         var (old, until) = _previous;

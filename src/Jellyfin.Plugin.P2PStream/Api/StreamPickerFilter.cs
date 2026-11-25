@@ -192,6 +192,12 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             .Concat(StreamPicker.BuildSources(item, url, releases, _options))
             .ToArray();
         dto.MediaSourceCount = dto.MediaSources.Length;
+
+        // Apps only use a version's id (Play is resolved on the server); don't hand them the stream token with it.
+        foreach (var source in dto.MediaSources)
+        {
+            source.Path = StreamUrlBuilder.Redact(source.Path);
+        }
     }
 
     // ---------------- playback: honour the chosen version ----------------

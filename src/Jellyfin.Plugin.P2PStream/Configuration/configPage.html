@@ -501,12 +501,13 @@
                                 <input is="emby-input" type="text" data-key="PublicBaseUrl" label="Server address in stream links (blank = automatic)" />
                                 <div class="fieldDescription">Leave blank unless some device can't play: then enter an address every device can reach, e.g. <code>http://192.168.1.10:8096</code>. Links are updated automatically when you save.</div>
                             </div>
-                            <input type="hidden" data-key="StreamToken" id="p2pToken" />
+                            <input type="hidden" id="p2pToken" />
                             <div class="p2p-row" style="align-items:center;margin-bottom:.4em">
                                 <span>Stream token: <code id="p2pTokenShown"></code></span>
                                 <button is="emby-button" type="button" class="raised" id="p2pNewToken"><span>Make a new token</span></button>
                             </div>
-                            <div class="p2p-desc" style="margin-left:0">The secret in stream links that lets players stream without a Jellyfin login. Make a new one if a link was shared by mistake; links are updated automatically when you save.</div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="p2pRevokeOld" /><span>Stop the old links at once</span></label>
+                            <div class="p2p-desc" style="margin-left:0">The secret in stream links that lets players stream without a Jellyfin login. Make a new one if a link was shared by mistake; all links are updated straight away. Otherwise the old token keeps working for 10 minutes, so whatever is playing isn't cut off.</div>
                         </div>
                     </div>
                 </section>
@@ -795,13 +796,15 @@
                 var t = page.querySelector('#p2pToken').value || '';
                 page.querySelector('#p2pTokenShown').textContent = t ? '••••••••' + t.slice(-4) : '(none)';
             }
+            // Made on the server (not by saving this page, which never sends the token): an older settings page open
+            // somewhere else can't put an old token back.
             page.querySelector('#p2pNewToken').addEventListener('click', function () {
-                var bytes = new Uint8Array(16);
-                window.crypto.getRandomValues(bytes);
-                page.querySelector('#p2pToken').value = Array.prototype.map.call(bytes, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
-                showToken();
-                setDirty(true);
-                toast('New token made. Save to use it; stream links are updated automatically.');
+                var revoke = page.querySelector('#p2pRevokeOld').checked;
+                api('POST', 'P2PStream/Token/Rotate?revokeOld=' + (revoke ? 'true' : 'false'), {}).then(function (r) {
+                    page.querySelector('#p2pToken').value = 'xxxxxxxx' + r.Last4;
+                    showToken();
+                    toast(revoke ? 'New token made. Links are updated; the old ones stopped working.' : 'New token made. Links are updated; the old ones keep working for 10 minutes.');
+                }).catch(function (err) { explain(err).then(function (d) { toast(d); }); });
             });
 
             // ---------- VPN interface dropdown ----------
@@ -1172,6 +1175,7 @@
                     (config.DeviceRules || []).forEach(ruleRow);
                     updateNetForm();
                     updateProxyUse();
+                    page.querySelector('#p2pToken').value = config.StreamToken || '';
                     showToken();
                     setDirty(false);
                     loadNetwork();

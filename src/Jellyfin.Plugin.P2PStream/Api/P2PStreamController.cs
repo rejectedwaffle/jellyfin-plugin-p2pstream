@@ -193,6 +193,27 @@ public class P2PStreamController : ControllerBase
         return new { Path = _catalog.WriteManualStrm(session.Manager, session.InfoHash, fileIndex) };
     }
 
+    /// <summary>
+    /// Makes a new stream token (all links are rewritten to it). The old one keeps working for 10 minutes for whatever is
+    /// playing, unless <paramref name="revokeOld"/> stops it at once. Done here, not by saving the settings page, so an
+    /// older settings page can't put an old token back.
+    /// </summary>
+    [HttpPost("Token/Rotate")]
+    [Authorize(Policy = AdminPolicy)]
+    public ActionResult<object> RotateToken([FromQuery] bool revokeOld = false)
+    {
+        var plugin = Plugin.Instance!;
+        plugin.Configuration.StreamToken = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        plugin.SaveConfiguration(); // raises ConfigurationChanged: links are rewritten and the old token gets its grace time
+        if (revokeOld)
+        {
+            Catalog.StrmUrlUpdater.RevokePrevious();
+        }
+
+        _logger.LogInformation(revokeOld ? "New stream token made; the old one stopped working at once" : "New stream token made; the old one works for 10 more minutes");
+        return new { Last4 = plugin.Configuration.StreamToken[^4..] };
+    }
+
     [HttpGet("Search")]
     [Authorize(Policy = AdminPolicy)]
     public async Task<ActionResult<object>> Search([FromQuery] string query)
