@@ -114,9 +114,40 @@ public sealed partial class TorrentSubtitles
         }
 
         var subs = PickSubtitles(manager.Files, resolved.FileIndex);
+        var ours = new HashSet<string>(state.Files, StringComparer.OrdinalIgnoreCase);
 
-        // Another release's subtitles: remove them first.
-        foreach (var old in state.Files)
+        // Names already taken by files the plugin didn't write (your own subtitles) are never used or touched.
+        var used = new HashSet<string>(
+            Directory.EnumerateFiles(dir).Select(Path.GetFileName).Where(n => n is not null && !ours.Contains(n))!,
+            StringComparer.OrdinalIgnoreCase);
+
+        // Write the new set first; the previous release's files are only removed once it's in place.
+        var written = new List<string>();
+        var failed = 0;
+        foreach (var file in subs)
+        {
+            try
+            {
+                var bytes = await ReadAllAsync(resolved.Session, file, ct).ConfigureAwait(false);
+                if (bytes.Length == 0)
+                {
+                    failed++;
+                    continue;
+                }
+
+                var name = TargetName(baseName, file.Path, manager.Files[resolved.FileIndex].Path, used);
+                await File.WriteAllBytesAsync(Path.Combine(dir, name), bytes, ct).ConfigureAwait(false);
+                written.Add(name);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failed++;
+                _logger.LogInformation("Subtitle {File} not added: {Message}", file.Path, ex.Message);
+            }
+        }
+
+        // Only files this plugin wrote before, and that the new set didn't reuse.
+        foreach (var old in state.Files.Where(o => !written.Contains(o, StringComparer.OrdinalIgnoreCase)))
         {
             try
             {
@@ -127,29 +158,8 @@ public sealed partial class TorrentSubtitles
             }
         }
 
-        var written = new List<string>();
-        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in subs)
-        {
-            try
-            {
-                var bytes = await ReadAllAsync(resolved.Session, file, ct).ConfigureAwait(false);
-                if (bytes.Length == 0)
-                {
-                    continue;
-                }
-
-                var name = TargetName(baseName, file.Path, manager.Files[resolved.FileIndex].Path, used);
-                await File.WriteAllBytesAsync(Path.Combine(dir, name), bytes, ct).ConfigureAwait(false);
-                written.Add(name);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogInformation("Subtitle {File} not added: {Message}", file.Path, ex.Message);
-            }
-        }
-
-        File.WriteAllText(statePath, JsonSerializer.Serialize(new State(release, written)));
+        // Marked as done for this release only if every file was written; otherwise the next play tries again.
+        File.WriteAllText(statePath, JsonSerializer.Serialize(new State(failed == 0 ? release : null, written)));
 
         // Jellyfin caches folder listings: make it look again, so its next check of the title finds them.
         _services.GetService<IDirectoryService>()?.GetFilePaths(dir, true);
