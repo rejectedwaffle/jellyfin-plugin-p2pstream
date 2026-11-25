@@ -8,6 +8,14 @@
         "category":  "General",
         "versions":  [
                          {
+                             "version":  "1.2.2.0",
+                             "changelog":  "Playing away from home works without a setting: each device is given stream links using the address it reached Jellyfin by (the home address at home, your reverse proxy\u0027s address away from home). Devices at home are unaffected if the outside address is turned off. A fixed address can still be set under Stream links.",
+                             "targetAbi":  "12.4.0.0",
+                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v1.2.2.0/p2pstream_1.2.2.0.zip",
+                             "checksum":  "6aca53b99e41b3e48f5f393b0c85a8b7",
+                             "timestamp":  "2026-11-25T01:44:50Z"
+                         },
+                         {
                              "version":  "1.2.1.0",
                              "changelog":  "Fix: when a user asks to play a title they can\u0027t access, the plugin no longer searches for it or starts a torrent (it now checks library access, not just parental ratings). Tidier log messages.",
                              "targetAbi":  "12.4.0.0",
