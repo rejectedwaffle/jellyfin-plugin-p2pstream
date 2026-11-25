@@ -62,9 +62,14 @@ public sealed partial class CatalogBuilder
     /// <summary>The folder that backs a library.</summary>
     public static string FolderFor(string library) => Path.Combine(Plugin.Instance!.CatalogPath, Sanitize(library));
 
-    /// <summary>Finds a title's folder inside one library folder.</summary>
-    public static string? FindExisting(string root, int tmdbId) =>
-        Directory.Exists(root) ? Directory.GetDirectories(root, $"*[tmdbid-{tmdbId}]").FirstOrDefault() : null;
+    /// <summary>
+    /// Finds a title's folder inside one library folder. Movie and show ids are separate on TMDB, and a folder can hold
+    /// both, so the type is checked: movie folders hold the .strm directly, show folders hold season folders.
+    /// </summary>
+    public static string? FindExisting(string root, int tmdbId, bool isMovie) =>
+        Directory.Exists(root)
+            ? Directory.GetDirectories(root, $"*[tmdbid-{tmdbId}]").FirstOrDefault(d => Directory.EnumerateFiles(d, "*.strm").Any() == isMovie)
+            : null;
 
     /// <summary>Finds a title in any of the plugin's library folders (movie and show ids are separate on TMDB, so the type is checked).</summary>
     public static string? FindExistingAnywhere(bool isMovie, int tmdbId)
@@ -93,7 +98,7 @@ public sealed partial class CatalogBuilder
     public (string Dir, bool Changed) WriteMovie(TmdbItem m, string root)
     {
         var name = DisplayName(m.Title, m.Year);
-        var dir = FindExisting(root, m.Id) ?? Path.Combine(root, $"{name} [tmdbid-{m.Id}]");
+        var dir = FindExisting(root, m.Id, true) ?? Path.Combine(root, $"{name} [tmdbid-{m.Id}]");
         var changed = WriteStrm(Path.Combine(dir, name + ".strm"), _urls.Movie(m.Id));
         return (dir, changed);
     }
@@ -101,7 +106,7 @@ public sealed partial class CatalogBuilder
     /// <summary>Writes a .strm for every aired episode of a show.</summary>
     public async Task<(string Dir, int Changed)> WriteShowAsync(TmdbItem s, string root, CancellationToken ct)
     {
-        var dir = FindExisting(root, s.Id) ?? Path.Combine(root, $"{DisplayName(s.Title, s.Year)} [tmdbid-{s.Id}]");
+        var dir = FindExisting(root, s.Id, false) ?? Path.Combine(root, $"{DisplayName(s.Title, s.Year)} [tmdbid-{s.Id}]");
         var info = await _tmdb.GetShowAsync(s.Id, TmdbClient.CatalogLanguage, ct).ConfigureAwait(false);
         var fileBase = Sanitize(s.Title);
         var today = DateTime.UtcNow.Date;
@@ -124,7 +129,7 @@ public sealed partial class CatalogBuilder
     /// </summary>
     public string WriteFirstEpisode(TmdbItem s, string root, int season)
     {
-        var dir = FindExisting(root, s.Id) ?? Path.Combine(root, $"{DisplayName(s.Title, s.Year)} [tmdbid-{s.Id}]");
+        var dir = FindExisting(root, s.Id, false) ?? Path.Combine(root, $"{DisplayName(s.Title, s.Year)} [tmdbid-{s.Id}]");
         var file = Path.Combine(dir, $"Season {season:00}", $"{Sanitize(s.Title)} S{season:00}E01.strm");
         WriteStrm(file, _urls.Episode(s.Id, season, 1));
         return dir;
@@ -194,13 +199,14 @@ public sealed partial class CatalogBuilder
             var titleDirs = new Dictionary<string, List<string>>();
             var total = Math.Max(1, titles.Values.Sum(t => t.Count));
             var done = 0;
+            // Grouped by the folder they really write into: names that differ only in case or in characters that
+            // aren't allowed in folder names end up in the same folder, and must be pruned together.
             var groups = jobs.Where(j => titles.ContainsKey(j.Def.Id))
-                .GroupBy(j => (Library: j.Entry.Library.ToLowerInvariant(), j.Def.IsMovie));
+                .GroupBy(j => CanonicalFolder(j.Entry.Library), StringComparer.OrdinalIgnoreCase);
 
             foreach (var group in groups)
             {
                 var library = group.First().Entry.Library;
-                var isMovie = group.Key.IsMovie;
                 var root = FolderFor(library);
                 Directory.CreateDirectory(root);
 
@@ -208,6 +214,7 @@ public sealed partial class CatalogBuilder
                 var changed = new List<string>();
                 foreach (var (def, _) in group)
                 {
+                    var isMovie = def.IsMovie;
                     var dirs = new List<string>();
                     foreach (var item in titles[def.Id])
                     {
@@ -236,7 +243,7 @@ public sealed partial class CatalogBuilder
                         catch (Exception ex) when (!ct.IsCancellationRequested)
                         {
                             // Keep an existing folder on a passing error rather than pruning it.
-                            if (FindExisting(root, item.Id) is string existing)
+                            if (FindExisting(root, item.Id, isMovie) is string existing)
                             {
                                 dirs.Add(existing);
                             }
@@ -252,7 +259,7 @@ public sealed partial class CatalogBuilder
                 }
 
                 var removed = 0;
-                if (Plugin.Instance.Configuration.PruneCatalog && SyncedEveryFeeder(defs, group.Select(j => j.Def.Id).ToHashSet(), library, isMovie))
+                if (Plugin.Instance.Configuration.PruneCatalog && SyncedEveryFeeder(defs, group.Select(j => j.Def.Id).ToHashSet(), root))
                 {
                     removed = Prune(root, keep);
                 }
@@ -353,11 +360,21 @@ public sealed partial class CatalogBuilder
     }
 
     /// <summary>Pruning is only safe when every enabled catalog that feeds this library was just synced. Otherwise it would delete the others' titles.</summary>
-    private static bool SyncedEveryFeeder(List<CatalogDef> defs, HashSet<string> synced, string library, bool isMovie) =>
-        defs.Where(d => d.IsMovie == isMovie)
-            .Select(d => (d.Id, Entry: CatalogDefinitions.Effective(d)))
-            .Where(x => x.Entry.Enabled && string.Equals(x.Entry.Library, library, StringComparison.OrdinalIgnoreCase))
+    /// <summary>
+    /// True if every enabled catalog (movies and shows) that writes into this folder was fetched and written in this
+    /// sync. Only then is the folder pruned: a catalog that failed or wasn't part of this sync would lose its titles.
+    /// </summary>
+    private static bool SyncedEveryFeeder(List<CatalogDef> defs, HashSet<string> synced, string root) =>
+        defs.Select(d => (d.Id, Entry: CatalogDefinitions.Effective(d)))
+            .Where(x => x.Entry.Enabled && string.Equals(CanonicalFolder(x.Entry.Library), CanonicalFolder(root), StringComparison.OrdinalIgnoreCase))
             .All(x => synced.Contains(x.Id));
+
+    /// <summary>The full path a library name (or a folder path) resolves to, for comparing destinations.</summary>
+    private static string CanonicalFolder(string libraryOrPath)
+    {
+        var path = Path.IsPathRooted(libraryOrPath) ? libraryOrPath : FolderFor(libraryOrPath);
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+    }
 
     /// <summary>Keeps a Jellyfin collection (box set) in step with a catalog's titles.</summary>
     private async Task UpdateCollectionAsync(string name, List<string> dirs, bool isMovie)
@@ -416,6 +433,19 @@ public sealed partial class CatalogBuilder
         return true;
     }
 
+    /// <summary>True if a title folder holds real video files (someone put them there): never delete those.</summary>
+    private static bool HoldsRealMedia(string dir)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Any(f => Torrent.TorrentEngine.IsVideo(f));
+        }
+        catch (Exception)
+        {
+            return true; // can't tell: keep it
+        }
+    }
+
     private int Prune(string root, HashSet<string> keep)
     {
         if (!Directory.Exists(root))
@@ -430,6 +460,12 @@ public sealed partial class CatalogBuilder
             if (SearchImports.TryGetValue(dir, out var added) && (days <= 0 || DateTime.UtcNow - added < TimeSpan.FromDays(days)))
             {
                 continue; // added by a search recently, so keep it
+            }
+
+            if (HoldsRealMedia(dir))
+            {
+                _logger.LogInformation("Not pruning {Dir}: it holds video files that aren't the plugin's", dir);
+                continue;
             }
 
             try
