@@ -20,8 +20,13 @@ public sealed class StreamOptions
     private readonly TmdbClient _tmdb;
     private readonly ILogger<StreamOptions> _logger;
     private readonly ConcurrentDictionary<string, (DateTime At, List<ReleaseCandidate> Releases, string Rules)> _cache = new();
-    private readonly ConcurrentDictionary<string, Task<List<ReleaseCandidate>>> _inflight = new();
+    // Lazy: two callers racing for the same title share one search (GetOrAdd may run its factory twice).
+    private readonly ConcurrentDictionary<string, Lazy<Task<List<ReleaseCandidate>>>> _inflight = new();
     private readonly ConcurrentDictionary<string, ProbeInfo> _probes = new();
+
+    // Release lists kept at most (oldest dropped first) and checked tracks kept at most; enough for a big library.
+    private const int MaxCachedLists = 500;
+    private const int MaxProbes = 5000;
 
     public StreamOptions(SourceHub sources, TmdbClient tmdb, ILogger<StreamOptions> logger)
     {
@@ -100,8 +105,8 @@ public sealed class StreamOptions
             return Task.FromResult(cached);
         }
 
-        var search = _inflight.GetOrAdd(request.Key, _ => Task.Run(() => SearchAsync(request)));
-        return search.WaitAsync(ct);
+        var search = _inflight.GetOrAdd(request.Key, _ => new Lazy<Task<List<ReleaseCandidate>>>(() => Task.Run(() => SearchAsync(request))));
+        return search.Value.WaitAsync(ct);
     }
 
     /// <summary>Tracks found by checking a release in advance (shown in the Version menu).</summary>
@@ -113,7 +118,34 @@ public sealed class StreamOptions
 
     public bool TryGetProbe(string releaseId, out ProbeInfo info) => _probes.TryGetValue(releaseId, out info!);
 
-    public void SetProbe(string releaseId, ProbeInfo info) => _probes[releaseId] = info;
+    public void SetProbe(string releaseId, ProbeInfo info)
+    {
+        if (_probes.Count >= MaxProbes)
+        {
+            _probes.Clear(); // rare; tracks are checked again when needed
+        }
+
+        _probes[releaseId] = info;
+    }
+
+    /// <summary>Drops expired lists, then the oldest ones over <see cref="MaxCachedLists"/>.</summary>
+    private void TrimCache()
+    {
+        var now = DateTime.UtcNow;
+        foreach (var old in _cache.Where(kv => now - kv.Value.At >= CacheAge).Select(kv => kv.Key).ToList())
+        {
+            _cache.TryRemove(old, out _);
+        }
+
+        var extra = _cache.Count - MaxCachedLists;
+        if (extra > 0)
+        {
+            foreach (var old in _cache.OrderBy(kv => kv.Value.At).Take(extra).Select(kv => kv.Key).ToList())
+            {
+                _cache.TryRemove(old, out _);
+            }
+        }
+    }
 
     /// <summary>Forgets the list for a title (e.g. after its release went stale).</summary>
     public void Invalidate(MediaRequest request) => _cache.TryRemove(request.Key, out _);
@@ -178,6 +210,7 @@ public sealed class StreamOptions
             if (list.Count > 0)
             {
                 _cache[request.Key] = (DateTime.UtcNow, list, ListStamp()); // an empty result (sources down, VPN off) isn't kept, so the next try searches again
+                TrimCache();
             }
             _logger.LogInformation("Found {Count} streams for {Request}", list.Count, request);
             return list;

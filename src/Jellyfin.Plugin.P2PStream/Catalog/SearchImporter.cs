@@ -20,7 +20,10 @@ public sealed class SearchImporter
     private readonly LibrarySetup _libraries;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<SearchImporter> _logger;
-    private readonly ConcurrentDictionary<string, (DateTime At, Task Task)> _recent = new();
+    private readonly ConcurrentDictionary<string, (DateTime At, Lazy<Task> Task)> _recent = new();
+
+    // Typing a search sends one per few letters ("the", "the ma", ...): at most two imports run at once, the rest wait.
+    private readonly SemaphoreSlim _importSlots = new(2, 2);
     private readonly SemaphoreSlim _writeGate = new(1, 1);
 
     public SearchImporter(TmdbClient tmdb, CatalogBuilder catalog, LibrarySetup libraries, ILibraryManager libraryManager, ILogger<SearchImporter> logger)
@@ -61,10 +64,10 @@ public sealed class SearchImporter
         // The web client sends one request per item type for each search. They all share one import. The key includes
         // the target folders, so after changing the search libraries the same term imports again straight away.
         var key = normalized + "|" + MovieLibrary + "|" + ShowLibrary;
-        var entry = _recent.GetOrAdd(key, _ => (DateTime.UtcNow, Task.Run(() => RunSearchImportAsync(normalized))));
+        var entry = _recent.GetOrAdd(key, _ => (DateTime.UtcNow, new Lazy<Task>(() => Task.Run(() => RunSearchImportAsync(normalized)))));
         try
         {
-            await entry.Task.WaitAsync(budget, ct).ConfigureAwait(false);
+            await entry.Task.Value.WaitAsync(budget, ct).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
@@ -110,6 +113,7 @@ public sealed class SearchImporter
 
     private async Task RunSearchImportAsync(string term)
     {
+        await _importSlots.WaitAsync().ConfigureAwait(false);
         try
         {
             var results = await _tmdb.SearchAsync(term, CancellationToken.None).ConfigureAwait(false);
@@ -131,6 +135,10 @@ public sealed class SearchImporter
         catch (Exception ex)
         {
             _logger.LogWarning("Search import for \"{Term}\" failed: {Message}", term, ex.Message);
+        }
+        finally
+        {
+            _importSlots.Release();
         }
     }
 
