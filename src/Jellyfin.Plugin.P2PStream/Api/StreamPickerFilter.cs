@@ -184,7 +184,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
 
         _prober.ProbeTopInBackground(item, url, releases, autoRelease);
 
-        if (auto.MediaStreams is not { Count: > 0 } && autoRelease is not null && _options.TryGetProbe(StreamOptions.IdFor(autoRelease), out var probe))
+        if (auto.MediaStreams is not { Count: > 0 } && autoRelease is not null && _options.TryGetProbe(StreamOptions.ProbeKey(request, StreamOptions.IdFor(autoRelease)), out var probe))
         {
             auto.MediaStreams = probe.Streams;
             auto.RunTimeTicks ??= probe.RunTimeTicks;
@@ -266,7 +266,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         // start of the release before answering, which can take minutes on a slow torrent and makes apps give up).
         if (!_resolver.IsCurrentPick(request, chosen))
         {
-            if (_options.TryGetProbe(chosen, out var probe) && probe.Streams is { Count: > 0 })
+            if (_options.TryGetProbe(StreamOptions.ProbeKey(request, chosen), out var probe) && probe.Streams is { Count: > 0 })
             {
                 _services.GetService<IMediaStreamRepository>()?.SaveMediaStreams(item.Id, probe.Streams, CancellationToken.None);
             }
@@ -321,7 +321,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             var started = DateTime.UtcNow;
             // Only if it's already done: Jellyfin re-checks a .strm stream on every play anyway (now limited to the start of
             // the release, see PlaybackInfoWindow), so waiting for ours would only add time.
-            var probe = await _prober.WaitForProbeAsync(id, TimeSpan.Zero, context.HttpContext.RequestAborted).ConfigureAwait(false);
+            var probe = await _prober.WaitForProbeAsync(StreamOptions.ProbeKey(request, id), TimeSpan.Zero, context.HttpContext.RequestAborted).ConfigureAwait(false);
             if (probe?.Streams is not { Count: > 0 })
             {
                 return; // Jellyfin checks it itself, as before

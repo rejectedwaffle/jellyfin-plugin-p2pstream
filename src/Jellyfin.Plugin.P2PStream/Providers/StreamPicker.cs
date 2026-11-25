@@ -210,6 +210,7 @@ public static partial class StreamPicker
     {
         var template = item.GetMediaSources(false).FirstOrDefault();
         var templateJson = template is null ? null : JsonSerializer.Serialize(template);
+        MediaRequest? request = TryGetRequest(item, out _, out var parsed) ? parsed : null;
         var list = new List<MediaSourceInfo>();
         foreach (var r in releases)
         {
@@ -225,7 +226,7 @@ public static partial class StreamPicker
             source.MediaStreams = [];
             source.DefaultAudioStreamIndex = null;
             source.DefaultSubtitleStreamIndex = null;
-            if (options is not null && options.TryGetProbe(id, out var probe))
+            if (options is not null && options.TryGetProbe(StreamOptions.ProbeKey(request, id), out var probe))
             {
                 source.MediaStreams = probe.Streams;
                 source.RunTimeTicks = probe.RunTimeTicks ?? source.RunTimeTicks;
@@ -320,7 +321,7 @@ public sealed class StreamProber
 
     private void Start(BaseItem item, string strmUrl, ReleaseCandidate release, SemaphoreSlim lane)
     {
-        var id = StreamOptions.IdFor(release);
+        var id = StreamOptions.ProbeKey(StreamPicker.TryGetRequest(item, out _, out var request) ? request : null, StreamOptions.IdFor(release));
         if (_options.TryGetProbe(id, out _) || _running.ContainsKey(id))
         {
             return;

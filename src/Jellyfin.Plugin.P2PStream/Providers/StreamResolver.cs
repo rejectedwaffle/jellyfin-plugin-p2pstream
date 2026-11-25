@@ -289,14 +289,18 @@ public sealed class StreamResolver
         if (_started.TryGetValue(releaseId, out var known))
         {
             var session = await _engine.GetOrRestoreAsync(known.InfoHash, ct).ConfigureAwait(false);
-            if (session is not null && known.FileIndex < session.Manager.Files.Count)
+
+            // The torrent is already running, but pick the file for THIS request: a season pack serves a different
+            // file for each episode (the remembered index is only the one it was first started for).
+            var index = session is null ? -1 : PickFile(session.Manager, req);
+            if (session is not null && index >= 0)
             {
                 if (remember)
                 {
-                    _cache.Set(req.Key, known.InfoHash, known.FileIndex, session.Manager.Torrent?.Name ?? releaseId, chosen: true);
+                    _cache.Set(req.Key, known.InfoHash, index, session.Manager.Torrent?.Name ?? releaseId, chosen: true);
                 }
 
-                return new ResolvedStream(session, known.FileIndex);
+                return new ResolvedStream(session, index);
             }
         }
 

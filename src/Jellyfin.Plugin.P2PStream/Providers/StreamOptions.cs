@@ -105,6 +105,12 @@ public sealed class StreamOptions
     }
 
     /// <summary>Tracks found by checking a release in advance (shown in the Version menu).</summary>
+    /// <summary>
+    /// The key a release's checked tracks are stored under: the release AND the episode, since a season pack holds a
+    /// different file (with different tracks) for each episode.
+    /// </summary>
+    public static string ProbeKey(MediaRequest? request, string releaseId) => request is null ? releaseId : releaseId + "|" + request.Key;
+
     public bool TryGetProbe(string releaseId, out ProbeInfo info) => _probes.TryGetValue(releaseId, out info!);
 
     public void SetProbe(string releaseId, ProbeInfo info) => _probes[releaseId] = info;
