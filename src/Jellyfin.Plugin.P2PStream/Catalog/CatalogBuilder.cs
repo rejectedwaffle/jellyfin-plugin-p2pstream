@@ -410,8 +410,8 @@ public sealed partial class CatalogBuilder
             if (sameName is not null)
             {
                 var catalogRoot = Path.GetFullPath(Plugin.Instance!.CatalogPath);
-                var members = sameName.GetLinkedChildren();
-                if (members.Count > 0 && members.All(m => !string.IsNullOrEmpty(m.Path) && Path.GetFullPath(m.Path).StartsWith(catalogRoot, StringComparison.OrdinalIgnoreCase)))
+                var existingMembers = sameName.GetLinkedChildren();
+                if (existingMembers.Count > 0 && existingMembers.All(m => !string.IsNullOrEmpty(m.Path) && Path.GetFullPath(m.Path).StartsWith(catalogRoot, StringComparison.OrdinalIgnoreCase)))
                 {
                     box = sameName;
                     owned[name] = box.Id;
