@@ -123,7 +123,40 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                 return existing;
             }
 
-            await EnforceLimitAsync().ConfigureAwait(false);
+            // Admission: one at a time across all torrents, counting the ones still starting, so concurrent starts can't
+            // all slip under the limit.
+            await _admission.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await EnforceLimitAsync().ConfigureAwait(false);
+                Interlocked.Increment(ref _starting);
+            }
+            finally
+            {
+                _admission.Release();
+            }
+
+            try
+            {
+                return await StartNewAsync(engine, source, cancellationToken, metadataTimeout).ConfigureAwait(false);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _starting);
+            }
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private readonly SemaphoreSlim _admission = new(1, 1);
+    private int _starting;
+
+    private async Task<TorrentSession> StartNewAsync(ClientEngine engine, TorrentSource source, CancellationToken cancellationToken, TimeSpan? metadataTimeout)
+    {
+        {
             Persist(source);
 
             TorrentManager manager;
@@ -132,8 +165,8 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             {
                 manager = engine.Torrents.FirstOrDefault(t => Hash(t).Equals(source.InfoHash, StringComparison.OrdinalIgnoreCase))
                     ?? (source.TorrentBytes is not null
-                        ? await engine.AddStreamingAsync(MonoTorrent.Torrent.Load(source.TorrentBytes), Plugin.Instance!.DownloadPath).ConfigureAwait(false)
-                        : await engine.AddStreamingAsync(MagnetLink.Parse(source.Magnet!), Plugin.Instance!.DownloadPath).ConfigureAwait(false));
+                        ? await engine.AddStreamingAsync(MonoTorrent.Torrent.Load(source.TorrentBytes), TorrentDirectory(source.InfoHash)).ConfigureAwait(false)
+                        : await engine.AddStreamingAsync(MagnetLink.Parse(source.Magnet!), TorrentDirectory(source.InfoHash)).ConfigureAwait(false));
             }
             finally
             {
@@ -174,6 +207,12 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                     NetworkGuard.Require();
                     throw new TimeoutException($"No metadata for {source.InfoHash} within timeout (no peers?)");
                 }
+                catch (OperationCanceledException)
+                {
+                    // The caller gave up (the player went away): don't leave a half-added torrent outside the sessions.
+                    await RemoveManagerAsync(manager, true).ConfigureAwait(false);
+                    throw;
+                }
                 finally
                 {
                     NetworkGuard.Changed -= OnNetwork;
@@ -193,10 +232,6 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             Track(manager);
             _logger.LogInformation("Added torrent {Name} ({Hash})", manager.Torrent?.Name, source.InfoHash);
             return session;
-        }
-        finally
-        {
-            gate.Release();
         }
     }
 
@@ -624,12 +659,22 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     private async Task EnforceLimitAsync()
     {
         var max = Math.Max(1, Config.MaxActiveTorrents);
-        while (_sessions.Count >= max)
+        while (_sessions.Count + Volatile.Read(ref _starting) >= max)
         {
-            var victim = _sessions.Values.Where(s => s.ActiveStreams == 0).OrderBy(s => s.LastAccess).FirstOrDefault()
-                ?? _sessions.Values.OrderBy(s => s.LastAccess).First();
+            // Never a torrent someone is watching: if every slot is in use by playback, go over the limit for now.
+            var victim = _sessions.Values.Where(s => s.ActiveStreams == 0).OrderBy(s => s.LastAccess).FirstOrDefault();
+            if (victim is null)
+            {
+                _logger.LogInformation("Torrent limit reached, but every torrent is being watched; starting one more for now");
+                break;
+            }
+
             _logger.LogInformation("Torrent limit reached, evicting {Hash}", victim.InfoHash);
             await RemoveAsync(victim.InfoHash, !Config.KeepFilesAfterPlayback).ConfigureAwait(false);
+            if (_sessions.ContainsKey(victim.InfoHash))
+            {
+                break; // couldn't remove it: don't loop on the same one
+            }
         }
 
         await EnforceDiskCapAsync().ConfigureAwait(false);
@@ -747,6 +792,39 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Each torrent downloads into its own folder, named by its info hash: two releases with the same file names can't
+    /// share (or delete) each other's files, and removing a torrent only ever touches its own folder.
+    /// </summary>
+    private static string TorrentDirectory(string infoHash)
+    {
+        var hash = infoHash.Trim().ToLowerInvariant();
+        if (hash.Length == 0 || hash.Any(ch => !char.IsAsciiLetterOrDigit(ch)))
+        {
+            throw new ArgumentException("Not an info hash: " + infoHash);
+        }
+
+        return Path.Combine(Plugin.Instance!.DownloadPath, hash);
+    }
+
+    /// <summary>Deletes a torrent's own folder (after its files were removed), never anything outside the download folder.</summary>
+    private void DeleteTorrentDirectory(string infoHash)
+    {
+        try
+        {
+            var dir = Path.GetFullPath(TorrentDirectory(infoHash));
+            var root = Path.GetFullPath(Plugin.Instance!.DownloadPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (dir.StartsWith(root, StringComparison.Ordinal) && Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Could not remove the folder of {Hash}: {Message}", infoHash, ex.Message);
+        }
+    }
+
     private async Task RemoveManagerAsync(TorrentManager manager, bool deleteData)
     {
         var engine = _engine;
@@ -776,6 +854,11 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             }
 
             await engine.RemoveAsync(manager, deleteData ? RemoveMode.DownloadedDataOnly : RemoveMode.KeepAllData).ConfigureAwait(false);
+            if (deleteData)
+            {
+                DeleteTorrentDirectory(Hash(manager));
+            }
+
             Untrack(Hash(manager));
         }
         catch (Exception ex)
@@ -838,6 +921,8 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         {
             paths.Add(manager.ContainingDirectory); // folder of a multi-file torrent, removed once empty
         }
+
+        paths.Add(TorrentDirectory(Hash(manager))); // the torrent's own folder, removed once empty
 
         lock (_manifestLock)
         {
