@@ -7,9 +7,9 @@ Seeking works, because the engine fetches pieces wherever playback jumps to.
 ## Features
 - **Built-in sources, nothing extra to install:** Internet Archive (public-domain films, on by default), plus Knaben (searches many trackers at once), Nyaa (anime), KickAss Torrents, YTS, EZTV and The Pirate Bay, which you switch on yourself. Each has an editable address in case a site moves. Torznab (Prowlarr/Jackett) is supported too.
 - **Catalogs as libraries (Gelato-style):** TMDB lists (Trending, Trending Today, Popular, Top Rated, Now Playing, Upcoming, On The Air, Airing Today) and your own TMDB lists are written as `.strm` folders. Each catalog has Import, Collection, Max items and a target library. Artwork and metadata come from Jellyfin's own TMDB provider.
-- **Trakt catalogs:** with a free Trakt API Client ID: Trakt Trending, Popular, Anticipated and Box Office, a public watchlist, and any Trakt lists you name. Connect your account (enter a code at trakt.tv/activate) for your private watchlist and recommendations.
+- **Trakt catalogs:** with a free Trakt API Client ID: Trakt Trending, Popular, Anticipated and Box Office, a public watchlist, and any Trakt lists you name. Connect your account (enter a code at trakt.tv/activate) for your private watchlist and recommendations; no Client Secret needed.
 - **Available streams picker (Elementum-style):** a title's releases appear in Jellyfin's **Version** menu with resolution, size, seeds, quality and source, plus "Best 4K / Best 1080p" entries. Auto (best match) stays the default, and your pick is remembered.
-- **Faster start:** opening a title's page pre-loads the start and end of Auto's release, so playback starts sooner. Peers are kept busy with requests well ahead of the player, so a well-seeded release downloads at several MB/s even through a VPN.
+- **Faster start:** opening a title's page pre-loads the start and end of Auto's release, so playback starts sooner. Peers are kept busy with requests well ahead of the player, so a well-seeded release downloads at several MB/s even through a VPN. Two minutes into an episode, the start of the next one is fetched too, so Next or autoplay starts almost at once (following per-device limits).
 - **Subtitles from the release:** subtitle files that come with a release (.srt, .ass, .vtt) appear in Jellyfin's subtitle menu, labelled by language, without downloading the whole release first.
 - **Per-device limits:** cap what Auto plays on a device (e.g. the living room TV gets the best release up to 1080p and 8 GB). Choosing a version in the Version menu always wins.
 - **Privacy:** send torrent traffic only through a VPN's network interface (with a kill switch: if the VPN drops, torrents stop instead of using another connection) or only through a SOCKS5/HTTP proxy. Works with a VPN's forwarded port ([guide](docs/port-forwarding.md)). Optionally share only while watching, and cap the disk space streaming may use.
@@ -18,7 +18,7 @@ Seeking works, because the engine fetches pieces wherever playback jumps to.
 - **Search for any movie or show** from Jellyfin's search bar, in any client. Matches from TMDB are added to your library.
 - **Burst-style quality filters:** preferred and allowed resolutions, allowed release types (BluRay, WEB-DL, ... TeleSync, Cam), size ranges for movies, episodes and season packs, required and excluded keywords, minimum seeders (and optionally a higher minimum for 4K).
 - **Torrent engine** (MonoTorrent): downloads only the file being watched, in playback order, and removes idle torrents.
-- **Magnets:** paste a magnet or `.torrent` URL to stream it or add it to your library.
+- **Magnets:** paste a magnet or `.torrent` URL to stream it or add it to your library (its subtitle files come too).
 - **Settings page** in the dashboard menu, with tabs: Status, Libraries, Sources, Playback, Filters, Network, Accounts.
 
 ## Install (plugin repository)

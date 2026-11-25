@@ -42,6 +42,7 @@ public sealed class TorrentSession
     private static readonly TimeSpan PauseAfter = TimeSpan.FromSeconds(60);
 
     private int _activeStreams;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<ITorrentManagerFile, int> _readers = new();
     private volatile bool _closed;
     private CancellationTokenSource? _parkCts;
 
@@ -59,6 +60,18 @@ public sealed class TorrentSession
     public DateTime LastAccess { get; private set; }
 
     public int ActiveStreams => Volatile.Read(ref _activeStreams);
+
+    /// <summary>True if another file of this torrent is being read right now (a season pack's other episode, say).</summary>
+    public bool IsReadingOtherThan(ITorrentManagerFile file) => _readers.Any(kv => kv.Value > 0 && kv.Key != file);
+
+    /// <summary>Stop downloading in a few seconds unless someone reads it (after a pre-load that shouldn't keep going).</summary>
+    public void PauseSoon()
+    {
+        if (ActiveStreams == 0)
+        {
+            SchedulePause(TimeSpan.FromSeconds(3));
+        }
+    }
 
     private IStreamingPieceRequester? Requester => Manager.StreamProvider is { } p ? RequesterProperty?.GetValue(p) as IStreamingPieceRequester : null;
 
@@ -102,8 +115,9 @@ public sealed class TorrentSession
                 await Manager.StartAsync().ConfigureAwait(false);
             }
 
-            // Only the file being read is downloaded. This also resumes a torrent that was paused after nobody read it.
-            foreach (var other in Manager.Files.Where(f => f != file && f.Priority != Priority.DoNotDownload))
+            // Only the files being read are downloaded (never switch off one that someone is reading: a season pack's
+            // other episode, or the video while its subtitles are fetched). This also resumes a paused torrent.
+            foreach (var other in Manager.Files.Where(f => f != file && f.Priority != Priority.DoNotDownload && _readers.GetValueOrDefault(f) <= 0))
             {
                 await Manager.SetFilePriorityAsync(other, Priority.DoNotDownload).ConfigureAwait(false);
             }
@@ -123,6 +137,7 @@ public sealed class TorrentSession
             }
 
             Interlocked.Increment(ref _activeStreams);
+            _readers.AddOrUpdate(file, 1, (_, n) => n + 1);
             Touch();
             return new StreamLease(this, file);
         }
@@ -179,9 +194,10 @@ public sealed class TorrentSession
         return count;
     }
 
-    internal void Release()
+    internal void Release(ITorrentManagerFile file)
     {
         Touch();
+        _readers.AddOrUpdate(file, 0, (_, n) => Math.Max(0, n - 1));
         if (Interlocked.Decrement(ref _activeStreams) == 0)
         {
             SchedulePause();
@@ -193,7 +209,9 @@ public sealed class TorrentSession
     /// or stopped watching), stop downloading the rest, and (StopSharingWhenIdle) stop sharing too. The torrent stays
     /// ready; the next reader resumes it.
     /// </summary>
-    private void SchedulePause()
+    private void SchedulePause() => SchedulePause(PauseAfter);
+
+    private void SchedulePause(TimeSpan after)
     {
         var cts = new CancellationTokenSource();
         Interlocked.Exchange(ref _parkCts, cts)?.Cancel();
@@ -201,7 +219,7 @@ public sealed class TorrentSession
         {
             try
             {
-                await Task.Delay(PauseAfter, cts.Token).ConfigureAwait(false);
+                await Task.Delay(after, cts.Token).ConfigureAwait(false);
                 await _setup.WaitAsync(cts.Token).ConfigureAwait(false);
                 try
                 {
@@ -338,7 +356,7 @@ public sealed class StreamLease : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            _session.Release();
+            _session.Release(_file);
         }
 
         return ValueTask.CompletedTask;

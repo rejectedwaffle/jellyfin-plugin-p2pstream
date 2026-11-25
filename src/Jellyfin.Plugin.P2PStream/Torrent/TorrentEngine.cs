@@ -107,7 +107,8 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     /// <summary>
     /// Adds (or reuses) a torrent and waits until its metadata is known.
     /// </summary>
-    public async Task<TorrentSession> AddAsync(TorrentSource source, CancellationToken cancellationToken)
+    /// <param name="metadataTimeout">How long to wait for the file list (default: the Metadata timeout setting).</param>
+    public async Task<TorrentSession> AddAsync(TorrentSource source, CancellationToken cancellationToken, TimeSpan? metadataTimeout = null)
     {
         var engine = _engine ?? throw new InvalidOperationException("Engine not started");
         NetworkGuard.Require(); // kill switch: nothing starts while the VPN/proxy is unavailable
@@ -145,7 +146,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             if (!manager.HasMetadata)
             {
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(10, Config.MetadataTimeoutSeconds)));
+                timeout.CancelAfter(metadataTimeout ?? TimeSpan.FromSeconds(Math.Max(10, Config.MetadataTimeoutSeconds)));
 
                 // Stop waiting at once if the kill switch trips (otherwise this holds the title for the full timeout).
                 void OnNetwork(NetworkState old, NetworkState now)

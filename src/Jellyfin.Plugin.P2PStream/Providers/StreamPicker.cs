@@ -125,6 +125,40 @@ public static partial class StreamPicker
         return owner is not null;
     }
 
+    /// <summary>
+    /// The torrent and file behind a .strm item that links straight to a torrent file (one you added yourself:
+    /// ".../P2PStream/stream/&lt;token&gt;/&lt;info hash&gt;/&lt;file index&gt;").
+    /// </summary>
+    public static bool TryGetTorrentFile(BaseItem item, out string infoHash, out int fileIndex)
+    {
+        infoHash = string.Empty;
+        fileIndex = -1;
+        var path = item.Path;
+        if (string.IsNullOrEmpty(path) || !path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var url = item.ShortcutPath;
+        if (string.IsNullOrWhiteSpace(url) && File.Exists(path))
+        {
+            url = File.ReadAllText(path).Trim();
+        }
+
+        var m = string.IsNullOrWhiteSpace(url) ? null : TorrentFileLink().Match(url);
+        if (m is not { Success: true })
+        {
+            return false;
+        }
+
+        infoHash = m.Groups["hash"].Value;
+        fileIndex = int.Parse(m.Groups["index"].Value, CultureInfo.InvariantCulture);
+        return true;
+    }
+
+    [GeneratedRegex(@"/P2PStream/stream/[^/]+/(?<hash>[0-9A-Fa-f]{40}|[A-Za-z2-7]{32})/(?<index>\d+)", RegexOptions.IgnoreCase)]
+    private static partial Regex TorrentFileLink();
+
     /// <summary>Gets the play request behind a .strm item written by this plugin.</summary>
     public static bool TryGetRequest(BaseItem item, out string strmUrl, out MediaRequest request)
     {

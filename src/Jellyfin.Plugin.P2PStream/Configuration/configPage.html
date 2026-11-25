@@ -78,6 +78,8 @@
                 #P2PStreamConfigPage .p2p-savebar .p2p-dot { width: .6em; height: .6em; border-radius: 50%; background: #e5a00d; box-shadow: 0 0 0 3px rgba(229,160,13,.25); }
                 #P2PStreamConfigPage .p2p-savebar .p2p-savebtn { margin: 0; border-radius: 2em; min-width: 7em; padding: .6em 1.6em; }
                 #P2PStreamConfigPage .p2p-nolib { color: #e5a00d; }
+                #P2PStreamConfigPage .p2p-folder-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3em .7em; padding: .4em 0; border-top: 1px solid rgba(128,128,128,.18); }
+                #P2PStreamConfigPage .p2p-folder-row .p2p-folder-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
                 #P2PStreamConfigPage .cat-hint { font-size: .8em; margin-top: .2em; }
                 #P2PStreamConfigPage .cat-hint a, #P2PStreamConfigPage .p2p-folder-status a { color: #00a4dc; }
                 #P2PStreamConfigPage .p2p-modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 1000; display: flex; align-items: center; justify-content: center; }
@@ -231,6 +233,11 @@
                                 <div class="fieldDescription">Where the .strm files for catalog and search libraries are written.</div>
                             </div>
                         </div>
+                        <div class="p2p-card">
+                            <h3><span class="material-icons">folder_delete</span>Unused folders</h3>
+                            <p class="p2p-muted">Catalog folders that no library uses. Removing one deletes the titles written into it. A folder that a catalog or Jellyfin search still writes into can't be removed until you change that.</p>
+                            <div id="p2pUnusedFolders"><p class="p2p-muted">Loading...</p></div>
+                        </div>
                     </div>
                 </section>
 
@@ -294,6 +301,8 @@
                             <h3><span class="material-icons">bolt</span>Faster start</h3>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PrewarmOnOpen" /><span>Start loading when a title's page opens</span></label>
                             <div class="p2p-desc">Fetches the start and end of Auto's release (about 6 MB) so play starts much sooner. Leave the page and it stops after a minute.</div>
+                            <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PreloadNextEpisode" /><span>Pre-load the next episode</span></label>
+                            <div class="p2p-desc">Two minutes into an episode, quietly fetches the start of the next one (about 40 MB, then it pauses), so Next or autoplay starts almost at once.</div>
                             <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="ProbeStreams" /><span>Check the top streams' tracks</span></label>
                             <div class="p2p-desc">Reads the video, audio and subtitle tracks of the top releases so they show in the Version menu. Uses some bandwidth per title page.</div>
                             <div class="inputContainer"><input is="emby-input" type="number" min="1" max="5" data-key="ProbeStreamCount" data-type="int" label="Streams to check" /></div>
@@ -479,7 +488,7 @@
                             <p class="p2p-muted">Adds Trakt's trending, popular, anticipated and box office lists to the catalogs, plus your lists and watchlist (Libraries tab). Create a free API app at <a class="p2p-link" href="https://trakt.tv/oauth/applications/new" target="_blank" rel="noopener">trakt.tv/oauth/applications</a> (redirect URI: <code>urn:ietf:wg:oauth:2.0:oob</code>) and paste its Client ID.</p>
                             <div class="inputContainer"><input is="emby-input" type="text" data-key="TraktClientId" label="Client ID" autocomplete="off" /></div>
                             <div class="inputContainer">
-                                <input is="emby-input" type="password" data-key="TraktClientSecret" label="Client Secret (only to connect your account)" autocomplete="new-password" />
+                                <input is="emby-input" type="password" data-key="TraktClientSecret" label="Client Secret (only if your Trakt app has one)" autocomplete="new-password" />
                                 <div class="fieldDescription">Connecting your account adds your private watchlist and recommendations.</div>
                             </div>
                             <div id="p2pTrakt"></div>
@@ -886,7 +895,7 @@
                 }
                 var html = t.Connected
                     ? '<p>✓ Connected' + (t.User ? ' as <b>' + esc(t.User) + '</b>' : '') + '. Your watchlist and recommendations are in the table. <a href="#" class="src-edit" id="p2pTraktOff">Disconnect</a></p>'
-                    : '<p><button is="emby-button" type="button" class="raised" id="p2pTraktOn"' + (t.HasSecret ? '' : ' disabled title="Enter and save the Client Secret first"') + '><span>Connect your Trakt account</span></button></p>';
+                    : '<p><button is="emby-button" type="button" class="raised" id="p2pTraktOn"><span>Connect your Trakt account</span></button></p>';
                 if (t.Error) { html += '<p class="p2p-nolib">' + esc(t.Error) + '</p>'; }
                 el.innerHTML = html;
             }
@@ -994,8 +1003,39 @@
             // The folder a dropdown stands for (data-prev holds it while "New library..." is showing).
             function chosenFolder(sel) { return sel.value && sel.value !== '__new__' ? sel.value : sel.getAttribute('data-prev'); }
 
+            // ---------- unused catalog folders ----------
+            function renderUnusedFolders(data) {
+                var el = page.querySelector('#p2pUnusedFolders');
+                var unused = (data.Folders || []).filter(function (f) { return !f.Library; });
+                el.innerHTML = unused.length ? unused.map(function (f) {
+                    return '<div class="p2p-folder-row" data-name="' + esc(f.Name) + '"><span class="p2p-folder-name">' + esc(f.Name) + '</span>' +
+                        '<a href="#" class="src-edit p2p-folder-remove">remove</a>' +
+                        '<span class="p2p-folder-confirm" style="display:none">Delete this folder and its titles? <a href="#" class="src-edit p2p-folder-yes">Delete</a> &middot; <a href="#" class="src-edit p2p-folder-no">Cancel</a></span></div>';
+                }).join('') : '<p class="p2p-muted">None: every catalog folder is in a library.</p>';
+            }
+            page.querySelector('#p2pUnusedFolders').addEventListener('click', function (e) {
+                var row = e.target.closest('.p2p-folder-row');
+                if (!row || e.target.tagName !== 'A') { return; }
+                e.preventDefault();
+                var ask = row.querySelector('.p2p-folder-confirm');
+                var remove = row.querySelector('.p2p-folder-remove');
+                if (e.target.classList.contains('p2p-folder-remove')) { ask.style.display = ''; remove.style.display = 'none'; return; }
+                if (e.target.classList.contains('p2p-folder-no')) { ask.style.display = 'none'; remove.style.display = ''; return; }
+                if (e.target.classList.contains('p2p-folder-yes')) {
+                    var name = row.getAttribute('data-name');
+                    ask.textContent = 'Deleting...';
+                    api('DELETE', 'P2PStream/Folders/' + encodeURIComponent(name)).then(function () {
+                        toast('Removed the folder "' + name + '".');
+                        loadCatalogs();
+                    }).catch(function (err) {
+                        explain(err).then(function (d) { toast(d); loadCatalogs(); });
+                    });
+                }
+            });
+
             function renderCatalogs(data) {
                 catalogData = data;
+                renderUnusedFolders(data);
                 page.querySelector('#p2pCatWarn').innerHTML = data.TmdbConfigured ? '' :
                     '<div class="p2p-warn">Add your TMDB API key on the <a href="#" class="p2p-goto p2p-link" data-tab="accounts">Accounts</a> tab and save. Catalogs come from TMDB.</div>';
                 var html = '<table class="p2p-cat"><thead><tr><th>Name</th><th>Type</th><th>Import</th><th>Collection</th><th>Max items</th><th>Library</th><th></th></tr></thead><tbody>';

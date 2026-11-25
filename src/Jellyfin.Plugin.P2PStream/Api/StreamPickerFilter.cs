@@ -82,6 +82,11 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         {
             await _subtitles.EnsureAsync(playItem, playRequest, TimeSpan.FromSeconds(12), http.RequestAborted).ConfigureAwait(false);
         }
+        else if (PlaybackInfoPath().IsMatch(path) && context.ActionArguments.TryGetValue("itemId", out var addedArg) && addedArg is Guid addedId
+            && _libraryManager.GetItemById(addedId) is { } added && StreamPicker.TryGetTorrentFile(added, out var addedHash, out var addedIndex))
+        {
+            await _subtitles.EnsureForTorrentAsync(added, addedHash, addedIndex, TimeSpan.FromSeconds(12), http.RequestAborted).ConfigureAwait(false);
+        }
 
         // Apps look a chosen version up as an item before playing it: answer with the title it belongs to.
         Guid? versionLookup = null;

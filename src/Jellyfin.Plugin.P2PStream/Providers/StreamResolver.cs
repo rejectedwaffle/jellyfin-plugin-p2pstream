@@ -42,45 +42,58 @@ public sealed class StreamResolver
     /// </summary>
     private readonly ConcurrentDictionary<string, DateTime> _warmed = new();
 
-    public void Prewarm(MediaRequest req)
+    // Releases a background check couldn't start (no peers sent the file list): not tried again in the background for a
+    // while, so a dead release doesn't keep costing a torrent slot and a minute of waiting every time a page opens.
+    private static readonly TimeSpan BackgroundMetadataTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan DeadFor = TimeSpan.FromMinutes(30);
+    private readonly ConcurrentDictionary<string, DateTime> _dead = new();
+
+    /// <param name="nextEpisode">
+    /// A pre-load of the episode after the one playing: only if that setting is on, and the torrent is paused again right
+    /// after, so it doesn't keep downloading alongside the episode being watched.
+    /// </param>
+    /// <param name="releaseId">A particular release (what a device with limits will play) instead of Auto's pick; it
+    /// doesn't change Auto's remembered pick.</param>
+    public void Prewarm(MediaRequest req, bool nextEpisode = false, string? releaseId = null)
     {
+        var c = Plugin.Instance?.Configuration;
+        var key = releaseId is null ? req.Key : req.Key + "|" + releaseId;
+
         // Once per title per 15 minutes: apps fetch a title's page several times (and again when playback starts).
-        if (Plugin.Instance?.Configuration.PrewarmOnOpen != true
-            || (_warmed.TryGetValue(req.Key, out var at) && DateTime.UtcNow - at < TimeSpan.FromMinutes(15))
-            || !_warming.TryAdd(req.Key, 0))
+        if ((nextEpisode ? c?.PreloadNextEpisode : c?.PrewarmOnOpen) != true
+            || (_warmed.TryGetValue(key, out var at) && DateTime.UtcNow - at < TimeSpan.FromMinutes(15))
+            || !_warming.TryAdd(key, 0))
         {
             return;
         }
 
-        _warmed[req.Key] = DateTime.UtcNow;
+        _warmed[key] = DateTime.UtcNow;
 
         _ = Task.Run(async () =>
         {
             try
             {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-                var resolved = await ResolveAsync(req, null, timeout.Token).ConfigureAwait(false);
+                // The next episode has most of the current one to arrive in, so it gets longer and fetches as much of the
+                // start as Jellyfin's stream check reads when Play is pressed (see PlaybackInfoWindow).
+                using var timeout = new CancellationTokenSource(nextEpisode ? TimeSpan.FromMinutes(10) : TimeSpan.FromMinutes(3));
+                var resolved = await ResolveAsync(req, releaseId, timeout.Token, remember: releaseId is null).ConfigureAwait(false);
                 var file = resolved.Session.Manager.Files[resolved.FileIndex];
-                await using var lease = await resolved.Session.OpenAsync(file, timeout.Token).ConfigureAwait(false);
-                var buffer = new byte[256 * 1024];
-                async Task ReadAsync(long from, long bytes)
-                {
-                    lease.Position = Math.Max(0, from);
-                    for (long done = 0; done < bytes;)
-                    {
-                        var n = await lease.ReadAsync(buffer, timeout.Token).ConfigureAwait(false);
-                        if (n == 0)
-                        {
-                            break;
-                        }
 
-                        done += n;
-                    }
+                // The same torrent is playing another of its files (a season pack): reading this one would pull the
+                // download away from what's playing. It's already running, so it will start quickly anyway.
+                if (resolved.Session.IsReadingOtherThan(file))
+                {
+                    _logger.LogInformation("Not pre-loading {Request}: its torrent is playing another file", req);
+                    return;
                 }
 
-                await ReadAsync(0, 4L << 20).ConfigureAwait(false);                       // headers and first seconds
-                await ReadAsync(file.Length - (2L << 20), 2L << 20).ConfigureAwait(false); // index (MP4 moov / MKV cues)
-                _logger.LogInformation("Pre-loaded {Request} so playback starts sooner", req);
+                await PreloadFileAsync(resolved.Session, file, nextEpisode ? PlaybackInfoWindow.CheckBytes : 4L << 20, timeout.Token).ConfigureAwait(false);
+                if (nextEpisode)
+                {
+                    resolved.Session.PauseSoon();
+                }
+
+                _logger.LogInformation(nextEpisode ? "Pre-loaded the next episode, {Request}" : "Pre-loaded {Request} so playback starts sooner", req);
             }
             catch (Exception ex)
             {
@@ -88,9 +101,33 @@ public sealed class StreamResolver
             }
             finally
             {
-                _warming.TryRemove(req.Key, out _);
+                _warming.TryRemove(key, out _);
             }
         });
+    }
+
+    /// <summary>Reads the start and end of the video, the parts players read first.</summary>
+    private static async Task PreloadFileAsync(TorrentSession session, MonoTorrent.ITorrentManagerFile file, long startBytes, CancellationToken ct)
+    {
+        await using var lease = await session.OpenAsync(file, ct).ConfigureAwait(false);
+        var buffer = new byte[256 * 1024];
+        async Task ReadAsync(long from, long bytes)
+        {
+            lease.Position = Math.Max(0, from);
+            for (long done = 0; done < bytes;)
+            {
+                var n = await lease.ReadAsync(buffer, ct).ConfigureAwait(false);
+                if (n == 0)
+                {
+                    break;
+                }
+
+                done += n;
+            }
+        }
+
+        await ReadAsync(0, startBytes).ConfigureAwait(false);                     // headers and first seconds
+        await ReadAsync(file.Length - (2L << 20), 2L << 20).ConfigureAwait(false); // index (MP4 moov / MKV cues)
     }
 
     // Titles whose remembered pick was chosen by a device rule (e.g. 1080p for the TV), not by ranking or by the user.
@@ -152,12 +189,21 @@ public sealed class StreamResolver
         NetworkGuard.Require(); // VPN/proxy down: say so, rather than searching (which may be blocked too) and reporting "nothing found"
 
         // ffmpeg and clients often fire several requests at once. Only one of them searches or starts a torrent.
-        var gate = _locks.GetOrAdd(req.Key, _ => new SemaphoreSlim(1, 1));
+        // A background check of one particular release (the Version menu's track checks) only locks that release:
+        // starting a release that has no peers waits up to a minute for its file list, and holding the title's lock
+        // meanwhile made playback of the title wait for it too (measured: 65 s).
+        var gateKey = releaseId is not null && !remember ? req.Key + "|" + releaseId : req.Key;
+        var gate = _locks.GetOrAdd(gateKey, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             if (releaseId is not null)
             {
+                if (!remember && _dead.TryGetValue(releaseId, out var failedAt) && DateTime.UtcNow - failedAt < DeadFor)
+                {
+                    throw new StreamNotFoundException("Skipped: this release couldn't be started a little while ago (no peers)");
+                }
+
                 return await ResolveChosenAsync(req, releaseId, remember, ct).ConfigureAwait(false);
             }
 
@@ -257,17 +303,23 @@ public sealed class StreamResolver
         var releases = await _options.GetAsync(req, ct).ConfigureAwait(false);
         var chosen = releases.FirstOrDefault(r => StreamOptions.IdFor(r) == releaseId)
             ?? throw new StreamNotFoundException("That stream is no longer listed. Reopen the title to refresh the list, or use Auto.");
-        return await TryStartAsync(req, chosen, remember, ct, chosenByUser: true).ConfigureAwait(false)
-            ?? throw new StreamNotFoundException($"Couldn't start \"{chosen.Title}\" (no peers, or no matching video file). Try another version.");
+        // A background check (not something being played) gives up on a release with no peers sooner, and remembers it.
+        var started = await TryStartAsync(req, chosen, remember, ct, chosenByUser: true, remember ? null : BackgroundMetadataTimeout).ConfigureAwait(false);
+        if (started is null && !remember)
+        {
+            _dead[releaseId] = DateTime.UtcNow;
+        }
+
+        return started ?? throw new StreamNotFoundException($"Couldn't start \"{chosen.Title}\" (no peers, or no matching video file). Try another version.");
     }
 
-    private async Task<ResolvedStream?> TryStartAsync(MediaRequest req, ReleaseCandidate release, bool remember, CancellationToken ct, bool chosenByUser = false)
+    private async Task<ResolvedStream?> TryStartAsync(MediaRequest req, ReleaseCandidate release, bool remember, CancellationToken ct, bool chosenByUser = false, TimeSpan? metadataTimeout = null)
     {
         try
         {
             _logger.LogInformation("Trying {Release} from {Origin} ({Seeders} seeders) for {Request}", release.Title, release.Origin, release.Seeders, req);
             var source = await _torznab.ToSourceAsync(release, ct).ConfigureAwait(false);
-            var session = await _engine.AddAsync(source, ct).ConfigureAwait(false);
+            var session = await _engine.AddAsync(source, ct, metadataTimeout).ConfigureAwait(false);
             var index = PickFile(session.Manager, req);
             if (index >= 0)
             {
@@ -282,7 +334,10 @@ public sealed class StreamResolver
             }
 
             _logger.LogInformation("No matching video file in {Release}", release.Title);
-            await _engine.RemoveAsync(source.InfoHash, true).ConfigureAwait(false);
+            if (session.ActiveStreams == 0)
+            {
+                await _engine.RemoveAsync(source.InfoHash, true).ConfigureAwait(false); // never one that's playing another file
+            }
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {

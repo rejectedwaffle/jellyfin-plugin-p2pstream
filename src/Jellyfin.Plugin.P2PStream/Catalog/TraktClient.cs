@@ -48,6 +48,20 @@ public sealed class TraktClient
 
     public static bool IsConfigured => ClientId.Length > 0;
 
+    /// <summary>
+    /// Adds the app's Client Secret if one is set. Trakt apps can be created without one ("no secret required"); the
+    /// sign-in then goes without it.
+    /// </summary>
+    private static JsonObject WithSecret(JsonObject body)
+    {
+        if (ClientSecret.Length > 0)
+        {
+            body["client_secret"] = ClientSecret;
+        }
+
+        return body;
+    }
+
     public bool IsConnected => LoadTokens() is not null;
 
     public DeviceLogin? Pending => _pending is { } p && p.Expires > DateTime.UtcNow ? p : null;
@@ -179,9 +193,9 @@ public sealed class TraktClient
     /// <summary>Starts connecting an account: returns a code to enter at trakt.tv/activate, then waits for it in the background.</summary>
     public async Task<DeviceLogin> StartLoginAsync(CancellationToken ct)
     {
-        if (!IsConfigured || ClientSecret.Length == 0)
+        if (!IsConfigured)
         {
-            throw new InvalidOperationException("Enter your Trakt app's Client ID and Client Secret, and save, first.");
+            throw new InvalidOperationException("Enter your Trakt app's Client ID, and save, first.");
         }
 
         var json = await PostAsync("oauth/device/code", new JsonObject { ["client_id"] = ClientId }, ct).ConfigureAwait(false);
@@ -209,7 +223,7 @@ public sealed class TraktClient
             try
             {
                 using var req = Request(HttpMethod.Post, "oauth/device/token", auth: false);
-                req.Content = Json(new JsonObject { ["code"] = deviceCode, ["client_id"] = ClientId, ["client_secret"] = ClientSecret });
+                req.Content = Json(WithSecret(new JsonObject { ["code"] = deviceCode, ["client_id"] = ClientId }));
                 using var resp = await HttpClients.Default.SendAsync(req).ConfigureAwait(false);
                 switch ((int)resp.StatusCode)
                 {
@@ -233,6 +247,7 @@ public sealed class TraktClient
                     default: // 404 bad code, 409 used, 410 expired, 418 denied
                         _lastError = (int)resp.StatusCode switch
                         {
+                            401 when ClientSecret.Length == 0 => "Trakt wants the app's Client Secret for this: add it (Accounts > Trakt), save, and connect again.",
                             410 => "The code expired. Try again.",
                             418 => "Access was denied on Trakt.",
                             409 => "That code was already used.",
@@ -295,21 +310,20 @@ public sealed class TraktClient
             return null;
         }
 
-        if (tokens.ExpiresAt > DateTime.UtcNow.AddDays(1) || ClientSecret.Length == 0 || tokens.RefreshToken.Length == 0)
+        if (tokens.ExpiresAt > DateTime.UtcNow.AddDays(1) || tokens.RefreshToken.Length == 0)
         {
             return tokens.AccessToken;
         }
 
         try
         {
-            var json = await PostAsync("oauth/token", new JsonObject
+            var json = await PostAsync("oauth/token", WithSecret(new JsonObject
             {
                 ["refresh_token"] = tokens.RefreshToken,
                 ["client_id"] = ClientId,
-                ["client_secret"] = ClientSecret,
                 ["redirect_uri"] = "urn:ietf:wg:oauth:2.0:oob",
                 ["grant_type"] = "refresh_token"
-            }, ct).ConfigureAwait(false);
+            }), ct).ConfigureAwait(false);
             var fresh = ToTokens(json);
             fresh.User = tokens.User;
             SaveTokens(fresh);

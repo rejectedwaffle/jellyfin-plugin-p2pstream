@@ -221,6 +221,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool TorrentSubtitles { get; set; } = true;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether, two minutes into an episode, the start of the next episode is fetched
+    /// quietly (then the download pauses), so Next or autoplay starts almost at once.
+    /// </summary>
+    public bool PreloadNextEpisode { get; set; } = true;
+
     /// <summary>Gets or sets how many releases the Version menu lists.</summary>
     public int StreamPickerMax { get; set; } = 15;
 

@@ -672,6 +672,26 @@ public class P2PStreamController : ControllerBase
         return _libraries.CreateFolder(body.Name.Trim());
     }
 
+    /// <summary>Deletes a catalog folder that no library, catalog or search uses.</summary>
+    [HttpDelete("Folders/{name}")]
+    [Authorize(Policy = AdminPolicy)]
+    public IActionResult DeleteFolder(string name)
+    {
+        try
+        {
+            _libraries.DeleteFolder(name);
+            return NoContent();
+        }
+        catch (FileNotFoundException ex)
+        {
+            return Problem(ex.Message, statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Problem(ex.Message, statusCode: StatusCodes.Status409Conflict);
+        }
+    }
+
     [HttpPost("Catalogs/{id}/Sync")]
     [Authorize(Policy = AdminPolicy)]
     public IActionResult SyncOneCatalog(string id)

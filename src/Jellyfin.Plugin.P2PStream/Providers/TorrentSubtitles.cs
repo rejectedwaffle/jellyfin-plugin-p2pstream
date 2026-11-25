@@ -26,13 +26,15 @@ public sealed partial class TorrentSubtitles
     private static readonly HashSet<string> Flags = new(StringComparer.OrdinalIgnoreCase) { "forced", "sdh", "hi", "cc", "full", "default" };
 
     private readonly StreamResolver _resolver;
+    private readonly TorrentEngine _engine;
     private readonly IServiceProvider _services;
     private readonly ILogger<TorrentSubtitles> _logger;
     private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _running = new();
 
-    public TorrentSubtitles(StreamResolver resolver, IServiceProvider services, ILogger<TorrentSubtitles> logger)
+    public TorrentSubtitles(StreamResolver resolver, TorrentEngine engine, IServiceProvider services, ILogger<TorrentSubtitles> logger)
     {
         _resolver = resolver;
+        _engine = engine;
         _services = services;
         _logger = logger;
     }
@@ -41,7 +43,24 @@ public sealed partial class TorrentSubtitles
     /// Makes sure the subtitles of the release this title will play are next to its .strm file. Waits up to
     /// <paramref name="wait"/>; the work carries on in the background if it takes longer.
     /// </summary>
-    public async Task EnsureAsync(BaseItem item, MediaRequest request, TimeSpan wait, CancellationToken ct)
+    /// <param name="releaseId">A particular release (what a device with limits will play) instead of Auto's pick.</param>
+    public Task EnsureAsync(BaseItem item, MediaRequest request, TimeSpan wait, CancellationToken ct, string? releaseId = null)
+        => RunAsync(item, async token => await _resolver.ResolveAsync(request, releaseId, token, remember: releaseId is null).ConfigureAwait(false), wait, ct);
+
+    /// <summary>The same, for a torrent file you added yourself (its .strm links straight to the torrent).</summary>
+    public Task EnsureForTorrentAsync(BaseItem item, string infoHash, int fileIndex, TimeSpan wait, CancellationToken ct)
+        => RunAsync(
+            item,
+            async token =>
+            {
+                var session = await _engine.GetOrRestoreAsync(infoHash, token).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("that torrent is no longer available");
+                return new ResolvedStream(session, fileIndex);
+            },
+            wait,
+            ct);
+
+    private async Task RunAsync(BaseItem item, Func<CancellationToken, Task<ResolvedStream>> resolve, TimeSpan wait, CancellationToken ct)
     {
         if (Plugin.Instance?.Configuration.TorrentSubtitles != true || string.IsNullOrEmpty(item.Path))
         {
@@ -57,7 +76,7 @@ public sealed partial class TorrentSubtitles
             try
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-                var resolved = await _resolver.ResolveAsync(request, null, timeout.Token).ConfigureAwait(false);
+                var resolved = await resolve(timeout.Token).ConfigureAwait(false);
                 await WriteAsync(item, resolved, timeout.Token).ConfigureAwait(false);
             }
             catch (Exception ex)

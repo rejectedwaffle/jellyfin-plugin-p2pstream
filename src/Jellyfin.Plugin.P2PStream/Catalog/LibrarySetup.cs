@@ -73,6 +73,39 @@ public sealed class LibrarySetup
     }
 
     /// <summary>
+    /// Deletes a catalog folder and the titles in it. Refused for a folder a Jellyfin library uses, or that an enabled
+    /// catalog or Jellyfin search writes into (it would only come back on the next sync).
+    /// </summary>
+    public void DeleteFolder(string name)
+    {
+        var path = CatalogBuilder.FolderFor(name);
+        if (!SamePath(Path.GetDirectoryName(path) ?? string.Empty, Root) || NotCatalogFolders.Contains(Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("That isn't a catalog folder.");
+        }
+
+        if (!Directory.Exists(path))
+        {
+            throw new FileNotFoundException("There's no folder called " + name + ".");
+        }
+
+        if (Describe(path).Library is { } library)
+        {
+            throw new InvalidOperationException($"The library \"{library}\" uses this folder. Remove the folder from that library first.");
+        }
+
+        var config = Plugin.Instance!.Configuration;
+        bool Same(string? folder) => !string.IsNullOrWhiteSpace(folder) && SamePath(CatalogBuilder.FolderFor(folder), path);
+        if ((config.Catalogs ?? []).Any(c => c.Enabled && Same(c.Library)) || Same(config.SearchMovieLibrary) || Same(config.SearchShowLibrary))
+        {
+            throw new InvalidOperationException("A catalog or Jellyfin search writes into this folder. Change that first.");
+        }
+
+        Directory.Delete(path, true);
+        _logger.LogInformation("Deleted catalog folder {Path}", path);
+    }
+
+    /// <summary>
     /// One-time cleanup of what 0.3.0 did before switching to Gelato-style folders: it added its folders to existing
     /// libraries (Gelato's, for example) and wrote search results into "Movies"/"Shows". Only touches the plugin's own folders.
     /// </summary>
