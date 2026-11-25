@@ -131,6 +131,9 @@ public sealed class StreamResolver
     }
 
     // Titles whose remembered pick was chosen by a device rule (e.g. 1080p for the TV), not by ranking or by the user.
+    // The remembered pick itself carries the same flag (ResolutionCache), so it survives a restart.
+    // Picks are per title, not per person or device: the last Version chosen (or device rule applied) is what Auto plays
+    // next for everyone, until a device without limits plays it again.
     private readonly ConcurrentDictionary<string, byte> _rulePicks = new();
 
     /// <summary>Plays <paramref name="releaseId"/> the next time this title is played through its normal source.</summary>
@@ -154,7 +157,8 @@ public sealed class StreamResolver
     /// </summary>
     public bool ForgetDeviceRulePick(MediaRequest req)
     {
-        if (!_rulePicks.TryRemove(req.Key, out _))
+        var flagged = _rulePicks.TryRemove(req.Key, out _);
+        if (!flagged && !(_cache.TryGet(req.Key, out var e) && e.ByDeviceRule))
         {
             return false;
         }
@@ -297,7 +301,7 @@ public sealed class StreamResolver
             {
                 if (remember)
                 {
-                    _cache.Set(req.Key, known.InfoHash, index, session.Manager.Torrent?.Name ?? releaseId, chosen: true);
+                    _cache.Set(req.Key, known.InfoHash, index, session.Manager.Torrent?.Name ?? releaseId, chosen: true, byDeviceRule: _rulePicks.ContainsKey(req.Key));
                 }
 
                 return new ResolvedStream(session, index);
@@ -330,7 +334,7 @@ public sealed class StreamResolver
                 // Remember it: Auto uses this release next time, and repeat requests skip the lookup.
                 if (remember)
                 {
-                    _cache.Set(req.Key, source.InfoHash, index, release.Title, chosenByUser);
+                    _cache.Set(req.Key, source.InfoHash, index, release.Title, chosenByUser, byDeviceRule: chosenByUser && _rulePicks.ContainsKey(req.Key));
                 }
 
                 _started[StreamOptions.IdFor(release)] = (source.InfoHash, index);
