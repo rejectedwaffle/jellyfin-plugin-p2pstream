@@ -204,7 +204,9 @@ public class P2PStreamController : ControllerBase
     {
         var plugin = Plugin.Instance!;
         plugin.Configuration.StreamToken = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
-        plugin.SaveConfiguration(); // raises ConfigurationChanged: links are rewritten and the old token gets its grace time
+        // UpdateConfiguration (not SaveConfiguration, which only writes the file) raises ConfigurationChanged: links are
+        // rewritten and the old token gets its grace time.
+        plugin.UpdateConfiguration(plugin.Configuration);
         if (revokeOld)
         {
             Catalog.StrmUrlUpdater.RevokePrevious();
@@ -391,7 +393,7 @@ public class P2PStreamController : ControllerBase
             }
             else
             {
-                Add("Torrents", true, "Hidden", $"Traffic sent the way torrents go leaves from {ip}, not your address.");
+                Add("Torrents", true, "Hidden", $"A test connection made the way torrents connect came from {ip}, not your address.");
                 if (mode == Torrent.NetworkMode.Interface)
                 {
                     await AddIncomingRowAsync(ip, Add, ct).ConfigureAwait(false);
