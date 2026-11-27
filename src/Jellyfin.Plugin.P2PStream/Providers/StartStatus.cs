@@ -26,11 +26,72 @@ public sealed class StartStatus
 
     private readonly ConcurrentDictionary<string, Outbox> _outboxes = new();
 
-    public StartStatus(ISessionManager sessions, ILogger<StartStatus> logger)
+    /// <summary>Title key to the sessions that opened its page while its live seeder counts were being checked.</summary>
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, DateTime>> _pages = new();
+
+    private readonly StreamOptions _options;
+
+    public StartStatus(ISessionManager sessions, StreamOptions options, ILogger<StartStatus> logger)
     {
+        _options = options;
         _sessions = sessions;
         _logger = logger;
         _sessions.PlaybackStart += OnPlaybackStart;
+        options.LiveCheckFinished += OnLiveCheckFinished;
+    }
+
+    /// <summary>
+    /// Someone opened a title's page while its releases are still being checked: tells them (once per check) and
+    /// remembers them, so they hear when the Version list is complete.
+    /// </summary>
+    public void WatchPage(MediaRequest request, string sessionId, bool listShown)
+    {
+        if (!Enabled || string.IsNullOrEmpty(sessionId))
+        {
+            return;
+        }
+
+        var map = _pages.GetOrAdd(request.Key, _ => new());
+        if (!map.TryAdd(sessionId, DateTime.UtcNow))
+        {
+            return; // already told
+        }
+
+        // The check finished while the page was being answered: the list just shown is complete, nothing to say.
+        if (listShown && !_options.IsCheckingLive(request))
+        {
+            map.TryRemove(sessionId, out _);
+            return;
+        }
+
+        _outboxes.GetOrAdd(sessionId, id => new Outbox(this, id)).Post(listShown
+            ? $"Checking live seeder counts for {request}… You'll get a message when the Version list is complete."
+            : $"Still finding releases for {request}… You'll get a message when the Version list is ready.");
+    }
+
+    private void OnLiveCheckFinished(MediaRequest request)
+    {
+        if (!_pages.TryRemove(request.Key, out var map))
+        {
+            _logger.LogDebug("Live seeder check for {Request} done; nobody waiting", request);
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var (sessionId, since) in map)
+        {
+            // Not someone who has since started playing (start-up messages cover that), nor long gone.
+            var session = _sessions.Sessions.FirstOrDefault(s => s.Id == sessionId);
+            if (now - since > WatchFor || session is null || session.NowPlayingItem is not null)
+            {
+                _logger.LogDebug("Not telling {Device} that {Request}'s live seeder counts are in ({Why:l})", session?.DeviceName ?? sessionId, request, session is null ? "session gone" : session.NowPlayingItem is not null ? "it's playing" : "page opened long ago");
+                continue;
+            }
+
+            _logger.LogDebug("Telling {Device} that {Request}'s live seeder counts are in", session.DeviceName, request);
+
+            _outboxes.GetOrAdd(sessionId, id => new Outbox(this, id)).Post($"Live seeder counts for {request} are in. Reopen the page to see them in the Version list.");
+        }
     }
 
     private static bool Enabled => Plugin.Instance?.Configuration.ShowStartStatus != false;

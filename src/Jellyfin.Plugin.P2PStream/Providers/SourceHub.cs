@@ -35,8 +35,9 @@ public sealed class SourceHub
         (Plugin.Instance?.Configuration.RssSources ?? []).Where(f => f.Enabled && !string.IsNullOrWhiteSpace(f.Url)).ToList();
 
     /// <param name="onLate">Called with the releases of a source that answered after the search went on without it.</param>
-    public Task<List<ReleaseCandidate>> SearchAsync(MediaRequest request, CancellationToken ct, Action<string, List<ReleaseCandidate>>? onLate = null)
-        => RunAsync(p => p.SearchAsync(request, ct), () => _torznab.SearchAsync(request, ct), f => RssFeedSource.SearchAsync(f, request, ct), request.ToString(), ct, waitForAll: false, onLate);
+    /// <param name="lateDone">Given a task that completes once every such slow source has answered (or failed) and its releases were handed over.</param>
+    public Task<List<ReleaseCandidate>> SearchAsync(MediaRequest request, CancellationToken ct, Action<string, List<ReleaseCandidate>>? onLate = null, Action<Task>? lateDone = null)
+        => RunAsync(p => p.SearchAsync(request, ct), () => _torznab.SearchAsync(request, ct), f => RssFeedSource.SearchAsync(f, request, ct), request.ToString(), ct, waitForAll: false, onLate, lateDone);
 
     // The settings page's test search waits for every source, so it can report each one.
     public Task<List<ReleaseCandidate>> SearchTextAsync(string query, CancellationToken ct)
@@ -49,7 +50,8 @@ public sealed class SourceHub
         string what,
         CancellationToken ct,
         bool waitForAll,
-        Action<string, List<ReleaseCandidate>>? onLate = null)
+        Action<string, List<ReleaseCandidate>>? onLate = null,
+        Action<Task>? lateDone = null)
     {
         if (!HasSources)
         {
@@ -81,6 +83,7 @@ public sealed class SourceHub
                 await Task.WhenAny(all, Task.Delay(SlowSourceGrace, ct)).ConfigureAwait(false);
             }
 
+            var handedOver = new List<Task>();
             foreach (var straggler in named.Where(n => !n.Task.IsCompleted))
             {
                 _logger.LogInformation("Not waiting for {Name} for {What}: no answer yet, the other sources already found releases", straggler.Name, what);
@@ -89,7 +92,7 @@ public sealed class SourceHub
                     // A slow source's releases still join the title's list when they arrive (for the Version menu and
                     // later plays); only this search doesn't wait for them.
                     var name = straggler.Name;
-                    _ = straggler.Task.ContinueWith(
+                    handedOver.Add(straggler.Task.ContinueWith(
                         t =>
                         {
                             try
@@ -106,9 +109,11 @@ public sealed class SourceHub
                         },
                         CancellationToken.None,
                         TaskContinuationOptions.ExecuteSynchronously,
-                        TaskScheduler.Default);
+                        TaskScheduler.Default));
                 }
             }
+
+            lateDone?.Invoke(Task.WhenAll(handedOver));
         }
         else
         {

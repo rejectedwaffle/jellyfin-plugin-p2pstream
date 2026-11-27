@@ -40,6 +40,15 @@ public sealed class StreamOptions
         _logger = logger;
     }
 
+    /// <summary>Titles whose release list is having its live seeder counts checked in the background.</summary>
+    private readonly ConcurrentDictionary<string, byte> _liveChecking = new();
+
+    /// <summary>Raised when a title's background live seeder check has finished (its Version list is complete).</summary>
+    public event Action<MediaRequest>? LiveCheckFinished;
+
+    /// <summary>True while a title's live seeder counts are still being checked in the background (or its search runs).</summary>
+    public bool IsCheckingLive(MediaRequest request) => _liveChecking.ContainsKey(request.Key) || _inflight.ContainsKey(request.Key);
+
     /// <summary>A stable id for a release, also used as the Jellyfin media source id.</summary>
     public static string IdFor(ReleaseCandidate r)
     {
@@ -54,7 +63,7 @@ public sealed class StreamOptions
     {
         var parts = new List<string>
         {
-            r.Resolution switch { 2160 => "4K", 0 => "?p", var x => x.ToString(CultureInfo.InvariantCulture) + "p" }
+            r.Resolution switch { 2160 => "4K", 0 => "Unknown", var x => x.ToString(CultureInfo.InvariantCulture) + "p" }
         };
         if (r.Size > 0)
         {
@@ -91,8 +100,13 @@ public sealed class StreamOptions
         // A list ranked under other settings (e.g. preferred resolution just changed) is searched and ranked again.
         if (_cache.TryGetValue(request.Key, out var hit) && DateTime.UtcNow - hit.At < CacheAge && hit.Rules == ListStamp())
         {
-            releases = hit.Releases;
-            return true;
+            // Ranked again on every read: live seeder counts arrive in the background (and as releases are tried), and
+            // a release found to have too few seeders must drop out, and the order follow, at once.
+            releases = ReleaseRanker.Rank(hit.Releases, request);
+            if (releases.Count > 0)
+            {
+                return true;
+            }
         }
 
         releases = [];
@@ -311,10 +325,117 @@ public sealed class StreamOptions
                 {
                     _cache[request.Key] = (current.At, merged, stamp);
                     _logger.LogInformation("Added {Count} late releases from {Source} to {Request}", late.Count, source, request);
+                    FollowUp(); // their live counts too
                 }
             }
 
-            var results = await _sources.SearchAsync(request, CancellationToken.None, AddLate).ConfigureAwait(false);
+            // The background live check: one at a time per title; releases that arrive late (a slow source) while it
+            // runs get another round. When it's done, whoever is looking at the title is told (StartStatus).
+            var followLock = new object();
+            var followRunning = false;
+            var followAgain = false;
+            Task lateSources = Task.CompletedTask;
+            var finished = 0;
+
+            // The list is complete once slow sources have all answered and their releases were checked too.
+            void FinishIfComplete()
+            {
+                lock (followLock)
+                {
+                    if (followRunning || !lateSources.IsCompleted)
+                    {
+                        return;
+                    }
+                }
+
+                if (Interlocked.Exchange(ref finished, 1) == 1)
+                {
+                    return;
+                }
+
+                _liveChecking.TryRemove(request.Key, out _);
+                try
+                {
+                    LiveCheckFinished?.Invoke(request);
+                }
+                catch (Exception)
+                {
+                    // a listener's problem
+                }
+            }
+
+            void FollowUp()
+            {
+                if (Plugin.Instance?.Configuration.CheckLiveSeeders != true)
+                {
+                    return;
+                }
+
+                lock (followLock)
+                {
+                    if (followRunning)
+                    {
+                        followAgain = true;
+                        return;
+                    }
+
+                    followRunning = true;
+                }
+
+                _liveChecking[request.Key] = 0;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        while (true)
+                        {
+                            List<ReleaseCandidate> ranked;
+                            lock (foundLock)
+                            {
+                                ranked = ReleaseRanker.Rank(found, request);
+                            }
+
+                            await CheckLiveSeedersAsync(ranked, request, followUp: true).ConfigureAwait(false);
+                            List<ReleaseCandidate> merged;
+                            lock (foundLock)
+                            {
+                                merged = Pick(ReleaseRanker.Rank(found, request));
+                            }
+
+                            if (merged.Count > 0 && _cache.TryGetValue(request.Key, out var current) && current.Rules == stamp && current.Rules == ListStamp())
+                            {
+                                _cache[request.Key] = (current.At, merged, stamp);
+                            }
+
+                            lock (followLock)
+                            {
+                                if (!followAgain)
+                                {
+                                    break;
+                                }
+
+                                followAgain = false;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Background seeder check for {Request} failed", request);
+                    }
+                    finally
+                    {
+                        lock (followLock)
+                        {
+                            followRunning = false;
+                            followAgain = false;
+                        }
+
+                        FinishIfComplete();
+                    }
+                });
+            }
+
+            var results = await _sources.SearchAsync(request, CancellationToken.None, AddLate, t => lateSources = t).ConfigureAwait(false);
             List<ReleaseCandidate> list;
             lock (foundLock)
             {
@@ -340,37 +461,10 @@ public sealed class StreamOptions
 
                 // The quick check above has to fit in the time a title page waits; the releases it didn't reach are
                 // checked in the background, so the next look at the list (and a fallback) has their live counts.
-                if (Plugin.Instance?.Configuration.CheckLiveSeeders == true)
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            List<ReleaseCandidate> ranked;
-                            lock (foundLock)
-                            {
-                                ranked = ReleaseRanker.Rank(found, request);
-                            }
-
-                            await CheckLiveSeedersAsync(ranked, request, followUp: true).ConfigureAwait(false);
-                            List<ReleaseCandidate> merged;
-                            lock (foundLock)
-                            {
-                                merged = Pick(ReleaseRanker.Rank(found, request));
-                            }
-
-                            if (merged.Count > 0 && _cache.TryGetValue(request.Key, out var current) && current.Rules == stamp && current.Rules == ListStamp())
-                            {
-                                _cache[request.Key] = (current.At, merged, stamp);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogDebug(ex, "Background seeder check for {Request} failed", request);
-                        }
-                    });
-                }
+                FollowUp();
+                _ = lateSources.ContinueWith(_ => FinishIfComplete(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
             }
+
             _logger.LogInformation("Found {Count} streams for {Request}", list.Count, request);
             return list;
         }

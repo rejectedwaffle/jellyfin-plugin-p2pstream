@@ -24,7 +24,7 @@ public static partial class ReleaseRanker
     ];
 
     /// <summary>Bump when the ranking rules change, so picks Auto made under the old rules are made again.</summary>
-    private const int RulesVersion = 2; // 2: foreign-language releases rank lower (0.9.4)
+    private const int RulesVersion = 3; // 2: foreign-language releases rank lower (0.9.4); 3: untagged releases count as SD
 
     /// <summary>
     /// Identifies the rules and settings that decide Auto's pick, including every filter (a release a filter now excludes
@@ -210,7 +210,13 @@ public static partial class ReleaseRanker
             return 480;
         }
 
-        return ResLow().IsMatch(title) ? 240 : 0;
+        if (ResLow().IsMatch(title))
+        {
+            return 240;
+        }
+
+        // Release names state HD resolutions; one that names a source or codec but no resolution is standard definition.
+        return SceneSource().IsMatch(title) ? 480 : 0;
     }
 
     private static bool SizeAllowed(ReleaseCandidate r, MediaRequest request, Configuration.PluginConfiguration c)
@@ -346,6 +352,9 @@ public static partial class ReleaseRanker
 
     [GeneratedRegex(@"\b(240p|360p)\b", RegexOptions.IgnoreCase)]
     private static partial Regex ResLow();
+
+    [GeneratedRegex(@"\b(web|web-?dl|web-?rip|hdtv|pdtv|dsr|bdrip|brrip|dvd|dvdscr|x264|x265|h264|h 264|h\.264|hevc|divx)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex SceneSource();
 
     [GeneratedRegex(@"S(?<s>\d{1,2})[ ._-]?E(?<e>\d{1,3})(?:[-E]+(?<e2>\d{1,3}))?", RegexOptions.IgnoreCase)]
     private static partial Regex EpisodeRegex();

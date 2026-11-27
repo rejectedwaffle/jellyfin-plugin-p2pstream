@@ -200,13 +200,25 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             }
             catch (TimeoutException)
             {
-                return; // still searching; the versions show up next time the page is opened
+                // Still searching; the versions show up next time the page is opened (and this person is told when).
+                if (await SessionIdAsync(http).ConfigureAwait(false) is { } waiting)
+                {
+                    _startStatus.WatchPage(request, waiting, listShown: false);
+                }
+
+                return;
             }
         }
 
         if (releases.Count == 0)
         {
             return;
+        }
+
+        // The list shows now, but its live seeder counts are still being checked: say so, and say when it's complete.
+        if (_options.IsCheckingLive(request) && await SessionIdAsync(http).ConfigureAwait(false) is { } viewer)
+        {
+            _startStatus.WatchPage(request, viewer, listShown: true);
         }
 
         // This person's own choice for the title, if they made one (and it's still listed).
@@ -252,7 +264,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         }
         dto.MediaSources = new[] { auto }
             .Concat(BestPerResolution(item, url, releases))
-            .Concat(StreamPicker.BuildSources(item, url, releases, _options))
+            .Concat(StreamPicker.BuildSources(item, url, ByResolution(releases), _options))
             .ToArray();
         dto.MediaSourceCount = dto.MediaSources.Length;
 
@@ -484,6 +496,15 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
     /// <summary>Registers the session making a Play request for start-up messages about the title.</summary>
     private async Task WatchStartAsync(HttpContext http, MediaRequest request)
     {
+        if (await SessionIdAsync(http).ConfigureAwait(false) is { } sessionId)
+        {
+            _startStatus.Watch(request, sessionId);
+        }
+    }
+
+    /// <summary>The Jellyfin session (app on a device, signed in) making the request, or null.</summary>
+    private async Task<string?> SessionIdAsync(HttpContext http)
+    {
         try
         {
             var auth = _services.GetService<MediaBrowser.Controller.Net.IAuthorizationContext>();
@@ -491,20 +512,23 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             var info = auth is null ? null : await auth.GetAuthorizationInfo(http).ConfigureAwait(false);
             if (info?.User is null || sessions is null || string.IsNullOrEmpty(info.DeviceId))
             {
-                return;
+                return null;
             }
 
-            var session = sessions.Sessions.FirstOrDefault(s => s.DeviceId == info.DeviceId && s.UserId == info.User.Id);
-            if (session is not null)
-            {
-                _startStatus.Watch(request, session.Id);
-            }
+            return sessions.Sessions.FirstOrDefault(s => s.DeviceId == info.DeviceId && s.UserId == info.User.Id)?.Id;
         }
         catch (Exception)
         {
-            // messages are a nicety
+            return null; // messages are a nicety
         }
     }
+
+    /// <summary>
+    /// The Version menu's order: highest resolution first (unknown last), and within a resolution Auto's ranking (best
+    /// first). Auto itself still follows the ranking, which also weighs language, size and seeders across resolutions.
+    /// </summary>
+    private static List<ReleaseCandidate> ByResolution(IEnumerable<ReleaseCandidate> ranked) =>
+        ranked.OrderByDescending(r => r.Resolution > 0 ? r.Resolution : -1).ToList(); // a stable sort keeps the ranking within each
 
     /// <summary>The id of the Jellyfin user making the request (no dashes), or null (an API key, or not signed in).</summary>
     private async Task<string?> UserIdAsync(HttpContext http)
