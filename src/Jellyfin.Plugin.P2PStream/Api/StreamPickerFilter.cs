@@ -226,10 +226,6 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         var ownId = userId is null ? null : _userPicks.Get(userId, request.Key);
         var own = ownId is null ? null : releases.FirstOrDefault(r => StreamOptions.IdFor(r) == ownId);
 
-        if (Plugin.Instance?.Configuration.PrewarmOnOpen == true)
-        {
-            _ = _subtitles.EnsureAsync(item, request, TimeSpan.Zero, CancellationToken.None); // ready before Play is pressed
-        }
 
         // Auto plays the remembered pick, or else tries the top-ranked release first. Name it, and if that release has been
         // checked, show its tracks on Auto too (Jellyfin otherwise only knows them after Auto has played once).
@@ -259,7 +255,13 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         // A device that is playing something asks for the next episode's details for its "Up next" card: that's not
         // someone about to press Play, so it doesn't start two releases alongside what's playing.
         var busy = await IsPlayingAsync(http).ConfigureAwait(false);
-        _resolver.Prewarm(request, releaseId: own is not null ? ownId : deviceFits is not null ? StreamOptions.IdFor(deviceFits) : null, race: !busy);
+        var warmId = own is not null ? ownId : deviceFits is not null ? StreamOptions.IdFor(deviceFits) : null;
+        _resolver.Prewarm(request, releaseId: warmId, race: !busy);
+        if (Plugin.Instance?.Configuration.PrewarmOnOpen == true)
+        {
+            // The release's subtitle files, ready before Play is pressed: for the same release the pre-load starts.
+            _ = _subtitles.EnsureAsync(item, request, TimeSpan.Zero, CancellationToken.None, warmId, race: !busy);
+        }
 
         _prober.ProbeTopInBackground(item, url, releases, autoRelease);
 

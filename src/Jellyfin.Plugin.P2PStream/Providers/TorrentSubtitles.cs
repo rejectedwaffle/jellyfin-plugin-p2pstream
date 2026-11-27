@@ -44,8 +44,8 @@ public sealed partial class TorrentSubtitles
     /// <paramref name="wait"/>; the work carries on in the background if it takes longer.
     /// </summary>
     /// <param name="releaseId">A particular release (what a device with limits will play) instead of Auto's pick.</param>
-    public Task EnsureAsync(BaseItem item, MediaRequest request, TimeSpan wait, CancellationToken ct, string? releaseId = null)
-        => RunAsync(item, async token => await _resolver.ResolveAsync(request, releaseId, token, remember: releaseId is null).ConfigureAwait(false), wait, ct);
+    public Task EnsureAsync(BaseItem item, MediaRequest request, TimeSpan wait, CancellationToken ct, string? releaseId = null, bool race = true)
+        => RunAsync(item, async token => await _resolver.ResolveAsync(request, releaseId, token, remember: releaseId is null, race: race).ConfigureAwait(false), wait, ct);
 
     /// <summary>The same, for a torrent file you added yourself (its .strm links straight to the torrent).</summary>
     public Task EnsureForTorrentAsync(BaseItem item, string infoHash, int fileIndex, TimeSpan wait, CancellationToken ct)
