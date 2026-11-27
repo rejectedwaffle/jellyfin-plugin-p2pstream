@@ -214,6 +214,24 @@ public sealed class StreamResolver
         return changed;
     }
 
+    /// <summary>
+    /// Forgets this person's Version pick for the title (they finished it): their pin, and the remembered pick if it's
+    /// theirs, so the next Auto play picks the best match again.
+    /// </summary>
+    public void ForgetPickBy(MediaRequest req, string userId)
+    {
+        if (_pinOwners.TryGetValue(req.Key, out var owner) && owner == userId)
+        {
+            _pinned.TryRemove(req.Key, out _);
+            _pinOwners.TryRemove(req.Key, out _);
+        }
+
+        if (_cache.TryGet(req.Key, out var e) && e.Chosen && e.ChosenBy == userId)
+        {
+            _cache.Remove(req.Key);
+        }
+    }
+
     /// <summary>The current pick's title for this person: null when it's someone else's choice (Auto plays the best match for them).</summary>
     public string? CurrentPickTitleFor(MediaRequest req, string? userId) =>
         _cache.TryGet(req.Key, out var e) && !(userId is not null && e.Chosen && e.ChosenBy is { } by && by != userId)

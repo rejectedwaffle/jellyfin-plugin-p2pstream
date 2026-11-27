@@ -225,7 +225,9 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         }
         else
         {
-            auto.Name = current is not null
+            auto.Name = own is not null
+                ? "Auto (your pick) — now: " + current
+                : current is not null
                 ? "Auto (best match) — now: " + current
                 : "Auto (best match) — tries first: " + ReleaseRanker.CleanTitle(releases[0].Title);
         }
