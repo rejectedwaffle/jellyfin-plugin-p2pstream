@@ -905,7 +905,7 @@
                     var jf = n.Jellyfin || {};
                     var jfRows = jf.Rows || [];
                     var jfHtml = jfRows.length
-                        ? '<div class="p2p-muted" style="margin:.9em 0 .2em">Jellyfin files (whole server): <b>' + mb(jfRows.filter(function (r) { return r.Name.charAt(0) !== '…'; }).reduce(function (a, r) { return a + r.Mb; }, 0)) + '</b></div>' + jfRows.map(row).join('')
+                        ? '<div class="p2p-muted" style="margin:.9em 0 .2em">Jellyfin files (whole server): <b>' + mb(jfRows.reduce(function (a, r) { return a + r.Mb; }, 0)) + '</b></div>' + jfRows.map(row).join('')
                         : (jf.Measuring ? '<div class="p2p-muted" style="margin:.9em 0 .2em">Measuring the Jellyfin folders…</div>' : '');
                     store.innerHTML = disks + used + n.Storage.map(row).join('') + jfHtml;
                 });

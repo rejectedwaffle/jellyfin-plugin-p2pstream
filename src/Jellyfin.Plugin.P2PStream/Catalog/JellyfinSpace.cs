@@ -59,10 +59,10 @@ public sealed class JellyfinSpace
                 transcodes = Path.Combine(_paths.CachePath, "transcodes");
             }
 
+            var plugin = PluginTitlesBytes();
             var rows = new List<Row>
             {
-                new("Artwork and info", Mb(Api.P2PStreamController.FolderBytes(metadata)), "posters, backdrops and details Jellyfin keeps for every title, actors and genres"),
-                new("…for the plugin's titles", Mb(PluginTitlesBytes()), "the part of that for catalog and search titles (removed with them)"),
+                new("Artwork and info", Mb(Api.P2PStreamController.FolderBytes(metadata)), $"posters, backdrops and details Jellyfin keeps for every title, actor and genre; {Size(plugin)} of it is for the plugin's catalog and search titles (removed with them)"),
                 new("Image cache", Mb(Api.P2PStreamController.FolderBytes(_paths.ImageCachePath)), "resized pictures for the apps; Jellyfin rebuilds them when needed"),
                 new("Transcodes", Mb(Api.P2PStreamController.FolderBytes(transcodes)), "video converted for devices while they play; Jellyfin clears it"),
                 new("Database and data", Mb(Api.P2PStreamController.FolderBytes(_paths.DataPath)), "the library database, seek-bar previews and other data"),
@@ -140,4 +140,8 @@ public sealed class JellyfinSpace
     }
 
     private static long Mb(long bytes) => bytes >> 20;
+
+    private static string Size(long bytes) => bytes >= 1L << 30
+        ? (bytes / (double)(1L << 30)).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " GB"
+        : (bytes >> 20).ToString(System.Globalization.CultureInfo.InvariantCulture) + " MB";
 }
