@@ -216,13 +216,13 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         if (rule is not null && (autoRelease is null || !DeviceRules.Allows(rule, autoRelease)) && DeviceRules.BestWithin(rule, releases) is { } fits)
         {
             autoRelease = fits;
-            auto.Name = $"Auto ({DeviceRules.Describe(rule)} on this device) — plays: " + Short(fits.Title);
+            auto.Name = $"Auto ({DeviceRules.Describe(rule)} on this device) — plays: " + ReleaseRanker.CleanTitle(fits.Title);
         }
         else
         {
             auto.Name = current is not null
-                ? "Auto (best match) — now: " + Short(current)
-                : "Auto (best match) — tries first: " + Short(releases[0].Title);
+                ? "Auto (best match) — now: " + current
+                : "Auto (best match) — tries first: " + ReleaseRanker.CleanTitle(releases[0].Title);
         }
 
         _prober.ProbeTopInBackground(item, url, releases, autoRelease);
@@ -584,8 +584,6 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         repository.SaveMediaStreams(item.Id, Array.Empty<MediaStream>(), CancellationToken.None);
     }
 
-    private static string Short(string s) => s.Length > 70 ? s[..67] + "..." : s;
-
     /// <summary>
     /// "Best 4K / Best 1080p / ..." entries for the Version menu: one per resolution found, each standing for that
     /// resolution's best-ranked release. Only shown when there's more than one resolution to choose from.
@@ -608,7 +606,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             var label = g.Key == 2160 ? "4K" : g.Key + "p";
             var size = best.Size > 0 ? $" · {best.Size / (double)(1L << 30):0.0} GB" : string.Empty;
             var seeds = best.Seeders >= 0 ? $" · {best.Seeders} seeds" : string.Empty;
-            source.Name = $"Best {label} · {g.Count()} available{seeds}{size}";
+            source.Name = $"Best {label} · {g.Count()} available{seeds}{size} — {ReleaseRanker.CleanTitle(best.Title)}";
             list.Add(source);
         }
 
