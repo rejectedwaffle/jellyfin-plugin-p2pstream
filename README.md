@@ -35,7 +35,7 @@ Updates then appear in the plugin catalog. Requires Jellyfin 12.4 or newer.
 
 ### Manual install
 Download `p2pstream_<version>.zip` from [Releases](https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases), extract it into
-`<jellyfin data>/plugins/P2P Stream_<version>/` (for example `/var/lib/jellyfin/plugins/P2P Stream_1.0.0.0/`) and restart Jellyfin.
+`<jellyfin data>/plugins/P2P Stream_<version>/` (for example `/var/lib/jellyfin/plugins/P2P Stream_0.8.0.0/`) and restart Jellyfin.
 
 ## Setup
 1. **Accounts** tab: paste a free TMDB API key (themoviedb.org, under Settings, then API).

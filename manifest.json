@@ -1,44 +1,44 @@
 [
     {
-        "guid":  "fb38a8c4-7fa6-48e6-9c52-c093e7263aff",
-        "name":  "P2P Stream",
-        "description":  "Stream torrents straight into Jellyfin. Built-in torrent sources (no extra software), TMDB catalogs as libraries, search for any movie or show from the Jellyfin search bar, and Burst-style quality filters.",
-        "overview":  "Stream torrents on demand, Elementum-style.",
-        "owner":  "rejectedwaffle",
-        "category":  "General",
-        "versions":  [
-                         {
-                             "version":  "1.3.0.0",
-                             "changelog":  "What\u0027s new\n- Subtitles when a release has none. With a Jellyfin subtitle plugin such as OpenSubtitles installed, a subtitle in your language is fetched when you play a release that has none. Only for what you play, so a free account\u0027s daily limit goes a long way.\n- A Subtitles box on every version. Downloaded subtitles and your own subtitle files appear whichever version you pick.\n- Your pick lasts until you finish. A version you choose keeps playing until you\u0027ve watched the title to the end; then Auto goes back to the best match. Meanwhile Auto says \"your pick\".\n- A tidier settings page. Nine tabs, one per job (Status, Catalogs, Search, Sources, Quality, Playback, Network, Storage, Accounts), cards in two fixed columns, and short help text with a \"more\" link.\n- Disk space at a glance. Status and Storage show how much of the disk is used and how much is left.\n- Search libraries clean themselves up. Titles a search added that nobody played are removed after the number of days you set, or straight away with Clean up now.\n\nBetter behaviour\n- Only people\u0027s searches add titles; scripts and request tools using an API key no longer do.\n- Releases from a slow source are added to the title\u0027s list when they arrive, instead of being dropped.\n- Auto and the \"Best 4K / 1080p\" entries show the full release name.\n- Source rows start collapsed; \"change address\" opens the address box.",
-                             "targetAbi":  "12.4.0.0",
-                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v1.3.0.0/p2pstream_1.3.0.0.zip",
-                             "checksum":  "f9f35d1b412c0e3e842b8e71b484dfca",
-                             "timestamp":  "2026-11-27T04:29:06Z"
-                         },
-                         {
-                             "version":  "1.2.4.0",
-                             "changelog":  "What\u0027s new\n- Playing away from home just works. Stream links use the address each device reached Jellyfin by, so a phone outside your network plays through your reverse proxy without any setting.\n- Version choices are per person. A version you pick is remembered for you; everyone else keeps getting the best match.\n- Hide the search libraries from the home screen while keeping their titles in Jellyfin search (Libraries tab).\n\nFaster and more reliable\n- First plays start sooner: searches no longer wait for a site that isn\u0027t answering (it\u0027s skipped for a few minutes), and peers are connected faster.\n- Each torrent downloads into its own folder.\n- Season packs play the right episode.\n- Catalogs that share a folder no longer remove each other\u0027s titles, and catalog collections only change collections the plugin made.\n- Making a new stream token updates every link in about a minute instead of up to an hour.\n\nSecurity\n- Playback and the Version menu respect each user\u0027s library access.\n- Stream links shown to apps no longer contain the stream token. New tokens are made on the server, with an option to stop old links at once.\n- Links from search results and torrents can\u0027t reach devices on your home network, and .torrent downloads are size-limited.\n- Searches set to go through the proxy never fall back to a direct connection.\n\nPlus smaller fixes for subtitle files, Trakt sign-in, the torrent limit, cache sizes, log messages and setting descriptions.",
-                             "targetAbi":  "12.4.0.0",
-                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v1.2.4.0/p2pstream_1.2.4.0.zip",
-                             "checksum":  "cc18fd9b97ad0617d0b787693312c290",
-                             "timestamp":  "2026-11-25T02:20:28Z"
-                         },
-                         {
-                             "version":  "1.1.0.0",
-                             "changelog":  "Pre-loads the next episode, playback safety fixes for season packs and subtitle files, subtitles for torrents you add, Trakt without a Client Secret, and removing unused catalog folders. See the release notes.",
-                             "targetAbi":  "12.4.0.0",
-                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v1.1.0.0/p2pstream_1.1.0.0.zip",
-                             "checksum":  "417344d5fab371c2404bdeee74aedddd",
-                             "timestamp":  "2026-11-25T00:01:25Z"
-                         },
-                         {
-                             "version":  "1.0.0.0",
-                             "changelog":  "First public release: on-demand torrent streaming with built-in sources, catalogs, Version menu, fast starts, release subtitles, VPN privacy and port forwarding. See the release notes.",
-                             "targetAbi":  "12.4.0.0",
-                             "sourceUrl":  "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v1.0.0.0/p2pstream_1.0.0.0.zip",
-                             "checksum":  "d239450a0bb5fdc2db2d9dd2cf22205b",
-                             "timestamp":  "2026-11-24T10:42:27Z"
-                         }
-                     ]
+        "guid": "fb38a8c4-7fa6-48e6-9c52-c093e7263aff",
+        "name": "P2P Stream",
+        "description": "Stream torrents straight into Jellyfin. Built-in torrent sources (no extra software), TMDB catalogs as libraries, search for any movie or show from the Jellyfin search bar, and Burst-style quality filters.",
+        "overview": "Stream torrents on demand, Elementum-style.",
+        "owner": "rejectedwaffle",
+        "category": "General",
+        "versions": [
+            {
+                "version": "0.8.0.0",
+                "changelog": "What's new\n- Subtitles when a release has none. With a Jellyfin subtitle plugin such as OpenSubtitles installed, a subtitle in your language is fetched when you play a release that has none. Only for what you play, so a free account's daily limit goes a long way.\n- A Subtitles box on every version. Downloaded subtitles and your own subtitle files appear whichever version you pick.\n- Your pick lasts until you finish. A version you choose keeps playing until you've watched the title to the end; then Auto goes back to the best match. Meanwhile Auto says \"your pick\".\n- A tidier settings page. Nine tabs, one per job (Status, Catalogs, Search, Sources, Quality, Playback, Network, Storage, Accounts), cards in two fixed columns, and short help text with a \"more\" link.\n- Disk space at a glance. Status and Storage show how much of the disk is used and how much is left.\n- Search libraries clean themselves up. Titles a search added that nobody played are removed after the number of days you set, or straight away with Clean up now.\n\nBetter behaviour\n- Only people's searches add titles; scripts and request tools using an API key no longer do.\n- Releases from a slow source are added to the title's list when they arrive, instead of being dropped.\n- Auto and the \"Best 4K / 1080p\" entries show the full release name.\n- Source rows start collapsed; \"change address\" opens the address box.",
+                "targetAbi": "12.4.0.0",
+                "sourceUrl": "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.8.0.0/p2pstream_0.8.0.0.zip",
+                "checksum": "2e7b1f67588399a6e9517998aa6f983a",
+                "timestamp": "2026-11-27T04:29:06Z"
+            },
+            {
+                "version": "0.7.0.0",
+                "changelog": "What's new\n- Playing away from home just works. Stream links use the address each device reached Jellyfin by, so a phone outside your network plays through your reverse proxy without any setting.\n- Version choices are per person. A version you pick is remembered for you; everyone else keeps getting the best match.\n- Hide the search libraries from the home screen while keeping their titles in Jellyfin search (Libraries tab).\n\nFaster and more reliable\n- First plays start sooner: searches no longer wait for a site that isn't answering (it's skipped for a few minutes), and peers are connected faster.\n- Each torrent downloads into its own folder.\n- Season packs play the right episode.\n- Catalogs that share a folder no longer remove each other's titles, and catalog collections only change collections the plugin made.\n- Making a new stream token updates every link in about a minute instead of up to an hour.\n\nSecurity\n- Playback and the Version menu respect each user's library access.\n- Stream links shown to apps no longer contain the stream token. New tokens are made on the server, with an option to stop old links at once.\n- Links from search results and torrents can't reach devices on your home network, and .torrent downloads are size-limited.\n- Searches set to go through the proxy never fall back to a direct connection.\n\nPlus smaller fixes for subtitle files, Trakt sign-in, the torrent limit, cache sizes, log messages and setting descriptions.",
+                "targetAbi": "12.4.0.0",
+                "sourceUrl": "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.7.0.0/p2pstream_0.7.0.0.zip",
+                "checksum": "f1bb9fece64c6bdabd9bb9519ebd6476",
+                "timestamp": "2026-11-25T02:20:28Z"
+            },
+            {
+                "version": "0.6.0.0",
+                "changelog": "Pre-loads the next episode, playback safety fixes for season packs and subtitle files, subtitles for torrents you add, Trakt without a Client Secret, and removing unused catalog folders. See the release notes.",
+                "targetAbi": "12.4.0.0",
+                "sourceUrl": "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.6.0.0/p2pstream_0.6.0.0.zip",
+                "checksum": "f23179a8b1770e1e5db22d4845e91e61",
+                "timestamp": "2026-11-25T00:01:25Z"
+            },
+            {
+                "version": "0.5.0.0",
+                "changelog": "First public release: on-demand torrent streaming with built-in sources, catalogs, Version menu, fast starts, release subtitles, VPN privacy and port forwarding. See the release notes.",
+                "targetAbi": "12.4.0.0",
+                "sourceUrl": "https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases/download/v0.5.0.0/p2pstream_0.5.0.0.zip",
+                "checksum": "dd3d289241671624cfa65ceb539a3bf5",
+                "timestamp": "2026-11-24T10:42:27Z"
+            }
+        ]
     }
 ]
