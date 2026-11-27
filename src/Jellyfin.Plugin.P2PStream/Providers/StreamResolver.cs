@@ -326,6 +326,14 @@ public sealed class StreamResolver
             for (var i = 0; i < candidates.Count; i++)
             {
                 var release = candidates[i];
+
+                // Just found dead under another listing (the same torrent is often listed by several sites).
+                if (i < candidates.Count - 1 && IsDead(release))
+                {
+                    _logger.LogInformation("Skipping {Release}: the same torrent just failed to download", release.Title);
+                    continue;
+                }
+
                 NetworkGuard.Require(); // don't try the next release while the VPN/proxy is down
 
                 // A film whose size is listed and clearly can't fit (even after removing idle torrents): don't start it.
@@ -511,19 +519,27 @@ public sealed class StreamResolver
                 await Task.WhenAny(read, Task.Delay(1000, window.Token)).ConfigureAwait(false);
             }
 
-            return read.IsCompletedSuccessfully;
+            if (read.IsCompletedSuccessfully)
+            {
+                return true;
+            }
+
+            LogNotDownloading(session, before);
+            return false;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            var got = session.Manager.Monitor.DataBytesReceived - before;
-            _logger.LogWarning(
-                "{Name} isn't downloading ({Kb} KB in {Seconds} s); trying the next release",
-                session.Manager.Torrent?.Name ?? session.InfoHash,
-                got >> 10,
-                (int)FlowWindow.TotalSeconds);
+            LogNotDownloading(session, before);
             return false;
         }
     }
+
+    private void LogNotDownloading(TorrentSession session, long before) =>
+        _logger.LogWarning(
+            "{Name} isn't downloading ({Kb} KB in {Seconds} s); trying the next release",
+            session.Manager.Torrent?.Name ?? session.InfoHash,
+            (session.Manager.Monitor.DataBytesReceived - before) >> 10,
+            (int)FlowWindow.TotalSeconds);
 
     /// <summary>
     /// Watching a release to the end downloads all of its file. If the disk hasn't room for what's left of it (plus a
