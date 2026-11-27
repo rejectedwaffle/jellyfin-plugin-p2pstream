@@ -43,7 +43,7 @@ public static class TrackerScrape
     /// Up to 10 extra trackers, the most often listed first, leaving out the public ones already asked (by host, since
     /// magnets spell the same tracker in several ways).
     /// </summary>
-    private static IEnumerable<string> MoreTrackers(IEnumerable<string>? extra)
+    internal static IEnumerable<string> MoreTrackers(IEnumerable<string>? extra)
     {
         if (extra is null)
         {

@@ -46,6 +46,19 @@ public sealed class StreamOptions
     /// <summary>Raised when a title's background live seeder check has finished (its Version list is complete).</summary>
     public event Action<MediaRequest>? LiveCheckFinished;
 
+    /// <summary>Tells listeners (StartStatus) that a title's release list is complete.</summary>
+    internal void NotifyLiveCheckFinished(MediaRequest request)
+    {
+        try
+        {
+            LiveCheckFinished?.Invoke(request);
+        }
+        catch (Exception)
+        {
+            // a listener's problem
+        }
+    }
+
     /// <summary>True while a title's live seeder counts are still being checked in the background (or its search runs).</summary>
     public bool IsCheckingLive(MediaRequest request) => _liveChecking.ContainsKey(request.Key) || _inflight.ContainsKey(request.Key);
 
@@ -363,14 +376,7 @@ public sealed class StreamOptions
                 }
 
                 _liveChecking.TryRemove(request.Key, out _);
-                try
-                {
-                    LiveCheckFinished?.Invoke(request);
-                }
-                catch (Exception)
-                {
-                    // a listener's problem
-                }
+                NotifyLiveCheckFinished(request);
             }
 
             void FollowUp()

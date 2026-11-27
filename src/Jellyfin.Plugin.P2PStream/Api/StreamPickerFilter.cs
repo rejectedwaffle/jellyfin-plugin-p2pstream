@@ -534,7 +534,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
     /// The same torrent listed by two sites (known once its torrent id has been looked up) shows once, as the listing
     /// with the live (or more trustworthy) count; the other stays playable, so a pick of it still works.
     /// </summary>
-    private static List<ReleaseCandidate> ByResolution(IEnumerable<ReleaseCandidate> ranked)
+    internal static List<ReleaseCandidate> ByResolution(IEnumerable<ReleaseCandidate> ranked)
     {
         var list = ranked.ToList();
         var hidden = list

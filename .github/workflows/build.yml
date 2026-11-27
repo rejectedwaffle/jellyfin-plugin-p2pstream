@@ -18,3 +18,5 @@ jobs:
           dotnet-version: 10.0.x
       - name: Build (warnings fail the build)
         run: dotnet build src/Jellyfin.Plugin.P2PStream -c Release -p:TreatWarningsAsErrors=true
+      - name: Tests
+        run: dotnet test src/Jellyfin.Plugin.P2PStream.Tests -c Release

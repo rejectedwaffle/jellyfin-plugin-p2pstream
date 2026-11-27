@@ -27,6 +27,12 @@ public sealed class TorrentsCsvProvider : SearchProvider
     private async Task<List<ReleaseCandidate>> QueryAsync(string query, CancellationToken ct)
     {
         var json = await UseMirrorsAsync((b, t) => GetJsonAsync($"{b}/service/search?q={Esc(query)}&size=50", t), ct).ConfigureAwait(false);
+        return Parse(json, Name);
+    }
+
+    /// <summary>Reads a search answer: {"torrents": [{"infohash", "name", "size_bytes", "seeders", "leechers"}, ...]}.</summary>
+    internal static List<ReleaseCandidate> Parse(JsonNode? json, string origin)
+    {
         var list = new List<ReleaseCandidate>();
         foreach (var r in json?["torrents"] as JsonArray ?? [])
         {
@@ -39,7 +45,7 @@ public sealed class TorrentsCsvProvider : SearchProvider
             list.Add(new ReleaseCandidate
             {
                 Title = (string?)r?["name"] ?? string.Empty,
-                Origin = Name,
+                Origin = origin,
                 InfoHash = hash.ToLowerInvariant(),
                 Size = ToLong(r?["size_bytes"]),
                 Seeders = (int)ToLong(r?["seeders"]),
