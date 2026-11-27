@@ -206,10 +206,27 @@ public static partial class StreamPicker
     /// One media source per release, copied from the item's own .strm source so Jellyfin treats it the same way.
     /// Releases checked in advance get their real tracks; the rest have none until they've played.
     /// </summary>
+    /// <summary>Track numbers from here up are a title's subtitle files listed on versions (see BuildSources).</summary>
+    public const int VirtualSubtitleBase = 9000;
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> VirtualSubtitles = new();
+
+    /// <summary>The subtitle file a version's listed track number stands for.</summary>
+    public static bool TryGetVirtualSubtitle(Guid itemId, int index, out string path) =>
+        VirtualSubtitles.TryGetValue(itemId.ToString("N") + "|" + index, out path!);
+
     public static List<MediaSourceInfo> BuildSources(BaseItem item, string strmUrl, IEnumerable<ReleaseCandidate> releases, StreamOptions? options = null)
     {
         var template = item.GetMediaSources(false).FirstOrDefault();
         var templateJson = template is null ? null : JsonSerializer.Serialize(template);
+
+        // The title's own subtitle files (downloaded by Jellyfin, or your own) suit any release of it, so every version's
+        // Subtitles box lists them. Files the plugin took from the current release stay with that release.
+        var owned = TorrentSubtitles.OwnedFiles(item.Path);
+        var externals = (template?.MediaStreams ?? [])
+            .Where(s => s.Type == MediaStreamType.Subtitle && s.IsExternal && !string.IsNullOrEmpty(s.Path) && !owned.Contains(Path.GetFileName(s.Path)))
+            .Select(s => JsonSerializer.Serialize(s))
+            .ToList();
         MediaRequest? request = TryGetRequest(item, out _, out var parsed) ? parsed : null;
         var list = new List<MediaSourceInfo>();
         foreach (var r in releases)
@@ -228,11 +245,22 @@ public static partial class StreamPicker
             source.DefaultSubtitleStreamIndex = null;
             if (options is not null && options.TryGetProbe(StreamOptions.ProbeKey(request, id), out var probe))
             {
-                source.MediaStreams = probe.Streams;
+                source.MediaStreams = probe.Streams.ToList();
                 source.RunTimeTicks = probe.RunTimeTicks ?? source.RunTimeTicks;
                 source.Bitrate = probe.Bitrate;
                 source.DefaultAudioStreamIndex = (probe.Streams.FirstOrDefault(s => s.Type == MediaStreamType.Audio && s.IsDefault)
                     ?? probe.Streams.FirstOrDefault(s => s.Type == MediaStreamType.Audio))?.Index;
+            }
+
+            // Listed under numbers of their own: the real track number is only known once Jellyfin has checked the
+            // release at Play time. Picking one is matched back to its file then (StreamPickerFilter).
+            for (var i = 0; i < externals.Count; i++)
+            {
+                var sub = JsonSerializer.Deserialize<MediaStream>(externals[i])!;
+                sub.Index = VirtualSubtitleBase + i;
+                sub.IsDefault = false;
+                VirtualSubtitles[item.Id.ToString("N") + "|" + sub.Index] = sub.Path;
+                source.MediaStreams = [.. source.MediaStreams, sub];
             }
 
             list.Add(source);

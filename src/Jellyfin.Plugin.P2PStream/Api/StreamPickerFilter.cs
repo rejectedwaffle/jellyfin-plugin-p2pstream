@@ -115,6 +115,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         if (playItem is not null && executed.Result is ObjectResult { Value: PlaybackInfoResponse info })
         {
             UseRequestAddress(http.Request, info);
+            UsePickedSubtitleFile(http, info);
         }
 
         if (enabled && HttpMethods.IsGet(http.Request.Method) && ItemPath().IsMatch(path))
@@ -292,6 +293,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             return;
         }
 
+        TakePickedSubtitleFile(context, item);
         SkipAutomaticSubtitle(context, item);
 
         var staticId = item.Id.ToString("N");
@@ -539,6 +541,57 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
     /// ask for none; when the asked-for subtitle is the release's own default/forced text track (the automatic pick), drop
     /// it. A subtitle the user picks still works (slowly, as explained in the log).
     /// </summary>
+    private const string PickedSubtitleKey = "p2p.pickedSubtitleFile";
+
+    /// <summary>
+    /// A subtitle file picked in a version's Subtitles box carries a number of its own (its real number is only known
+    /// after Jellyfin checks the release). Remember which file it is and ask for no subtitle for now; after Jellyfin
+    /// answers, <see cref="UsePickedSubtitleFile"/> points the answer at that file's real track.
+    /// </summary>
+    private static void TakePickedSubtitleFile(ActionExecutingContext context, BaseItem item)
+    {
+        var bodies = context.ActionArguments.Values
+            .Where(v => v?.GetType().GetProperty("SubtitleStreamIndex") is { CanWrite: true } p && (p.PropertyType == typeof(int?) || p.PropertyType == typeof(int)))
+            .ToList();
+        var hasQuery = context.ActionArguments.TryGetValue("subtitleStreamIndex", out var q);
+        int? requested = hasQuery ? q as int? : null;
+        requested ??= bodies.Select(b => b!.GetType().GetProperty("SubtitleStreamIndex")!.GetValue(b) as int?).FirstOrDefault(i => i.HasValue);
+        if (requested is not int index || index < StreamPicker.VirtualSubtitleBase || !StreamPicker.TryGetVirtualSubtitle(item.Id, index, out var path))
+        {
+            return;
+        }
+
+        context.HttpContext.Items[PickedSubtitleKey] = path;
+        if (hasQuery)
+        {
+            context.ActionArguments["subtitleStreamIndex"] = -1;
+        }
+
+        foreach (var body in bodies)
+        {
+            body!.GetType().GetProperty("SubtitleStreamIndex")!.SetValue(body, -1);
+        }
+    }
+
+    /// <summary>Points Jellyfin's answer at the real track of the subtitle file picked on the title page.</summary>
+    private void UsePickedSubtitleFile(HttpContext http, PlaybackInfoResponse info)
+    {
+        if (http.Items[PickedSubtitleKey] is not string path || info.MediaSources is null)
+        {
+            return;
+        }
+
+        foreach (var source in info.MediaSources)
+        {
+            var real = source.MediaStreams?.FirstOrDefault(s => s.Type == MediaStreamType.Subtitle && string.Equals(s.Path, path, StringComparison.OrdinalIgnoreCase));
+            if (real is not null)
+            {
+                source.DefaultSubtitleStreamIndex = real.Index;
+                _logger.LogDebug("Picked subtitle {File} is track {Index}", Path.GetFileName(path), real.Index);
+            }
+        }
+    }
+
     private void SkipAutomaticSubtitle(ActionExecutingContext context, BaseItem item)
     {
         var bodies = context.ActionArguments.Values

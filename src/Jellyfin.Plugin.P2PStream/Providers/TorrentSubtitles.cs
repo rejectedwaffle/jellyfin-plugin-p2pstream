@@ -360,6 +360,28 @@ public sealed partial class TorrentSubtitles
 
     private sealed record State(string? Release, List<string> Files);
 
+    /// <summary>The subtitle files next to a title that the plugin wrote from its current release (file names).</summary>
+    public static HashSet<string> OwnedFiles(string? strmPath)
+    {
+        var owned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (strmPath is not null && Path.GetDirectoryName(strmPath) is { } dir)
+            {
+                var statePath = Path.Combine(dir, "." + Path.GetFileNameWithoutExtension(strmPath) + ".p2psubs.json");
+                if (File.Exists(statePath) && JsonSerializer.Deserialize<State>(File.ReadAllText(statePath)) is { } state)
+                {
+                    owned.UnionWith(state.Files);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+        }
+
+        return owned;
+    }
+
     [GeneratedRegex(@"[A-Za-z]+")]
     private static partial Regex Words();
 
