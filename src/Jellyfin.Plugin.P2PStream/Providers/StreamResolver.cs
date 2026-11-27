@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
 using Jellyfin.Plugin.P2PStream.Torrent;
 using NetworkGuard = Jellyfin.Plugin.P2PStream.Torrent.NetworkGuard;
 using Microsoft.Extensions.Logging;
@@ -484,9 +483,8 @@ public sealed class StreamResolver
     private async Task<ResolvedStream?> RaceAsync(MediaRequest req, ReleaseCandidate a, ReleaseCandidate b, bool final, CancellationToken ct)
     {
         using var race = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var winner = new StrongBox<string?>();
         var entries = new[] { a, b }
-            .Select(r => (Release: r, Task: StartCoreAsync(req, r, race.Token, remember: true, checkFlow: true, keepSlow: final, winner: winner)))
+            .Select(r => (Release: r, Task: StartCoreAsync(req, r, race.Token, remember: true, checkFlow: true, keepSlow: final)))
             .ToList();
         var pending = entries.Select(e => e.Task).ToList();
         var slow = new List<(ReleaseCandidate Release, ResolvedStream Stream)>();
@@ -508,7 +506,6 @@ public sealed class StreamResolver
             if (result.Ok is { } ok)
             {
                 // The other one stops at once (and removes its own torrent unless something else reads it).
-                winner.Value = ok.Session.InfoHash;
                 await race.CancelAsync().ConfigureAwait(false);
                 foreach (var (_, stream) in slow)
                 {
@@ -804,10 +801,8 @@ public sealed class StreamResolver
     /// removed, or returned as <see cref="StartResult.Slow"/> with <paramref name="keepSlow"/>. If <paramref name="ct"/>
     /// is cancelled (the player left, or another release won a race), a torrent this started is removed again.
     /// </summary>
-    private async Task<StartResult> StartCoreAsync(MediaRequest req, ReleaseCandidate release, CancellationToken ct, bool remember, bool checkFlow, bool keepSlow, bool chosenByUser = false, TimeSpan? metadataTimeout = null, StrongBox<string?>? winner = null)
+    private async Task<StartResult> StartCoreAsync(MediaRequest req, ReleaseCandidate release, CancellationToken ct, bool remember, bool checkFlow, bool keepSlow, bool chosenByUser = false, TimeSpan? metadataTimeout = null)
     {
-        TorrentSession? added = null;
-        var existed = false;
         try
         {
             _logger.LogInformation("Trying {Release} from {Origin} ({Seeders}{Live:l} seeders) for {Request}", release.Title, release.Origin, release.Seeders, release.LiveSeeders ? " live" : string.Empty, req);
@@ -820,9 +815,7 @@ public sealed class StreamResolver
                 metadataTimeout = full < NearlyDeadTimeout ? full : NearlyDeadTimeout;
             }
 
-            existed = _engine.Peek(source.InfoHash) is not null;
             var session = await _engine.AddAsync(source, ct, metadataTimeout).ConfigureAwait(false);
-            added = session;
             var index = PickFile(session.Manager, req);
             if (index < 0)
             {
@@ -864,20 +857,9 @@ public sealed class StreamResolver
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // Lost a race (or the player left): a torrent this started and nothing reads goes again.
-            if (added is not null && !existed && added.ActiveStreams == 0
-                && !string.Equals(added.InfoHash, winner?.Value, StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    await _engine.RemoveAsync(added.InfoHash, true).ConfigureAwait(false);
-                }
-                catch (Exception)
-                {
-                    // best effort
-                }
-            }
-
+            // Lost a race (or the player left). The torrent isn't removed here: another part of the plugin (a track
+            // check) may have started the same one at the same moment and be using it. Unread, it stops downloading
+            // within a minute, and the idle clean-up removes it.
             throw;
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)

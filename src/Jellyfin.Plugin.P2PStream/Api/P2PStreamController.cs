@@ -116,7 +116,7 @@ public class P2PStreamController : ControllerBase
             return NotFound();
         }
 
-        await ServeAsync(session, fileIndex).ConfigureAwait(false);
+        await ServeAsync(session, fileIndex, playback: true).ConfigureAwait(false);
         return new EmptyResult();
     }
 
@@ -963,7 +963,7 @@ public class P2PStreamController : ControllerBase
 
         // Jellyfin's forced re-check of the stream while it answers a Play request: give it only the start.
         var checkKey = !probe && PlaybackInfoWindow.IsActive(req.Key) ? req.Key : null;
-        await ServeAsync(resolved.Session, resolved.FileIndex, checkKey).ConfigureAwait(false);
+        await ServeAsync(resolved.Session, resolved.FileIndex, checkKey, playback: !probe).ConfigureAwait(false);
         return new EmptyResult();
     }
 
@@ -976,7 +976,8 @@ public class P2PStreamController : ControllerBase
     /// <summary>How long Jellyfin's stream check may wait for data before it's ended.</summary>
     private static readonly TimeSpan CheckStallLimit = TimeSpan.FromSeconds(60);
 
-    private async Task ServeAsync(TorrentSession session, int fileIndex, string? checkKey = null)
+    /// <param name="playback">A player watching it (counts as space still needed); false for the plugin's own track checks.</param>
+    private async Task ServeAsync(TorrentSession session, int fileIndex, string? checkKey = null, bool playback = false)
     {
         var file = session.Manager.Files[fileIndex];
         var length = file.Length;
@@ -1016,7 +1017,7 @@ public class P2PStreamController : ControllerBase
         try
         {
             var aborted = HttpContext.RequestAborted;
-            await using var lease = await session.OpenAsync(file, aborted).ConfigureAwait(false);
+            await using var lease = await session.OpenAsync(file, aborted, playback).ConfigureAwait(false);
             lease.Position = start;
 
             var remaining = end - start + 1;

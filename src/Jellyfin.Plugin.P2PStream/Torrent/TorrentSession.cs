@@ -43,6 +43,9 @@ public sealed class TorrentSession
 
     private int _activeStreams;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<ITorrentManagerFile, int> _readers = new();
+
+    // Readers that are someone watching (a player), as opposed to pre-loads, track checks and speed checks.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<ITorrentManagerFile, int> _players = new();
     private volatile bool _closed;
     private CancellationTokenSource? _parkCts;
 
@@ -61,8 +64,8 @@ public sealed class TorrentSession
 
     public int ActiveStreams => Volatile.Read(ref _activeStreams);
 
-    /// <summary>The files of this torrent someone is reading right now.</summary>
-    public IReadOnlyList<ITorrentManagerFile> FilesBeingRead => _readers.Where(kv => kv.Value > 0).Select(kv => kv.Key).ToList();
+    /// <summary>The files of this torrent someone is watching right now (pre-loads and checks don't count).</summary>
+    public IReadOnlyList<ITorrentManagerFile> FilesBeingWatched => _players.Where(kv => kv.Value > 0).Select(kv => kv.Key).ToList();
 
     /// <summary>True if another file of this torrent is being read right now (a season pack's other episode, say).</summary>
     public bool IsReadingOtherThan(ITorrentManagerFile file) => _readers.Any(kv => kv.Value > 0 && kv.Key != file);
@@ -98,7 +101,8 @@ public sealed class TorrentSession
     } + (error.Exception is { } ex ? ": " + ex.GetBaseException().Message : string.Empty);
 
     /// <summary>Opens a reader on the file. Any number of readers can be open at once. Dispose the lease when done.</summary>
-    public async Task<StreamLease> OpenAsync(ITorrentManagerFile file, CancellationToken ct)
+    /// <param name="playback">True for a player watching it; false for pre-loads and checks.</param>
+    public async Task<StreamLease> OpenAsync(ITorrentManagerFile file, CancellationToken ct, bool playback = false)
     {
         Interlocked.Exchange(ref _parkCts, null)?.Cancel(); // someone's reading again: don't pause
         NetworkGuard.Require(); // kill switch
@@ -141,8 +145,13 @@ public sealed class TorrentSession
 
             Interlocked.Increment(ref _activeStreams);
             _readers.AddOrUpdate(file, 1, (_, n) => n + 1);
+            if (playback)
+            {
+                _players.AddOrUpdate(file, 1, (_, n) => n + 1);
+            }
+
             Touch();
-            return new StreamLease(this, file);
+            return new StreamLease(this, file, playback);
         }
         finally
         {
@@ -197,10 +206,15 @@ public sealed class TorrentSession
         return count;
     }
 
-    internal void Release(ITorrentManagerFile file)
+    internal void Release(ITorrentManagerFile file, bool playback)
     {
         Touch();
         _readers.AddOrUpdate(file, 0, (_, n) => Math.Max(0, n - 1));
+        if (playback)
+        {
+            _players.AddOrUpdate(file, 0, (_, n) => Math.Max(0, n - 1));
+        }
+
         if (Interlocked.Decrement(ref _activeStreams) == 0)
         {
             SchedulePause();
@@ -328,12 +342,14 @@ public sealed class StreamLease : IAsyncDisposable
 {
     private readonly TorrentSession _session;
     private readonly ITorrentManagerFile _file;
+    private readonly bool _playback;
     private int _disposed;
 
-    internal StreamLease(TorrentSession session, ITorrentManagerFile file)
+    internal StreamLease(TorrentSession session, ITorrentManagerFile file, bool playback)
     {
         _session = session;
         _file = file;
+        _playback = playback;
     }
 
     public long Length => _file.Length;
@@ -359,7 +375,7 @@ public sealed class StreamLease : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            _session.Release(_file);
+            _session.Release(_file, _playback);
         }
 
         return ValueTask.CompletedTask;

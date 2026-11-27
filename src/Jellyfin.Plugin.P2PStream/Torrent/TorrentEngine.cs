@@ -769,7 +769,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     public long PromisedBytes(string? except = null) =>
         _sessions.Values
             .Where(s => s.ActiveStreams > 0 && s.InfoHash != except)
-            .Sum(s => s.FilesBeingRead.Sum(f => RemainingBytes(s.Manager, s.Manager.Files.IndexOf(f))));
+            .Sum(s => s.FilesBeingWatched.Sum(f => RemainingBytes(s.Manager, s.Manager.Files.IndexOf(f))));
 
     /// <summary>What's still to download of one file (its size less the whole pieces already on disk).</summary>
     public static long RemainingBytes(TorrentManager m, int fileIndex)
