@@ -52,5 +52,47 @@ public static class DiskSpace
     /// </summary>
     public static bool Fits(long need, long free, long promised, long reclaimable = 0) => need <= free - promised + reclaimable;
 
+    /// <summary>
+    /// How much of a file already takes space on the disk. Depending on the file system, a torrent's file takes its
+    /// full size at once (then free space already counts it) or grows as pieces arrive (sparse). On Linux this asks
+    /// du for the blocks really used; elsewhere, or if that fails, the file is taken as fully allocated.
+    /// </summary>
+    public static long AllocatedBytes(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists)
+            {
+                return 0;
+            }
+
+            if (OperatingSystem.IsLinux())
+            {
+                using var du = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("du", ["-k", path])
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                });
+                if (du is not null)
+                {
+                    var output = du.StandardOutput.ReadToEnd();
+                    du.WaitForExit(5000);
+                    if (long.TryParse(output.Split('	', ' ')[0], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var kb))
+                    {
+                        return kb * 1024;
+                    }
+                }
+            }
+
+            return info.Length;
+        }
+        catch (Exception)
+        {
+            return long.MaxValue; // unknown: assume it's all there (don't refuse a release over a guess)
+        }
+    }
+
     public static string Gb(long bytes) => (bytes / (double)(1L << 30)).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " GB";
 }

@@ -725,7 +725,9 @@ public sealed class StreamResolver
         }
 
         var releases = await _options.GetAsync(req, ct).ConfigureAwait(false);
+        // Also a release that dropped out of the list after the Version menu was shown (re-ranked by live counts).
         var chosen = releases.FirstOrDefault(r => StreamOptions.IdFor(r) == releaseId)
+            ?? _options.FindRelease(releaseId)
             ?? throw new StreamNotFoundException("That stream is no longer listed. Reopen the title to refresh the list, or use Auto.");
         if (remember)
         {

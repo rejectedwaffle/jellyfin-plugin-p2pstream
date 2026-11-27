@@ -40,6 +40,33 @@ public sealed class StreamOptions
         _logger = logger;
     }
 
+    /// <summary>
+    /// Every release found for a title (release id to release), not only the ones kept in its list. A version picked
+    /// from a Version menu opened a little earlier must still be found after the list was re-ranked and trimmed.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, (ReleaseCandidate Release, DateTime At)> _everFound = new();
+
+    private void RememberAll(IEnumerable<ReleaseCandidate> releases)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var r in releases)
+        {
+            _everFound[IdFor(r)] = (r, now);
+        }
+
+        if (_everFound.Count > 20000)
+        {
+            foreach (var old in _everFound.Where(kv => now - kv.Value.At > CacheAge).Select(kv => kv.Key).ToList())
+            {
+                _everFound.TryRemove(old, out _);
+            }
+        }
+    }
+
+    /// <summary>A release found for some title in the last while, by its id (see <see cref="IdFor"/>).</summary>
+    public ReleaseCandidate? FindRelease(string releaseId) =>
+        _everFound.TryGetValue(releaseId, out var hit) && DateTime.UtcNow - hit.At < CacheAge * 2 ? hit.Release : null;
+
     /// <summary>Titles whose release list is having its live seeder counts checked in the background.</summary>
     private readonly ConcurrentDictionary<string, byte> _liveChecking = new();
 
@@ -339,6 +366,7 @@ public sealed class StreamOptions
                 lock (foundLock)
                 {
                     found = Dedupe(found.Concat(late));
+                    RememberAll(found);
                     merged = Pick(ReleaseRanker.Rank(found, request));
                 }
 
@@ -455,6 +483,7 @@ public sealed class StreamOptions
             lock (foundLock)
             {
                 found = Dedupe(found.Concat(results));
+                RememberAll(found);
             }
 
             // Sites' seeder counts are often stale (one listed 288 seeders for a torrent with one): ask the trackers for
