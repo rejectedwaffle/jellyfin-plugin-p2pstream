@@ -4,26 +4,28 @@ Stream torrents on demand inside Jellyfin, similar to Elementum for Kodi.
 Press play and the plugin finds a release, starts the torrent and streams it while the rest downloads.
 Seeking works, because the engine fetches pieces wherever playback jumps to.
 
+Still in development: versions are below 1.0 (semantic versioning), and settings or behaviour may still change between releases.
+
 ## Features
 - **Built-in sources, nothing extra to install:** Internet Archive (films uploaded to archive.org, on by default), plus Knaben (searches many trackers at once), BitSearch (a search engine built from the DHT, which finds releases sites have dropped), Torrents-CSV (an open torrent database), Nyaa (anime), KickAss Torrents, YTS, EZTV and The Pirate Bay, which you switch on yourself. Each has an editable address in case a site moves. Torznab (Prowlarr/Jackett) is supported too.
 - **Catalogs as libraries (Gelato-style):** TMDB lists (Trending, Trending Today, Popular, Top Rated, Now Playing, Upcoming, On The Air, Airing Today) and your own TMDB lists are written as `.strm` folders. Each catalog has Import, Collection, Max items and a target library. Artwork and metadata come from Jellyfin's own TMDB provider.
 - **Trakt catalogs:** with a free Trakt API Client ID: Trakt Trending, Popular, Anticipated and Box Office, a public watchlist, and any Trakt lists you name. Connect your account (enter a code at trakt.tv/activate) for your private watchlist and recommendations; no Client Secret needed.
 - **Available streams picker (Elementum-style):** a title's releases appear in Jellyfin's **Version** menu, highest resolution first, with resolution, size, seeds, quality and source, plus "Best 4K / Best 1080p" entries. Auto (best match) stays the default. A version you pick is used until you finish the title (Auto then says "your pick"), and each person's picks are their own.
-- **Live seeder counts:** torrent sites' seeder counts are often stale, so the top releases' real counts are asked from the trackers before Auto picks (shown as "seeds live" in the Version menu). A release with no real seeders is passed over.
-- **Quick, visible starts:** Auto tries the two best releases at once and plays whichever downloads fast enough first, moving on from a dead or slow one within seconds. Short messages on the screen of whoever pressed Play say what's happening (which release, peers and speed, moving on). Opening a title while its live counts are still being checked gives a message when the Version list is complete.
-- **Faster start:** opening a title's page pre-loads the start and end of Auto's release, so playback starts sooner. Peers are kept busy with requests well ahead of the player, so a well-seeded release downloads at several MB/s even through a VPN. Two minutes into an episode, the start of the next one is fetched too, so Next or autoplay starts almost at once (following per-device limits).
+- **Live seeder counts:** torrent sites' seeder counts are often stale, so the top releases' real counts are asked from the trackers (public ones and each torrent's own) before Auto picks, and shown as "seeds live" in the Version menu. Counts from sites known to run high rank lower until they're checked, and a release with no real seeders is passed over.
+- **Quick, visible starts:** Auto tries the two best releases at once and plays whichever downloads fast enough first, moving on from a dead or slow one within seconds. A version you picked that can't connect is cleared, and Auto plays instead. Short messages on the screen of whoever pressed Play say what's happening (which release, peers and speed, moving on); the Jellyfin web app and apps built on it show them, some TV apps don't. Opening a title while its live counts are still being checked gives a message when the Version list is complete.
+- **Faster start:** opening a title's page pre-loads the start and end of the release that device will play (your pick, the device's limit, or Auto's), so playback starts sooner. Peers are kept busy with requests well ahead of the player, so a well-seeded release downloads at several MB/s even through a VPN. Two minutes into an episode, the start of the next one is fetched too, so Next or autoplay starts almost at once (following per-device limits).
 - **Subtitles from the release:** subtitle files that come with a release (.srt, .ass, .vtt) appear in Jellyfin's subtitle menu, labelled by language, without downloading the whole release first.
-- **Subtitles when a release has none:** with a Jellyfin subtitle plugin such as OpenSubtitles installed, a subtitle in your language is fetched when you play a release that has none. Only for what you actually play, so a free account's daily limit goes a long way.
+- **Subtitles when a release has none:** with a Jellyfin subtitle plugin such as OpenSubtitles installed, a subtitle in your language is fetched when you play a release that has none. One made for a release like the one playing is preferred, so it stays in sync. Only for what you actually play, so a free account's daily limit goes a long way.
 - **Per-device limits:** cap what Auto plays on a device (e.g. the living room TV gets the best release up to 1080p and 8 GB). Choosing a version in the Version menu always wins.
 - **Privacy:** send torrent traffic only through a VPN's network interface (with a kill switch: if the VPN drops, torrents stop instead of using another connection) or only through a SOCKS5/HTTP proxy. Works with a VPN's forwarded port ([guide](docs/port-forwarding.md)). Optionally share only while watching, and cap the disk space streaming may use.
 - **Anime:** Nyaa is searched with TMDB's romaji (Japanese) titles as well as the English ones, and only for titles that are anime.
 - **Source health:** each source on the Sources tab shows its last result count, or why it failed.
 - **Search for any movie or show** from Jellyfin's search bar, in any client. Matches from TMDB are added to your library. Only people's searches add titles (not scripts or request tools using an API key), and searched titles nobody played are removed after a set number of days, or with **Clean up now**.
 - **Playing away from home:** stream links use the address each device reached Jellyfin by, so playing through a reverse proxy works without extra settings.
-- **Burst-style quality filters:** preferred and allowed resolutions, allowed release types (BluRay, WEB-DL, ... TeleSync, Cam), size ranges for movies, episodes and season packs, required and excluded keywords, minimum seeders (and optionally a higher minimum for 4K).
+- **Burst-style quality filters:** preferred and allowed resolutions, allowed release types (BluRay, WEB-DL, ... TeleSync, Cam), size ranges for movies, episodes and season packs, required and excluded keywords, minimum seeders, and a higher minimum for 4K (20 by default) so a thinly seeded 4K release is tried after the best 1080p one.
 - **Torrent engine** (MonoTorrent): downloads only the file being watched, in playback order, and removes idle torrents.
 - **Magnets:** paste a magnet or `.torrent` URL to stream it or add it to your library (its subtitle files come too).
-- **Settings page** in the dashboard menu, with a tab per job: Status, Catalogs, Search, Sources, Quality, Playback, Network, Storage, Accounts. Storage shows how much of the disk is used and what's left.
+- **Settings page** in the dashboard menu, with a tab per job: Status, Catalogs, Search, Sources, Quality, Playback, Network, Storage, Accounts. Storage shows how much of the disk is used and what's left, what the plugin's files take, and what Jellyfin's own files take (artwork, including the part for the plugin's titles, image cache, transcodes, database and logs).
 
 ## Install (plugin repository)
 1. In Jellyfin, go to **Dashboard > Plugins > Repositories** and add:
@@ -32,6 +34,10 @@ Seeking works, because the engine fetches pieces wherever playback jumps to.
 2. Go to **Catalog**, find **P2P Stream**, install it and restart Jellyfin.
 
 Updates then appear in the plugin catalog. Requires Jellyfin 12.4 or newer.
+
+**Had a 1.x version installed?** Versions restarted below 1.0 (the old 1.0 to 1.3 are now 0.5 to 0.8), and Jellyfin
+never replaces a higher version with a lower one. Uninstall P2P Stream under **Dashboard > Plugins**, restart, then
+install it again from the catalog. Your settings, catalog folders and libraries are kept.
 
 ### Manual install
 Download `p2pstream_<version>.zip` from [Releases](https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases), extract it into
@@ -86,18 +92,25 @@ and replaying start instantly. The token in the URL lets players stream without 
 ## Build and release
 ```
 dotnet build src/Jellyfin.Plugin.P2PStream -c Release          # build only
+dotnet test src/Jellyfin.Plugin.P2PStream.Tests -c Release      # automated tests
 ./scripts/package.ps1 -Changelog "What changed"               # zip + meta.json + manifest.json entry
 git commit -am "<version>" && git push                          # commit the version bump and manifest.json first
 gh release create v<version> artifacts/p2pstream_<version>.zip --target main  # then publish (tags the pushed commit)
 ```
-Bump `AssemblyVersion` in the `.csproj` first. Requires the .NET 10 SDK.
+Requires the .NET 10 SDK.
 
-For quick test builds without a release: `./scripts/package.ps1 -Dev` builds `<version>.<n>` into `artifacts/dev/`, and
-`./scripts/dev-serve.ps1` serves that folder on port 8765. Add `http://<your PC>:8765/manifest.json` as a second
-repository in Jellyfin and install from there. Anyone who can reach that port can offer your Jellyfin a plugin build, so
-only run it on a network you trust (`-Bind <LAN address>` limits it to one address).
+Versions follow semantic versioning, written with four parts because Jellyfin expects them (0.9.0 is `0.9.0.0`): new
+features raise the middle number, fixes the last. The `.csproj` holds the latest release's version; set
+`AssemblyVersion` and `FileVersion` to the new one before packaging a release.
 
-Every push to `main` is built by GitHub Actions (`.github/workflows/build.yml`); a warning fails the build.
+For quick test builds without a release: `./scripts/package.ps1 -Dev` builds `<version>.<n>` into `artifacts/dev/`
+(newer than the latest release, older than the next), and `./scripts/dev-serve.ps1` serves that folder on port 8765.
+Add `http://<your PC>:8765/manifest.json` as a second repository in Jellyfin and install from there. Anyone who can
+reach that port can offer your Jellyfin a plugin build, so only run it on a network you trust (`-Bind <LAN address>`
+limits it to one address).
+
+Every push to `main` is built and tested by GitHub Actions (`.github/workflows/build.yml`); a warning or a failing test
+fails the build.
 
 ## Notes
 - Some sites block automated searches or move domains. Use "change address" or the proxy setting.

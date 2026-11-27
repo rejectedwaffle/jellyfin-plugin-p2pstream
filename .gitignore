@@ -11,3 +11,6 @@ CLAUDE.md
 
 # Local security audit (describes weaknesses; never publish)
 CODEBASE-AUDIT.md
+
+# Local planning notes (not published)
+docs/DEBRID-PLAN.md
