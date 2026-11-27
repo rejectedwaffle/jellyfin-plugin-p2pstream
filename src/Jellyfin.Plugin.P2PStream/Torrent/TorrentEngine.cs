@@ -837,8 +837,17 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         }
     }
 
+    private int _cleaning;
+
     private async Task CleanupAsync()
     {
+        // One run at a time: the timer fires every minute whether or not the last run has finished, and runs piling
+        // up on a slow removal made a busy server worse.
+        if (Interlocked.Exchange(ref _cleaning, 1) == 1)
+        {
+            return;
+        }
+
         try
         {
             var idle = TimeSpan.FromMinutes(Math.Max(1, Config.IdleTimeoutMinutes));
@@ -854,6 +863,10 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Cleanup failed");
+        }
+        finally
+        {
+            Volatile.Write(ref _cleaning, 0);
         }
     }
 
@@ -918,7 +931,17 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                 _logger.LogDebug("Stopping {Name} before removal: {Message}", manager.Torrent?.Name, ex.Message);
             }
 
-            await engine.RemoveAsync(manager, deleteData ? RemoveMode.DownloadedDataOnly : RemoveMode.KeepAllData).ConfigureAwait(false);
+            // Time-limited: this holds the engine lock, which every torrent start waits for. A removal stuck inside the
+            // engine must not hold up every play; it carries on in the background and is logged.
+            var removal = engine.RemoveAsync(manager, deleteData ? RemoveMode.DownloadedDataOnly : RemoveMode.KeepAllData);
+            if (await Task.WhenAny(removal, Task.Delay(TimeSpan.FromSeconds(20))).ConfigureAwait(false) != removal)
+            {
+                _logger.LogWarning("Removing {Name} is taking more than 20 s; carrying on without waiting for it", manager.Torrent?.Name ?? Hash(manager));
+                _ = removal.ContinueWith(t => _logger.LogInformation("Removal of {Name} finished late ({Status})", manager.Torrent?.Name ?? Hash(manager), t.Status), TaskScheduler.Default);
+                return;
+            }
+
+            await removal.ConfigureAwait(false);
             if (deleteData)
             {
                 DeleteTorrentDirectory(Hash(manager));
