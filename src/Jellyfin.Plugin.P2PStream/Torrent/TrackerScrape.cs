@@ -67,6 +67,9 @@ public static class TrackerScrape
 
     private static readonly ConcurrentDictionary<string, (Result Result, DateTime At)> Recent = new();
 
+    /// <summary>One connection per tracker, kept: its connection id is reused (a round trip less per check).</summary>
+    private static readonly ConcurrentDictionary<string, GuardedUdpTrackerConnection> Connections = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// Scrapes all the info hashes (40 hex characters) in one request per tracker, on every tracker at once, and keeps
     /// the highest counts (trackers only know the peers that announce to them). Hashes no tracker answered for are left out.
@@ -96,12 +99,17 @@ public static class TrackerScrape
 
         var asHashes = hashes.Select(InfoHash.FromHex).ToList();
         var trackers = Trackers.Concat(MoreTrackers(extraTrackers)).ToList();
+        if (Connections.Count > 200)
+        {
+            Connections.Clear(); // magnets name many trackers; don't keep them all forever
+        }
+
         var answers = await Task.WhenAll(trackers.Select(async tracker =>
         {
             try
             {
                 // WaitAsync: looking up a tracker's address doesn't always stop when asked, and must not hold up the rest.
-                var connection = new GuardedUdpTrackerConnection(new Uri(tracker), AddressFamily.InterNetwork);
+                var connection = Connections.GetOrAdd(tracker, t => new GuardedUdpTrackerConnection(new Uri(t), AddressFamily.InterNetwork) { ResendEvery = TimeSpan.FromMilliseconds(750) });
                 var got = await connection.ScrapeManyAsync(asHashes, limit.Token).WaitAsync(limit.Token).ConfigureAwait(false);
                 return got.Select(kv => (Hash: kv.Key.ToHex().ToLowerInvariant(), Seeds: kv.Value.Seeders, Leeches: kv.Value.Leechers)).ToList();
             }

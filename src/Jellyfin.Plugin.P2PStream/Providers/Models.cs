@@ -90,6 +90,12 @@ public sealed class ReleaseCandidate
     /// <summary>Gets or sets a value indicating whether <see cref="Seeders"/> was checked with the trackers (not the site's figure).</summary>
     public bool LiveSeeders { get; set; }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the source's seeder counts are known to run high (often several times
+    /// the real count). Until checked live, such a count is discounted when ranking.
+    /// </summary>
+    public bool StaleCounts { get; set; }
+
     public int Peers { get; set; }
 
     public int Resolution { get; set; }

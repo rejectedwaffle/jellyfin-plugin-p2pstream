@@ -52,9 +52,13 @@ public sealed class StreamOptions
     /// <summary>A stable id for a release, also used as the Jellyfin media source id.</summary>
     public static string IdFor(ReleaseCandidate r)
     {
-        var identity = !string.IsNullOrEmpty(r.InfoHash)
-            ? "h:" + r.InfoHash.ToLowerInvariant()
-            : "u:" + (r.MagnetPageUrl ?? r.DownloadUrl ?? r.MagnetUrl ?? r.Title);
+        // A listing whose torrent id is only on its page keeps its page as its identity: the torrent id gets filled in
+        // later (live seeder check, starting it), and the release's id must not change then (picks and menus use it).
+        var identity = !string.IsNullOrEmpty(r.MagnetPageUrl)
+            ? "u:" + r.MagnetPageUrl
+            : !string.IsNullOrEmpty(r.InfoHash)
+                ? "h:" + r.InfoHash.ToLowerInvariant()
+                : "u:" + (r.DownloadUrl ?? r.MagnetUrl ?? r.Title);
         return Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
     }
 
@@ -167,7 +171,9 @@ public sealed class StreamOptions
 
         // Releases whose torrent id is known are scraped straight away, while the others' pages are fetched for theirs.
         var known = top.Where(r => !string.IsNullOrEmpty(r.InfoHash)).ToList();
-        var scrapeLimit = TimeSpan.FromSeconds(followUp ? 6 : 2.5);
+        // The first scrape runs alongside the page lookups below (2.5 s, then 2 s to scrape what they found), so it can
+        // take that whole time without making the page wait longer.
+        var scrapeLimit = TimeSpan.FromSeconds(followUp ? 6 : 4.5);
         var firstScrape = TrackerScrape.ScrapeAsync(known.Select(r => r.InfoHash!), scrapeLimit, CancellationToken.None, known.SelectMany(r => TrackerScrape.TrackersOf(r.MagnetUrl ?? r.DownloadUrl)));
 
         using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(followUp ? 10 : 2.5));
@@ -232,11 +238,14 @@ public sealed class StreamOptions
         return ranked.Where(chosen.Contains).ToList(); // keep the ranking order
     }
 
-    /// <summary>The same torrent from several sources: keep the copy with the most seeders (as the source hub does).</summary>
+    /// <summary>
+    /// The same torrent from several sources: keep one copy, preferring a live-checked count, then the most seeders by
+    /// the count ranking trusts (a source whose counts run high doesn't win just by its inflated figure).
+    /// </summary>
     private static List<ReleaseCandidate> Dedupe(IEnumerable<ReleaseCandidate> releases) =>
         releases
             .GroupBy(r => string.IsNullOrEmpty(r.InfoHash) ? "u:" + (r.DownloadUrl ?? r.MagnetPageUrl ?? r.Title) : r.InfoHash!.ToLowerInvariant())
-            .Select(g => g.OrderByDescending(r => r.Seeders).First())
+            .Select(g => ReleaseRanker.KeepOne(g))
             .ToList();
 
     /// <summary>Drops expired lists, then the oldest ones over <see cref="MaxCachedLists"/>.</summary>

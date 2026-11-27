@@ -526,9 +526,23 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
     /// <summary>
     /// The Version menu's order: highest resolution first (unknown last), and within a resolution Auto's ranking (best
     /// first). Auto itself still follows the ranking, which also weighs language, size and seeders across resolutions.
+    /// The same torrent listed by two sites (known once its torrent id has been looked up) shows once, as the listing
+    /// with the live (or more trustworthy) count; the other stays playable, so a pick of it still works.
     /// </summary>
-    private static List<ReleaseCandidate> ByResolution(IEnumerable<ReleaseCandidate> ranked) =>
-        ranked.OrderByDescending(r => r.Resolution > 0 ? r.Resolution : -1).ToList(); // a stable sort keeps the ranking within each
+    private static List<ReleaseCandidate> ByResolution(IEnumerable<ReleaseCandidate> ranked)
+    {
+        var list = ranked.ToList();
+        var hidden = list
+            .Where(r => !string.IsNullOrEmpty(r.InfoHash))
+            .GroupBy(r => r.InfoHash!.ToLowerInvariant())
+            .Where(g => g.Count() > 1)
+            .SelectMany(g => g.OrderByDescending(r => r.LiveSeeders).ThenByDescending(ReleaseRanker.RankingSeeders).Skip(1))
+            .ToHashSet();
+        return list
+            .Where(r => !hidden.Contains(r))
+            .OrderByDescending(r => r.Resolution > 0 ? r.Resolution : -1) // a stable sort keeps the ranking within each
+            .ToList();
+    }
 
     /// <summary>The id of the Jellyfin user making the request (no dashes), or null (an API key, or not signed in).</summary>
     private async Task<string?> UserIdAsync(HttpContext http)

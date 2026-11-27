@@ -98,6 +98,7 @@ public sealed partial class BitSearchProvider : SearchProvider
             {
                 Title = title,
                 Origin = origin,
+                StaleCounts = true, // counts from its crawl, often far above the trackers' count
                 MagnetUrl = magnet,
                 InfoHash = hash,
                 Size = SizeText().Match(card) is { Success: true } s ? ParseSize(s.Groups[1].Value) : 0,

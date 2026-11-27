@@ -257,6 +257,30 @@ public sealed class ApibayProvider : SearchProvider
     public override async Task<List<ReleaseCandidate>> SearchTextAsync(string query, CancellationToken ct)
         => (await QueryAsync(query, ct).ConfigureAwait(false)).Select(r => r.Release).ToList();
 
+    /// <summary>
+    /// The search cuts names off at 80 characters, often in the middle of the resolution ("... River 1" for 1080p).
+    /// A cut name ending in the start of a resolution gets the rest, so the release isn't listed as "Unknown".
+    /// </summary>
+    internal static string CompleteCutName(string name)
+    {
+        if (name.Length < 78 || ReleaseRanker.ParseResolution(name) > 0)
+        {
+            return name;
+        }
+
+        var cut = name.LastIndexOfAny([' ', '.', '_', '-']);
+        var tail = cut < 0 ? string.Empty : name[(cut + 1)..];
+        foreach (var full in new[] { "2160p", "1080p", "720p", "480p" })
+        {
+            if (tail.Length > 0 && tail.Length < full.Length && full.StartsWith(tail, StringComparison.OrdinalIgnoreCase))
+            {
+                return name[..(cut + 1)] + full;
+            }
+        }
+
+        return name;
+    }
+
     private async Task<List<(string? Imdb, ReleaseCandidate Release)>> QueryAsync(string q, CancellationToken ct)
     {
         var json = await UseMirrorsAsync((b, t) => GetJsonAsync($"{b}/q.php?q={Esc(q)}&cat=200", t), ct).ConfigureAwait(false);
@@ -272,7 +296,7 @@ public sealed class ApibayProvider : SearchProvider
             var imdb = (string?)r?["imdb"];
             list.Add((string.IsNullOrWhiteSpace(imdb) ? null : imdb, new ReleaseCandidate
             {
-                Title = (string?)r?["name"] ?? string.Empty,
+                Title = CompleteCutName((string?)r?["name"] ?? string.Empty),
                 Origin = Name,
                 InfoHash = hash.ToLowerInvariant(),
                 Seeders = (int)ToLong(r?["seeders"]),

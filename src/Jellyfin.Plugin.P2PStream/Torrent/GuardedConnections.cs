@@ -60,6 +60,10 @@ public sealed class GuardedUdpTrackerConnection : ITrackerConnection
     private readonly Stopwatch _lastConnected = new();
     private Task<long>? _connectionId;
 
+    // The tracker's address, looked up once every 10 minutes (a lookup through a VPN can take a second or more).
+    private IPAddress? _address;
+    private DateTime _addressAt;
+
     public GuardedUdpTrackerConnection(Uri announceUri, AddressFamily addressFamily)
     {
         Uri = announceUri;
@@ -67,6 +71,12 @@ public sealed class GuardedUdpTrackerConnection : ITrackerConnection
     }
 
     public bool CanScrape => true;
+
+    /// <summary>
+    /// Gets how often a request is sent again while no answer has come (UDP packets get lost, often through a VPN).
+    /// Announces use 15 s like MonoTorrent; quick seeder checks, which wait only a few seconds, resend sooner.
+    /// </summary>
+    public TimeSpan ResendEvery { get; init; } = RetryDelay;
 
     public Uri Uri { get; }
 
@@ -231,7 +241,7 @@ public sealed class GuardedUdpTrackerConnection : ITrackerConnection
             }
 
             using var relay = await Socks5UdpRelay.OpenAsync(state.Proxy, ct).ConfigureAwait(false);
-            _ = RepeatAsync(t => relay.SendAsync(Uri.Host, Uri.Port, payload, t), ct);
+            _ = RepeatAsync(t => relay.SendAsync(Uri.Host, Uri.Port, payload, t), ResendEvery, ct);
             while (true)
             {
                 var reply = await relay.ReceiveAsync(ct).ConfigureAwait(false);
@@ -243,13 +253,20 @@ public sealed class GuardedUdpTrackerConnection : ITrackerConnection
         }
 
         // Direct or VPN: resolve the tracker, then use a socket bound to the VPN (or a plain one when direct).
-        var addresses = IPAddress.TryParse(Uri.Host, out var literal) ? [literal] : await Dns.GetHostAddressesAsync(Uri.Host, AddressFamily, ct).ConfigureAwait(false);
-        var target = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily)
-            ?? throw new SocketException((int)SocketError.HostNotFound);
+        var target = _address is { } known && DateTime.UtcNow - _addressAt < TimeSpan.FromMinutes(10) ? known : null;
+        if (target is null)
+        {
+            var addresses = IPAddress.TryParse(Uri.Host, out var literal) ? [literal] : await Dns.GetHostAddressesAsync(Uri.Host, AddressFamily, ct).ConfigureAwait(false);
+            target = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily)
+                ?? throw new SocketException((int)SocketError.HostNotFound);
+            _address = target;
+            _addressAt = DateTime.UtcNow;
+        }
+
         AddressPolicy.Require(target, Uri.Host, "tracker"); // a tracker listed in a torrent can't point into your network
         using var socket = NetworkGuard.CreateUdpSocket(AddressFamily);
         var endpoint = new IPEndPoint(target, Uri.Port);
-        _ = RepeatAsync(t => socket.SendToAsync(payload, SocketFlags.None, endpoint, t).AsTask(), ct);
+        _ = RepeatAsync(t => socket.SendToAsync(payload, SocketFlags.None, endpoint, t).AsTask(), ResendEvery, ct);
         var buffer = new byte[65536];
         while (true)
         {
@@ -282,14 +299,14 @@ public sealed class GuardedUdpTrackerConnection : ITrackerConnection
     }
 
     /// <summary>UDP is lossy: resend every 15 seconds until answered (like MonoTorrent).</summary>
-    private static async Task RepeatAsync(Func<CancellationToken, Task> send, CancellationToken ct)
+    private static async Task RepeatAsync(Func<CancellationToken, Task> send, TimeSpan every, CancellationToken ct)
     {
         try
         {
             while (!ct.IsCancellationRequested)
             {
                 await send(ct).ConfigureAwait(false);
-                await Task.Delay(RetryDelay, ct).ConfigureAwait(false);
+                await Task.Delay(every, ct).ConfigureAwait(false);
             }
         }
         catch (Exception)

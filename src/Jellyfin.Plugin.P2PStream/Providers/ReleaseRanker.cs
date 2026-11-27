@@ -24,7 +24,7 @@ public static partial class ReleaseRanker
     ];
 
     /// <summary>Bump when the ranking rules change, so picks Auto made under the old rules are made again.</summary>
-    private const int RulesVersion = 3; // 2: foreign-language releases rank lower (0.9.4); 3: untagged releases count as SD
+    private const int RulesVersion = 5; // 2: foreign-language releases rank lower (0.9.4); 3: untagged releases count as SD; 4-5: stale counts discounted
 
     /// <summary>
     /// Identifies the rules and settings that decide Auto's pick, including every filter (a release a filter now excludes
@@ -104,7 +104,7 @@ public static partial class ReleaseRanker
             .ThenBy(r => english && IsForeignLanguage(r.Title) ? 1 : 0)
             .ThenBy(r => Weak4K(r, c.Min4KSeeders) ? Math.Max(ResolutionTier(r.Resolution, pref), ResolutionTier(1080, pref) + 0.00001) : ResolutionTier(r.Resolution, pref))
             .ThenBy(r => c.PreferStreamingSizes && !StreamingFriendly(r, request) ? 1 : 0)
-            .ThenByDescending(r => r.Seeders)
+            .ThenByDescending(RankingSeeders)
             .ToList();
     }
 
@@ -120,7 +120,7 @@ public static partial class ReleaseRanker
             return true; // unknown size, or a pack whose size isn't the episode's
         }
 
-        var seeded = r.Seeders < 0 || r.Seeders >= 10;
+        var seeded = r.Seeders < 0 || RankingSeeders(r) >= 10;
         return seeded && r.Size <= SoftCapGb(r.Resolution, request?.Kind == MediaKind.Episode) * (1L << 30);
     }
 
@@ -324,7 +324,36 @@ public static partial class ReleaseRanker
     }
 
     /// <summary>A 4K release with fewer seeders than the "minimum seeders for 4K" setting (unknown counts don't count).</summary>
-    public static bool Weak4K(ReleaseCandidate r, int min4KSeeders) => min4KSeeders > 0 && r.Resolution >= 2160 && r.Seeders >= 0 && r.Seeders < min4KSeeders;
+    public static bool Weak4K(ReleaseCandidate r, int min4KSeeders) => min4KSeeders > 0 && r.Resolution >= 2160 && r.Seeders >= 0 && RankingSeeders(r) < min4KSeeders;
+
+    /// <summary>
+    /// One copy of a torrent listed by several sites: the one with a live-checked count, else the most seeders by the
+    /// count ranking trusts. It takes the longest name among them (some sites cut names short, losing the resolution).
+    /// </summary>
+    public static ReleaseCandidate KeepOne(IEnumerable<ReleaseCandidate> copies)
+    {
+        var all = copies.ToList();
+        var kept = all.OrderByDescending(r => r.LiveSeeders).ThenByDescending(RankingSeeders).First();
+        var longest = all.OrderByDescending(r => r.Title?.Length ?? 0).First().Title;
+        if (!string.IsNullOrEmpty(longest) && longest.Length > (kept.Title?.Length ?? 0))
+        {
+            kept.Title = longest;
+        }
+
+        return kept;
+    }
+
+    /// <summary>
+    /// How much a source's stale count is trusted until it's checked live. Measured on such listings: most were 4x or
+    /// more too high, episodes typically 10-50x; the live check replaces the guess within seconds.
+    /// </summary>
+    private const int StaleCountDivisor = 10;
+
+    /// <summary>
+    /// The seeder count ranking goes by: the live count once checked, else the listed one, divided by
+    /// <see cref="StaleCountDivisor"/> for sources whose counts run high.
+    /// </summary>
+    public static int RankingSeeders(ReleaseCandidate r) => r.StaleCounts && !r.LiveSeeders && r.Seeders > 0 ? r.Seeders / StaleCountDivisor : r.Seeders;
 
     private static double ResolutionTier(int res, int pref)
     {

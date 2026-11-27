@@ -45,6 +45,7 @@ public sealed partial class KickassProvider : SearchProvider
             {
                 Title = WebUtility.HtmlDecode(StripTags().Replace(link.Groups["name"].Value, string.Empty)).Trim(),
                 Origin = Name,
+                StaleCounts = true, // measured: most listings show several times the trackers' count
                 MagnetPageUrl = (used ?? BaseUrl) + link.Groups["href"].Value,
                 Size = ParseSize(SizeCell().Match(row).Groups[1].Value),
                 Seeders = int.TryParse(Seeds().Match(row).Groups[1].Value, out var s) ? s : -1,
