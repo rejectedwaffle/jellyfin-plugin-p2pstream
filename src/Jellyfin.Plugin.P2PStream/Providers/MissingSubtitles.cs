@@ -71,7 +71,7 @@ public sealed class MissingSubtitles
         }
         catch (TimeoutException)
         {
-            _logger.LogInformation("{Item}: still looking for a {Language} subtitle; it will be there next time if one is found", item.Name, english);
+            _logger.LogInformation("{Item}: still looking for a {Language:l} subtitle; it will be there next time if one is found", item.Name, english);
         }
         catch (OperationCanceledException)
         {
@@ -91,7 +91,7 @@ public sealed class MissingSubtitles
             if (best is null)
             {
                 _logger.LogInformation(
-                    "{Item}: no {Language} subtitle found{Why}",
+                    "{Item}: no {Language:l} subtitle found{Why:l}",
                     video.Name,
                     languageName,
                     _subtitles.GetSupportedProviders(video).Any() ? string.Empty : " (no subtitle provider is installed; add one such as OpenSubtitles under Dashboard > Plugins)");
@@ -106,11 +106,11 @@ public sealed class MissingSubtitles
                 _services.GetService<IDirectoryService>()?.GetFilePaths(dir, true);
             }
 
-            _logger.LogInformation("{Item}: added a {Language} subtitle from {Provider}", video.Name, languageName, best.ProviderName);
+            _logger.LogInformation("{Item}: added a {Language:l} subtitle from {Provider:l}", video.Name, languageName, best.ProviderName);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("{Item}: could not fetch a {Language} subtitle: {Message}", video.Name, languageName, ex.Message);
+            _logger.LogWarning("{Item}: could not fetch a {Language:l} subtitle: {Message}", video.Name, languageName, ex.Message);
         }
     }
 
