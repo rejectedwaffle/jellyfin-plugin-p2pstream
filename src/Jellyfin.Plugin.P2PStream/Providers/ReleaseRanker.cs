@@ -69,24 +69,27 @@ public static partial class ReleaseRanker
         foreach (var r in releases)
         {
             r.Title = CleanTitle(r.Title);
-            r.Resolution = ParseResolution(r.Title);
-            if (!StatesResolution(r.Title) && !string.IsNullOrEmpty(r.FullTitle) && StatesResolution(r.FullTitle))
+            if (!string.IsNullOrEmpty(r.FullTitle))
             {
-                r.Resolution = ParseResolution(r.FullTitle); // the name another site gave the same torrent says it
+                r.FullTitle = CleanTitle(r.FullTitle);
             }
-            var type = DetectReleaseType(r.Title);
+
+            // Judged by the fullest name known (another site may not have cut it short).
+            var name = r.DisplayTitle;
+            r.Resolution = ParseResolution(name);
+            var type = DetectReleaseType(name);
             if ((r.Seeders >= 0 && r.Seeders < c.MinSeeders) // -1 = unknown (e.g. web-seeded), don't filter
                 || (r.Resolution > 0 && !resolutions.Contains(r.Resolution))
                 || (type is not null && !types.Contains(type))
-                || excluded.Any(k => r.Title.Contains(k, StringComparison.OrdinalIgnoreCase))
-                || !required.All(k => r.Title.Contains(k, StringComparison.OrdinalIgnoreCase)))
+                || excluded.Any(k => name.Contains(k, StringComparison.OrdinalIgnoreCase))
+                || !required.All(k => name.Contains(k, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
 
             if (request?.Kind == MediaKind.Episode)
             {
-                var match = MatchEpisodeTitle(r.Title, request.Season, request.Episode);
+                var match = MatchEpisodeTitle(name, request.Season, request.Episode);
                 if (match == EpisodeMatch.Wrong)
                 {
                     continue;
@@ -105,7 +108,7 @@ public static partial class ReleaseRanker
 
         return list
             .OrderBy(r => r.IsSeasonPack)
-            .ThenBy(r => english && IsForeignLanguage(r.Title) ? 1 : 0)
+            .ThenBy(r => english && IsForeignLanguage(r.DisplayTitle) ? 1 : 0)
             .ThenBy(r => Weak4K(r, c.Min4KSeeders) ? Math.Max(ResolutionTier(r.Resolution, pref), ResolutionTier(1080, pref) + 0.00001) : ResolutionTier(r.Resolution, pref))
             .ThenBy(r => c.PreferStreamingSizes && !StreamingFriendly(r, request) ? 1 : 0)
             .ThenByDescending(RankingSeeders)

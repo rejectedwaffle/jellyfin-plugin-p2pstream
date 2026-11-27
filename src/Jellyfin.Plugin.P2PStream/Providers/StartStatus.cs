@@ -75,7 +75,7 @@ public sealed class StartStatus
             : $"Still finding releases for {request}… You'll get a message when the Version list is ready.");
     }
 
-    private void OnLiveCheckFinished(MediaRequest request)
+    private void OnLiveCheckFinished(MediaRequest request, bool found)
     {
         if (!_pages.TryRemove(request.Key, out var map))
         {
@@ -97,7 +97,9 @@ public sealed class StartStatus
 
             _logger.LogDebug("Telling {Device} that {Request}'s live seeder counts are in", session.DeviceName, request);
 
-            _outboxes.GetOrAdd(sessionId, id => new Outbox(this, id)).Post($"Live seeder counts for {request} are in. Reopen the page to see them in the Version list.");
+            _outboxes.GetOrAdd(sessionId, id => new Outbox(this, id)).Post(found
+                ? $"Live seeder counts for {request} are in. Reopen the page to see them in the Version list."
+                : $"No releases found for {request} right now. Try again later.");
         }
     }
 

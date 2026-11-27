@@ -211,6 +211,21 @@ public class StartStatusTests
     }
 
     [Fact]
+    public void A_search_that_found_nothing_tells_whoever_was_waiting()
+    {
+        var title = Episode(3, 4);
+        var inflight = typeof(StreamOptions).GetField("_liveChecking", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        ((System.Collections.Concurrent.ConcurrentDictionary<string, byte>)inflight.GetValue(_options)!)[title.Key] = 0;
+        _sessions.SetupGet(s => s.Sessions).Returns([new SessionInfo(_sessions.Object, NullLogger.Instance) { Id = "phone" }]);
+
+        _status.WatchPage(title, "phone", listShown: false);
+        _options.NotifyLiveCheckFinished(title, found: false);
+        var sent = SentAfter(3500);
+        Assert.Equal(2, sent.Count);
+        Assert.Contains("No releases found", sent[1].Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void No_message_when_the_check_finished_before_the_page_registered()
     {
         _status.WatchPage(Episode(3, 2), "phone", listShown: true); // nothing is being checked

@@ -263,13 +263,23 @@ public sealed class ApibayProvider : SearchProvider
     /// </summary>
     internal static string CompleteCutName(string name)
     {
-        if (name.Length < 78 || ReleaseRanker.StatesResolution(name))
+        // The search cuts names at about 75-80 characters (measured).
+        if (name.Length < 74 || ReleaseRanker.StatesResolution(name))
         {
             return name;
         }
 
         var cut = name.LastIndexOfAny([' ', '.', '_', '-']);
         var tail = cut < 0 ? string.Empty : name[(cut + 1)..];
+
+        // "... Season 2" or "... Part 1" is a number, not the start of a resolution.
+        var before = cut <= 0 ? string.Empty : name[..cut].TrimEnd(' ', '.', '_', '-');
+        var lastWord = before[(before.LastIndexOfAny([' ', '.', '_', '-']) + 1)..];
+        if (new[] { "season", "series", "part", "pt", "vol", "volume", "episode", "ep", "chapter", "disc", "cd", "book" }
+            .Contains(lastWord, StringComparer.OrdinalIgnoreCase))
+        {
+            return name;
+        }
         foreach (var full in new[] { "2160p", "1080p", "720p", "480p" })
         {
             if (tail.Length > 0 && tail.Length < full.Length && full.StartsWith(tail, StringComparison.OrdinalIgnoreCase))

@@ -173,6 +173,12 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             await _engineLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
+                // A slow removal may have been flagged while this waited for the lock: never reuse that manager.
+                if (_removing.ContainsKey(source.InfoHash))
+                {
+                    throw new InvalidOperationException("This torrent is still being removed; try again in a moment");
+                }
+
                 manager = engine.Torrents.FirstOrDefault(t => Hash(t).Equals(source.InfoHash, StringComparison.OrdinalIgnoreCase))
                     ?? (source.TorrentBytes is not null
                         ? await engine.AddStreamingAsync(MonoTorrent.Torrent.Load(source.TorrentBytes), TorrentDirectory(source.InfoHash)).ConfigureAwait(false)
@@ -770,7 +776,14 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     /// <summary>Downloaded data of a torrent (whole pieces it has, which is what's on disk).</summary>
     /// <summary>Space torrents nobody is watching take (they can be removed to make room), apart from <paramref name="except"/>.</summary>
     public long ReclaimableBytes(string? except = null) =>
-        _sessions.Values.Where(s => s.ActiveStreams == 0 && s.InfoHash != except).Sum(s => DiskBytes(s.Manager));
+        _sessions.Values.Where(s => Removable(s, except)).Sum(s => DiskBytes(s.Manager));
+
+    /// <summary>
+    /// A torrent that may be removed to make room: nobody reads it, and it wasn't started in the last half minute (it may
+    /// have just been picked for a player that hasn't opened it yet, or be the other half of a start-up race).
+    /// </summary>
+    private static bool Removable(TorrentSession s, string? except) =>
+        s.ActiveStreams == 0 && s.InfoHash != except && DateTime.UtcNow - s.Started > TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// Space the titles being watched will still take, apart from <paramref name="except"/>: the part of each watched
@@ -809,9 +822,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     /// </summary>
     public async Task<bool> MakeRoomAsync(long needed, string? except)
     {
-        // Not one used in the last half minute: it may have just been picked for a player that hasn't opened it yet.
-        var recent = DateTime.UtcNow - TimeSpan.FromSeconds(30);
-        foreach (var victim in _sessions.Values.Where(s => s.ActiveStreams == 0 && s.InfoHash != except && s.LastAccess < recent).OrderBy(s => s.LastAccess).ToList())
+        foreach (var victim in _sessions.Values.Where(s => Removable(s, except)).OrderBy(s => s.LastAccess).ToList())
         {
             if ((DiskSpace.FreeForDownloads() ?? long.MaxValue) >= needed)
             {
@@ -965,12 +976,18 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                     t =>
                     {
                         _logger.LogInformation("Removal of {Name} finished late ({Status})", manager.Torrent?.Name ?? hash, t.Status);
-                        if (deleteData)
+
+                        // Only after it really left the engine, and not if the same torrent was started again meanwhile.
+                        if (t.Status == TaskStatus.RanToCompletion && !_sessions.ContainsKey(hash))
                         {
-                            DeleteTorrentDirectory(hash);
+                            if (deleteData)
+                            {
+                                DeleteTorrentDirectory(hash);
+                            }
+
+                            Untrack(hash);
                         }
 
-                        Untrack(hash);
                         _removing.TryRemove(hash, out _);
                     },
                     TaskScheduler.Default);

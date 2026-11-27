@@ -21,19 +21,20 @@ public static class DiskSpace
         {
             var full = Path.GetFullPath(path);
             var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            bool Holds(DriveInfo d)
+            // The deepest mount that holds the folder. If that one can't be read, the answer is unknown: a parent
+            // mount (often a small system disk) would give the wrong free space.
+            var holder = DriveInfo.GetDrives()
+                .Where(d => IsUnder(full, d.RootDirectory.FullName, comparison))
+                .OrderByDescending(d => d.RootDirectory.FullName.Length)
+                .FirstOrDefault();
+            try
             {
-                try
-                {
-                    return d.IsReady && d.TotalSize > 0 && IsUnder(full, d.RootDirectory.FullName, comparison);
-                }
-                catch (Exception)
-                {
-                    return false; // a mount this process can't read: skip it, don't give up on the rest
-                }
+                return holder is { IsReady: true, TotalSize: > 0 } ? holder : null;
             }
-
-            return DriveInfo.GetDrives().Where(Holds).OrderByDescending(d => d.RootDirectory.FullName.Length).FirstOrDefault();
+            catch (Exception)
+            {
+                return null;
+            }
         }
         catch (Exception)
         {

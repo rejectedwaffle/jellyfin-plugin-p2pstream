@@ -299,6 +299,7 @@ public sealed class StreamResolver
                 return await ResolveChosenAsync(req, releaseId, remember, ct).ConfigureAwait(false);
             }
 
+            var skipRemembered = false;
             if (_pinned.TryRemove(req.Key, out var pinned))
             {
                 _pinOwners.TryRemove(req.Key, out var pinOwner);
@@ -315,9 +316,16 @@ public sealed class StreamResolver
                     if (pinOwner is not null)
                     {
                         _userPicks.Remove(pinOwner, req.Key);
-                        if (_cache.TryGet(req.Key, out var remembered) && remembered.Chosen && remembered.ChosenBy == pinOwner)
+                        if (_cache.TryGet(req.Key, out var remembered) && remembered.Chosen)
                         {
-                            _cache.Remove(req.Key); // only this person's own pick; Auto's working one stays
+                            if (remembered.ChosenBy == pinOwner)
+                            {
+                                _cache.Remove(req.Key); // this person's own pick
+                            }
+                            else
+                            {
+                                skipRemembered = true; // someone else's pick: this play goes to Auto, as the message says
+                            }
                         }
 
                         _status.Report(req, ex.Message.StartsWith("Not enough disk space", StringComparison.Ordinal)
@@ -329,7 +337,7 @@ public sealed class StreamResolver
                 }
             }
 
-            var cached = await TryCachedAsync(req, ct).ConfigureAwait(false);
+            var cached = skipRemembered ? null : await TryCachedAsync(req, ct).ConfigureAwait(false);
             if (cached is not null)
             {
                 return cached;
@@ -1021,7 +1029,7 @@ public sealed class StreamResolver
             {
                 // Auto's remembered pick: if it has stopped downloading (its swarm died), search again instead.
                 // Only before playback: not on every range request (seeks) of a title that is already playing.
-                if (!entry.Chosen && session.ActiveStreams == 0 && !await DataFlowsAsync(session, entry.FileIndex, req, ct).ConfigureAwait(false))
+                if (!entry.Chosen && session.FilesBeingWatched.Count == 0 && !await DataFlowsAsync(session, entry.FileIndex, req, ct).ConfigureAwait(false))
                 {
                     _deadHashes[entry.InfoHash] = DateTime.UtcNow;
                     _logger.LogWarning("{Title} (remembered for {Request}) isn't downloading any more; picking another release", entry.Title, req);

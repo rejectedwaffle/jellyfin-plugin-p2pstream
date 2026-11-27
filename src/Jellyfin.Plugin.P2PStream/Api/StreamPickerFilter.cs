@@ -239,15 +239,15 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         {
             deviceFits = fits;
             autoRelease = fits;
-            auto.Name = $"Auto ({DeviceRules.Describe(rule)} on this device) — plays: " + ReleaseRanker.CleanTitle(fits.Title);
+            auto.Name = $"Auto ({DeviceRules.Describe(rule)} on this device) — plays: " + ReleaseRanker.CleanTitle(fits.DisplayTitle);
         }
         else
         {
             auto.Name = own is not null
-                ? "Auto (your pick) — now: " + current
+                ? "Auto (your pick) — now: " + ReleaseRanker.CleanTitle(own!.DisplayTitle)
                 : current is not null
-                ? "Auto (best match) — now: " + current
-                : "Auto (best match) — tries first: " + ReleaseRanker.CleanTitle(releases[0].Title);
+                ? "Auto (best match) — now: " + (autoRelease is not null ? ReleaseRanker.CleanTitle(autoRelease.DisplayTitle) : current)
+                : "Auto (best match) — tries first: " + ReleaseRanker.CleanTitle(releases[0].DisplayTitle);
         }
 
         // Start loading what this device will play: this person's pick, else the best release within the device's
@@ -755,7 +755,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             var label = g.Key == 2160 ? "4K" : g.Key + "p";
             var size = best.Size > 0 ? $" · {best.Size / (double)(1L << 30):0.0} GB" : string.Empty;
             var seeds = best.Seeders >= 0 ? $" · {best.Seeders} seeds{(best.LiveSeeders ? " live" : string.Empty)}" : string.Empty;
-            source.Name = $"Best {label} · {g.Count()} available{seeds}{size} — {ReleaseRanker.CleanTitle(best.Title)}";
+            source.Name = $"Best {label} · {g.Count()} available{seeds}{size} — {ReleaseRanker.CleanTitle(best.DisplayTitle)}";
             list.Add(source);
         }
 

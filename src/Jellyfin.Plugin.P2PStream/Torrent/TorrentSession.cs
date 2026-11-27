@@ -58,6 +58,9 @@ public sealed class TorrentSession
 
     public string InfoHash { get; }
 
+    /// <summary>Gets when this torrent was started (a racer or a just-picked release is young).</summary>
+    public DateTime Started { get; } = DateTime.UtcNow;
+
     public TorrentManager Manager { get; }
 
     public DateTime LastAccess { get; private set; }

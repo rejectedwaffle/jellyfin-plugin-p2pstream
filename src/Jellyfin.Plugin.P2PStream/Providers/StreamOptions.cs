@@ -71,14 +71,15 @@ public sealed class StreamOptions
     private readonly ConcurrentDictionary<string, byte> _liveChecking = new();
 
     /// <summary>Raised when a title's background live seeder check has finished (its Version list is complete).</summary>
-    public event Action<MediaRequest>? LiveCheckFinished;
+    /// <remarks>The flag is false when the search found nothing.</remarks>
+    public event Action<MediaRequest, bool>? LiveCheckFinished;
 
     /// <summary>Tells listeners (StartStatus) that a title's release list is complete.</summary>
-    internal void NotifyLiveCheckFinished(MediaRequest request)
+    internal void NotifyLiveCheckFinished(MediaRequest request, bool found = true)
     {
         try
         {
-            LiveCheckFinished?.Invoke(request);
+            LiveCheckFinished?.Invoke(request, found);
         }
         catch (Exception)
         {
@@ -125,7 +126,8 @@ public sealed class StreamOptions
         }
 
         parts.Add(r.Origin);
-        var title = r.Title.Length > 90 ? r.Title[..87] + "..." : r.Title;
+        var name = r.DisplayTitle; // the fullest name known (another site may have cut it short)
+        var title = name.Length > 90 ? name[..87] + "..." : name;
         return string.Join(" · ", parts) + " — " + title;
     }
 
@@ -507,6 +509,11 @@ public sealed class StreamOptions
                 // checked in the background, so the next look at the list (and a fallback) has their live counts.
                 FollowUp();
                 _ = lateSources.ContinueWith(_ => FinishIfComplete(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            }
+
+            if (list.Count == 0)
+            {
+                NotifyLiveCheckFinished(request, found: false); // anyone told "you'll get a message" hears the outcome
             }
 
             _logger.LogInformation("Found {Count} streams for {Request}", list.Count, request);

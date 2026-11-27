@@ -99,6 +99,9 @@ public sealed class ReleaseCandidate
     /// <summary>Gets or sets a longer name another site gave the same torrent (used when this one is cut short).</summary>
     public string? FullTitle { get; set; }
 
+    /// <summary>Gets the name to show and judge by: the fuller name if another site gave one.</summary>
+    public string DisplayTitle => string.IsNullOrEmpty(FullTitle) ? Title : FullTitle;
+
     public int Peers { get; set; }
 
     public int Resolution { get; set; }

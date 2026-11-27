@@ -66,9 +66,11 @@ public sealed class MissingSubtitles
         _tried[key] = DateTime.UtcNow;
 
         // The release that is playing (what the resolver started, e.g. a device rule's pick), to match subtitles to.
-        var playing = (releaseId is null ? null
-                : (_options.TryGetCached(request, out var listed) ? listed.FirstOrDefault(r => StreamOptions.IdFor(r) == releaseId) : null) ?? _options.FindRelease(releaseId))?.Title
-            ?? _resolver.CurrentPickTitle(request);
+        // A version being chosen right now (pinned), else the release actually playing (remembered pick).
+        var pinned = _options.TryGetCached(request, out var listed) ? _resolver.PinnedRelease(request, listed) : null;
+        var playing = pinned?.DisplayTitle
+            ?? _resolver.CurrentPickTitle(request)
+            ?? (releaseId is null ? null : _options.FindRelease(releaseId)?.DisplayTitle);
         var fetch = FetchAsync(video, three, english, playing);
         try
         {

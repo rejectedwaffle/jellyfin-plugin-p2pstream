@@ -46,6 +46,20 @@ public class ResolutionTests
     }
 
         [Fact]
+    public void A_name_cut_at_75_characters_is_completed()
+    {
+        var cut = "Example Show S02E03 Why Did the Old Travelers Cross the Long Bridge River 1"; // cut at 75 characters, as the search does
+        Assert.Equal(75, cut.Length);
+        Assert.EndsWith("1080p", ApibayProvider.CompleteCutName(cut));
+    }
+
+    [Theory]
+    [InlineData("Example Show The Complete Collection WEB-DL x264 Extras And Bonus Discs Season 2")]
+    [InlineData("Example Film Trilogy Remastered BluRay x264 Extended Directors Cut Edition Part 1")]
+    public void A_season_or_part_number_is_not_taken_for_a_resolution(string name) =>
+        Assert.Equal(name, ApibayProvider.CompleteCutName(name));
+
+        [Fact]
     public void Short_or_complete_names_are_left_alone()
     {
         Assert.Equal("Example Show S02E05 1", ApibayProvider.CompleteCutName("Example Show S02E05 1"));
@@ -143,6 +157,16 @@ public class RankingTests
     }
 
     [Fact]
+    public void Filters_judge_the_fuller_name_another_site_gave()
+    {
+        Settings().ExcludedKeywords = "HDCAM";
+        var cut = Release("Example Show S02E05 A Long Episode Title", 30, 600, live: true, hash: Hash('9'));
+        cut.FullTitle = "Example Show S02E05 A Long Episode Title 1080p HDCAM-GRP";
+        Assert.Empty(ReleaseRanker.Rank([cut], Episode()));
+        Assert.Contains("HDCAM-GRP", StreamOptions.Label(cut), StringComparison.Ordinal); // and the menu shows the full name
+    }
+
+        [Fact]
     public void A_weak_4K_release_counts_its_stale_figure_as_divided()
     {
         var listed = Release("Sample Film 2020 2160p", 100, stale: true);
