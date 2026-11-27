@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Collections.Concurrent;
 using Jellyfin.Plugin.P2PStream.Torrent;
 using NetworkGuard = Jellyfin.Plugin.P2PStream.Torrent.NetworkGuard;
@@ -323,9 +324,22 @@ public sealed class StreamResolver
                 candidates = releases.Take(tries).ToList();
             }
 
+            var tried = new HashSet<string>(StringComparer.Ordinal);
             for (var i = 0; i < candidates.Count; i++)
             {
+                // The list may have been ranked again since this started (live seeder counts arrive in the background,
+                // and can show a listed favourite has no seeders): try the rest in the current order.
+                if (i > 0 && _options.TryGetCached(req, out var latest))
+                {
+                    var rest = latest.Where(r => !tried.Contains(StreamOptions.IdFor(r)) && !IsDead(r)).Take(tries - i).ToList();
+                    if (rest.Count > 0)
+                    {
+                        candidates = candidates.Take(i).Concat(rest).ToList();
+                    }
+                }
+
                 var release = candidates[i];
+                tried.Add(StreamOptions.IdFor(release));
 
                 // Just found dead under another listing (the same torrent is often listed by several sites).
                 if (i < candidates.Count - 1 && IsDead(release))
@@ -447,7 +461,7 @@ public sealed class StreamResolver
 
                 // Auto, with other releases still to try: make sure this one actually downloads before settling on it
                 // (listed seeder counts are often stale; a "31 seeders" release can have one slow peer).
-                if (checkFlow && !await DataFlowsAsync(session, index, ct).ConfigureAwait(false))
+                if (checkFlow && !await DataFlowsAsync(session, index, req, ct).ConfigureAwait(false))
                 {
                     MarkDead(release, session.InfoHash);
                     if (session.ActiveStreams == 0)
@@ -497,49 +511,70 @@ public sealed class StreamResolver
     }
 
     /// <summary>
-    /// True if the file's start arrives, or at least <see cref="FlowBytes"/> are downloaded, within
-    /// <see cref="FlowWindow"/>. Reading the start is what makes the torrent fetch it. A file that's already there passes at once.
+    /// True if the release downloads fast enough to play: within <see cref="FlowWindow"/>, at least half the rate its
+    /// video needs (its size over a typical running time: 2 hours for a film, 50 minutes for an episode), and never less
+    /// than <see cref="FlowBytes"/>. Reading the start is what makes the torrent fetch it. A start already on disk passes
+    /// at once.
     /// </summary>
-    private async Task<bool> DataFlowsAsync(TorrentSession session, int index, CancellationToken ct)
+    private async Task<bool> DataFlowsAsync(TorrentSession session, int index, MediaRequest req, CancellationToken ct)
     {
+        var file = session.Manager.Files[index];
+        var seconds = req.Kind == MediaKind.Movie ? 7200.0 : 3000.0;
+        var needRate = file.Length / seconds;                            // bytes per second the video plays at, roughly
+        var needBytes = Math.Max(FlowBytes, (long)(needRate * 0.5 * FlowWindow.TotalSeconds));
         using var window = CancellationTokenSource.CreateLinkedTokenSource(ct);
         window.CancelAfter(FlowWindow);
         var before = session.Manager.Monitor.DataBytesReceived;
+        var sw = Stopwatch.StartNew();
         try
         {
-            await using var lease = await session.OpenAsync(session.Manager.Files[index], window.Token).ConfigureAwait(false);
+            await using var lease = await session.OpenAsync(file, window.Token).ConfigureAwait(false);
             var read = lease.ReadAsync(new byte[16 * 1024], window.Token).AsTask();
-            while (!read.IsCompleted)
+            while (true)
             {
-                if (session.Manager.Monitor.DataBytesReceived - before >= FlowBytes)
+                var got = session.Manager.Monitor.DataBytesReceived - before;
+                if (got >= needBytes)
                 {
                     return true;
+                }
+
+                // The start was already on disk (nothing to download yet): nothing to measure, it plays.
+                if (read.IsCompletedSuccessfully && got < 64 * 1024)
+                {
+                    return true;
+                }
+
+                // The start arrived quickly: judge by the rate so far rather than waiting out the window.
+                if (read.IsCompletedSuccessfully && sw.Elapsed.TotalSeconds >= 5 && got / sw.Elapsed.TotalSeconds >= needRate * 0.5)
+                {
+                    return true;
+                }
+
+                if (read.IsFaulted || read.IsCanceled)
+                {
+                    break;
                 }
 
                 await Task.WhenAny(read, Task.Delay(1000, window.Token)).ConfigureAwait(false);
             }
 
-            if (read.IsCompletedSuccessfully)
-            {
-                return true;
-            }
-
-            LogNotDownloading(session, before);
+            LogNotDownloading(session, before, needRate);
             return false;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            LogNotDownloading(session, before);
+            LogNotDownloading(session, before, needRate);
             return false;
         }
     }
 
-    private void LogNotDownloading(TorrentSession session, long before) =>
+    private void LogNotDownloading(TorrentSession session, long before, double needRate) =>
         _logger.LogWarning(
-            "{Name} isn't downloading ({Kb} KB in {Seconds} s); trying the next release",
+            "{Name} is too slow to play ({Kb} KB in {Seconds} s; it needs about {Need} KB/s); trying the next release",
             session.Manager.Torrent?.Name ?? session.InfoHash,
             (session.Manager.Monitor.DataBytesReceived - before) >> 10,
-            (int)FlowWindow.TotalSeconds);
+            (int)FlowWindow.TotalSeconds,
+            (int)(needRate / 1024));
 
     /// <summary>
     /// Watching a release to the end downloads all of its file. If the disk hasn't room for what's left of it (plus a
@@ -582,7 +617,7 @@ public sealed class StreamResolver
             if (session is not null && entry.FileIndex < session.Manager.Files.Count)
             {
                 // Auto's remembered pick: if it has stopped downloading (its swarm died), search again instead.
-                if (!entry.Chosen && !await DataFlowsAsync(session, entry.FileIndex, ct).ConfigureAwait(false))
+                if (!entry.Chosen && !await DataFlowsAsync(session, entry.FileIndex, req, ct).ConfigureAwait(false))
                 {
                     _deadHashes[entry.InfoHash] = DateTime.UtcNow;
                     _logger.LogWarning("{Title} (remembered for {Request}) isn't downloading any more; picking another release", entry.Title, req);

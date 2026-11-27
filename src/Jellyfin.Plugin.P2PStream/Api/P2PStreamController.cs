@@ -639,6 +639,46 @@ public class P2PStreamController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Compares the sources' listed seeder counts with what public trackers report right now (a scrape, sent the same
+    /// way as torrent traffic). Searches <paramref name="query"/> like the test search, and/or scrapes <paramref name="hashes"/>
+    /// (comma-separated info hashes).
+    /// </summary>
+    [HttpGet("Sources/Scrape")]
+    [Authorize(Policy = AdminPolicy)]
+    public async Task<ActionResult<object>> ScrapeCompare([FromQuery] string? query, [FromQuery] string? hashes)
+    {
+        var releases = string.IsNullOrWhiteSpace(query)
+            ? []
+            : await _sources.SearchTextAsync(query, HttpContext.RequestAborted).ConfigureAwait(false);
+        var wanted = releases.Where(r => !string.IsNullOrEmpty(r.InfoHash)).Select(r => r.InfoHash!)
+            .Concat((hashes ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .ToList();
+        var sw = Stopwatch.StartNew();
+        var scraped = await Torrent.TrackerScrape.ScrapeAsync(wanted, TimeSpan.FromSeconds(15), HttpContext.RequestAborted).ConfigureAwait(false);
+        return new
+        {
+            Seconds = Math.Round(sw.Elapsed.TotalSeconds, 1),
+            WithoutHash = releases.Count(r => string.IsNullOrEmpty(r.InfoHash)),
+            Rows = releases.Select(r => new
+                {
+                    r.Title,
+                    r.Origin,
+                    Listed = r.Seeders,
+                    Hash = r.InfoHash?.ToLowerInvariant(),
+                    Scraped = r.InfoHash is { } h && scraped.TryGetValue(h.ToLowerInvariant(), out var x) ? x : null
+                })
+                .Concat((hashes ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(h => new
+                {
+                    Title = "(hash)",
+                    Origin = "-",
+                    Listed = -1,
+                    Hash = (string?)h.ToLowerInvariant(),
+                    Scraped = scraped.TryGetValue(h.ToLowerInvariant(), out var y) ? y : null
+                }))
+        };
+    }
+
     [HttpGet("Sources/Health")]
     [Authorize(Policy = AdminPolicy)]
     public ActionResult<object> GetSourceHealth([FromServices] SourceHealth health)

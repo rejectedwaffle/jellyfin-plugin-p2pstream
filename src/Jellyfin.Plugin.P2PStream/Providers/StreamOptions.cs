@@ -6,6 +6,8 @@ using Jellyfin.Plugin.P2PStream.Catalog;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
+using Jellyfin.Plugin.P2PStream.Torrent;
+
 namespace Jellyfin.Plugin.P2PStream.Providers;
 
 /// <summary>
@@ -28,8 +30,11 @@ public sealed class StreamOptions
     private const int MaxCachedLists = 500;
     private const int MaxProbes = 5000;
 
-    public StreamOptions(SourceHub sources, TmdbClient tmdb, ILogger<StreamOptions> logger)
+    private readonly TorznabClient _torznab;
+
+    public StreamOptions(SourceHub sources, TmdbClient tmdb, TorznabClient torznab, ILogger<StreamOptions> logger)
     {
+        _torznab = torznab;
         _sources = sources;
         _tmdb = tmdb;
         _logger = logger;
@@ -58,7 +63,7 @@ public sealed class StreamOptions
                 : (r.Size / (double)(1L << 20)).ToString("0", CultureInfo.InvariantCulture) + " MB");
         }
 
-        parts.Add(r.Seeders >= 0 ? r.Seeders.ToString(CultureInfo.InvariantCulture) + " seeds" : "seeds ?");
+        parts.Add(r.Seeders >= 0 ? r.Seeders.ToString(CultureInfo.InvariantCulture) + (r.LiveSeeders ? " seeds live" : " seeds") : "seeds ?");
         var type = ReleaseRanker.DetectReleaseType(r.Title);
         var typeLabel = ReleaseRanker.ReleaseTypes.FirstOrDefault(t => t.Id == type).Label;
         if (typeLabel is not null)
@@ -126,6 +131,77 @@ public sealed class StreamOptions
         }
 
         _probes[releaseId] = info;
+    }
+
+    /// <summary>How many of the top releases get their seeders checked with the trackers.</summary>
+    private const int LiveCheckCount = 12;
+
+    /// <summary>
+    /// Replaces the top releases' listed seeder counts with what the trackers report now. Releases listed without their
+    /// torrent id (KickAss) have their page fetched for it first (at most 5). Capped at a few seconds; anything not
+    /// answered in time keeps its listed count.
+    /// </summary>
+    private async Task CheckLiveSeedersAsync(List<ReleaseCandidate> ranked, MediaRequest request, bool followUp = false)
+    {
+        var top = ranked.Where(r => !r.LiveSeeders && r.Seeders >= 0).Take(followUp ? 2 * LiveCheckCount : LiveCheckCount).ToList();
+        if (top.Count == 0)
+        {
+            return;
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        // Releases whose torrent id is known are scraped straight away, while the others' pages are fetched for theirs.
+        var known = top.Where(r => !string.IsNullOrEmpty(r.InfoHash)).ToList();
+        var scrapeLimit = TimeSpan.FromSeconds(followUp ? 6 : 2.5);
+        var firstScrape = TrackerScrape.ScrapeAsync(known.Select(r => r.InfoHash!), scrapeLimit, CancellationToken.None);
+
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(followUp ? 10 : 2.5));
+        var lookedUp = top.Where(r => string.IsNullOrEmpty(r.InfoHash) && !string.IsNullOrEmpty(r.MagnetPageUrl)).Take(followUp ? 12 : 5).ToList();
+        await Task.WhenAll(lookedUp.Select(async r =>
+        {
+            try
+            {
+                var source = await _torznab.ToSourceAsync(r, limit.Token).ConfigureAwait(false);
+                r.InfoHash = source.InfoHash;
+                if (source.Magnet is { } magnet)
+                {
+                    r.MagnetUrl = magnet; // so starting it doesn't fetch the page again
+                }
+            }
+            catch (Exception)
+            {
+                // keeps its listed count
+            }
+        })).ConfigureAwait(false);
+
+        var found = lookedUp.Where(r => !string.IsNullOrEmpty(r.InfoHash)).ToList();
+        var live = new Dictionary<string, TrackerScrape.Result>(await firstScrape.ConfigureAwait(false));
+        if (found.Count > 0)
+        {
+            foreach (var (hash, result) in await TrackerScrape.ScrapeAsync(found.Select(r => r.InfoHash!), followUp ? scrapeLimit : TimeSpan.FromSeconds(2), CancellationToken.None).ConfigureAwait(false))
+            {
+                live[hash] = result;
+            }
+        }
+
+        var withHash = known.Concat(found).ToList();
+        var changed = 0;
+        foreach (var r in withHash)
+        {
+            if (live.TryGetValue(r.InfoHash!.ToLowerInvariant(), out var counts))
+            {
+                if (counts.Seeders != r.Seeders)
+                {
+                    changed++;
+                }
+
+                r.Seeders = counts.Seeders;
+                r.LiveSeeders = true;
+            }
+        }
+
+        _logger.LogInformation("Checked live seeders of {Count} releases for {Request} in {Ms} ms ({Changed} differed from the sites' counts){Later:l}", live.Count, request, sw.ElapsedMilliseconds, changed, followUp ? ", after the list was shown" : string.Empty);
     }
 
     /// <summary>The top releases, plus the best few of every resolution, so "Best 1080p" exists even when 4K fills the top.</summary>
@@ -243,6 +319,17 @@ public sealed class StreamOptions
             lock (foundLock)
             {
                 found = Dedupe(found.Concat(results));
+            }
+
+            // Sites' seeder counts are often stale (one listed 288 seeders for a torrent with one): ask the trackers for
+            // the top releases' real counts, then rank again. A release the new order brings to the top is checked too.
+            if (Plugin.Instance?.Configuration.CheckLiveSeeders == true)
+            {
+                await CheckLiveSeedersAsync(ReleaseRanker.Rank(found, request), request).ConfigureAwait(false);
+            }
+
+            lock (foundLock)
+            {
                 list = Pick(ReleaseRanker.Rank(found, request));
             }
 
@@ -250,6 +337,39 @@ public sealed class StreamOptions
             {
                 _cache[request.Key] = (DateTime.UtcNow, list, ListStamp()); // an empty result (sources down, VPN off) isn't kept, so the next try searches again
                 TrimCache();
+
+                // The quick check above has to fit in the time a title page waits; the releases it didn't reach are
+                // checked in the background, so the next look at the list (and a fallback) has their live counts.
+                if (Plugin.Instance?.Configuration.CheckLiveSeeders == true)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            List<ReleaseCandidate> ranked;
+                            lock (foundLock)
+                            {
+                                ranked = ReleaseRanker.Rank(found, request);
+                            }
+
+                            await CheckLiveSeedersAsync(ranked, request, followUp: true).ConfigureAwait(false);
+                            List<ReleaseCandidate> merged;
+                            lock (foundLock)
+                            {
+                                merged = Pick(ReleaseRanker.Rank(found, request));
+                            }
+
+                            if (merged.Count > 0 && _cache.TryGetValue(request.Key, out var current) && current.Rules == stamp && current.Rules == ListStamp())
+                            {
+                                _cache[request.Key] = (current.At, merged, stamp);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "Background seeder check for {Request} failed", request);
+                        }
+                    });
+                }
             }
             _logger.LogInformation("Found {Count} streams for {Request}", list.Count, request);
             return list;

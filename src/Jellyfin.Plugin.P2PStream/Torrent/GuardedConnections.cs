@@ -114,6 +114,30 @@ public sealed class GuardedUdpTrackerConnection : ITrackerConnection
         }
     }
 
+    /// <summary>Scrapes many torrents in one request (BEP 15 allows about 70 per packet): info hash to (seeders, leechers).</summary>
+    public async Task<Dictionary<InfoHash, (int Seeders, int Leechers)>> ScrapeManyAsync(IReadOnlyList<InfoHash> hashes, CancellationToken token)
+    {
+        var result = new Dictionary<InfoHash, (int, int)>();
+        foreach (var batch in hashes.Chunk(70))
+        {
+            var connectionId = await GetConnectionIdAsync(token).ConfigureAwait(false);
+            var list = batch.ToList();
+            var (raw, error) = await SendAndReceiveAsync(new ScrapeMessage(Environment.TickCount ^ Random.Shared.Next(), connectionId, list), token).ConfigureAwait(false);
+            if (error is not null || raw is not ScrapeResponseMessage response)
+            {
+                _connectionId = null;
+                throw new TrackerException(error ?? "Unexpected reply");
+            }
+
+            for (var i = 0; i < response.Scrapes.Count && i < list.Count; i++)
+            {
+                result[list[i]] = (response.Scrapes[i].Seeds, response.Scrapes[i].Leeches);
+            }
+        }
+
+        return result;
+    }
+
     public async ReusableTask<ScrapeResponse> ScrapeAsync(ScrapeRequest parameters, CancellationToken token)
     {
         try

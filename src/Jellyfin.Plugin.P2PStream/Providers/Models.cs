@@ -87,6 +87,9 @@ public sealed class ReleaseCandidate
     /// <summary>Gets or sets the seeder count; -1 when unknown.</summary>
     public int Seeders { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether <see cref="Seeders"/> was checked with the trackers (not the site's figure).</summary>
+    public bool LiveSeeders { get; set; }
+
     public int Peers { get; set; }
 
     public int Resolution { get; set; }

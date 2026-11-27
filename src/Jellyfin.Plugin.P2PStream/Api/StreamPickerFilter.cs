@@ -665,7 +665,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             source.ETag = "p2pres" + g.Key.ToString(System.Globalization.CultureInfo.InvariantCulture);
             var label = g.Key == 2160 ? "4K" : g.Key + "p";
             var size = best.Size > 0 ? $" · {best.Size / (double)(1L << 30):0.0} GB" : string.Empty;
-            var seeds = best.Seeders >= 0 ? $" · {best.Seeders} seeds" : string.Empty;
+            var seeds = best.Seeders >= 0 ? $" · {best.Seeders} seeds{(best.LiveSeeders ? " live" : string.Empty)}" : string.Empty;
             source.Name = $"Best {label} · {g.Count()} available{seeds}{size} — {ReleaseRanker.CleanTitle(best.Title)}";
             list.Add(source);
         }

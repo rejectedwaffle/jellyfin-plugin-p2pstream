@@ -228,6 +228,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool FetchMissingSubtitles { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the top releases' seeder counts are checked with the trackers (sites'
+    /// own counts are often stale) before Auto picks.
+    /// </summary>
+    public bool CheckLiveSeeders { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a value indicating whether, two minutes into an episode, the start of the next episode is fetched
     /// quietly (then the download pauses), so Next or autoplay starts almost at once.
     /// </summary>

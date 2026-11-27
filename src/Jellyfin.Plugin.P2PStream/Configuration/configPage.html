@@ -319,6 +319,8 @@
                                 </div>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PreferStreamingSizes" /><span>Prefer streaming-friendly sizes</span></label>
                                 <div class="p2p-desc">Well-seeded releases under about 15 GB (4K) or 8 GB (1080p) are tried before huge remuxes, which start slowly (episodes: 6 GB and 3 GB). The big ones stay in the Version menu.</div>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="CheckLiveSeeders" /><span>Check live seeders</span></label>
+                                <div class="p2p-desc">Torrent sites' seeder counts are often out of date. The top releases' real counts are asked from the trackers (a second or two, through your privacy method) and Auto ranks by those. Checked counts show as "seeds live" in the Version menu.</div>
                                 <div class="inputContainer">
                                     <input is="emby-input" type="number" min="0" data-key="Min4KSeeders" data-type="int" label="Minimum seeders for 4K (0 = off)" />
                                     <div class="fieldDescription">A 4K release with fewer seeders is tried after the best 1080p one: a small swarm can't download 4K fast enough to start quickly. It stays in the Version menu.</div>
