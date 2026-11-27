@@ -61,6 +61,9 @@ public sealed class TorrentSession
 
     public int ActiveStreams => Volatile.Read(ref _activeStreams);
 
+    /// <summary>The files of this torrent someone is reading right now.</summary>
+    public IReadOnlyList<ITorrentManagerFile> FilesBeingRead => _readers.Where(kv => kv.Value > 0).Select(kv => kv.Key).ToList();
+
     /// <summary>True if another file of this torrent is being read right now (a season pack's other episode, say).</summary>
     public bool IsReadingOtherThan(ITorrentManagerFile file) => _readers.Any(kv => kv.Value > 0 && kv.Key != file);
 

@@ -45,5 +45,12 @@ public static class DiskSpace
         }
     }
 
+    /// <summary>
+    /// True if a download needing <paramref name="need"/> bytes fits: torrent files only take space as they download,
+    /// so the space the titles being watched still need (<paramref name="promised"/>) is taken off what's free, and space
+    /// that removing idle torrents would free (<paramref name="reclaimable"/>) is added.
+    /// </summary>
+    public static bool Fits(long need, long free, long promised, long reclaimable = 0) => need <= free - promised + reclaimable;
+
     public static string Gb(long bytes) => (bytes / (double)(1L << 30)).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " GB";
 }

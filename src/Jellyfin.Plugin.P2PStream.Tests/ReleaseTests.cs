@@ -190,3 +190,25 @@ internal static class ReleaseExtensions
         return r;
     }
 }
+
+/// <summary>Whether a download fits on the disk, counting what the titles being watched still need.</summary>
+public class DiskSpaceTests
+{
+    private const long Gb = 1L << 30;
+
+    [Fact]
+    public void A_film_fits_when_nothing_else_is_downloading() =>
+        Assert.True(Torrent.DiskSpace.Fits(28 * Gb, free: 42 * Gb, promised: 0));
+
+    [Fact]
+    public void A_second_big_film_doesnt_fit_while_the_first_still_needs_its_space() =>
+        Assert.False(Torrent.DiskSpace.Fits(28 * Gb, free: 42 * Gb, promised: 25 * Gb)); // each alone would fit
+
+    [Fact]
+    public void Removing_idle_torrents_can_make_it_fit() =>
+        Assert.True(Torrent.DiskSpace.Fits(28 * Gb, free: 42 * Gb, promised: 25 * Gb, reclaimable: 12 * Gb));
+
+    [Fact]
+    public void A_smaller_release_still_fits_beside_a_film_being_watched() =>
+        Assert.True(Torrent.DiskSpace.Fits(8 * Gb, free: 42 * Gb, promised: 25 * Gb));
+}

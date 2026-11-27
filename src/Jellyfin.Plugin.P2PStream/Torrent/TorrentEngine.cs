@@ -762,6 +762,15 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     public long ReclaimableBytes(string? except = null) =>
         _sessions.Values.Where(s => s.ActiveStreams == 0 && s.InfoHash != except).Sum(s => DiskBytes(s.Manager));
 
+    /// <summary>
+    /// What the titles being watched still have to download (the files being read, less what's on disk), apart from
+    /// <paramref name="except"/>: space already spoken for, since torrent files only grow as they download.
+    /// </summary>
+    public long PromisedBytes(string? except = null) =>
+        _sessions.Values
+            .Where(s => s.ActiveStreams > 0 && s.InfoHash != except)
+            .Sum(s => s.FilesBeingRead.Sum(f => RemainingBytes(s.Manager, s.Manager.Files.IndexOf(f))));
+
     /// <summary>What's still to download of one file (its size less the whole pieces already on disk).</summary>
     public static long RemainingBytes(TorrentManager m, int fileIndex)
     {

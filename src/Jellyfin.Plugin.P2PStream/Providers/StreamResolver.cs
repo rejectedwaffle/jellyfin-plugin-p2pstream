@@ -316,7 +316,9 @@ public sealed class StreamResolver
                     {
                         _userPicks.Remove(pinOwner, req.Key);
                         _cache.Remove(req.Key);
-                        _status.Report(req, "The version you chose couldn't connect to any peers, so Auto is playing instead (your pick was cleared).");
+                        _status.Report(req, ex.Message.StartsWith("Not enough disk space", StringComparison.Ordinal)
+                            ? "The version you chose won't fit on the disk, so Auto is playing a smaller one instead (your pick was cleared)."
+                            : "The version you chose couldn't connect to any peers, so Auto is playing instead (your pick was cleared).");
                     }
                 }
             }
@@ -394,10 +396,10 @@ public sealed class StreamResolver
 
                 // A film whose size is listed and clearly can't fit (even after removing idle torrents): don't start it.
                 if (req.Kind == MediaKind.Movie && release.Size > 0 && DiskSpace.FreeForDownloads() is long free
-                    && release.Size + DiskSpace.Margin > free + _engine.ReclaimableBytes())
+                    && !DiskSpace.Fits(release.Size + DiskSpace.Margin, free, _engine.PromisedBytes(), _engine.ReclaimableBytes()))
                 {
                     tooBig++;
-                    _logger.LogWarning("Skipping {Release}: {Size} won't fit on the disk ({Free} free)", release.Title, DiskSpace.Gb(release.Size), DiskSpace.Gb(free));
+                    _logger.LogWarning("Skipping {Release}: {Size} won't fit on the disk ({Free} free, {Promised} still needed by what's playing)", release.Title, DiskSpace.Gb(release.Size), DiskSpace.Gb(free), DiskSpace.Gb(_engine.PromisedBytes()));
                     continue;
                 }
 
@@ -978,25 +980,29 @@ public sealed class StreamResolver
     /// </summary>
     private async Task EnsureRoomAsync(TorrentSession session, int index, ReleaseCandidate release)
     {
+        // What's still to download of this file, plus what the titles already being watched still need: two big
+        // films started together must not each count the same free space.
         var need = TorrentEngine.RemainingBytes(session.Manager, index) + DiskSpace.Margin;
-        if (DiskSpace.FreeForDownloads() is not long free || free >= need)
+        var promised = _engine.PromisedBytes(session.InfoHash);
+        if (DiskSpace.FreeForDownloads() is not long free || DiskSpace.Fits(need, free, promised))
         {
             return;
         }
 
-        if (await _engine.MakeRoomAsync(need, session.InfoHash).ConfigureAwait(false))
+        if (await _engine.MakeRoomAsync(need + promised, session.InfoHash).ConfigureAwait(false))
         {
             return;
         }
 
         var size = session.Manager.Files[index].Length;
-        var left = DiskSpace.FreeForDownloads() ?? 0;
+        var left = Math.Max(0, (DiskSpace.FreeForDownloads() ?? 0) - promised);
         if (session.ActiveStreams == 0)
         {
             await _engine.RemoveAsync(session.InfoHash, true).ConfigureAwait(false);
         }
 
-        throw new NotEnoughSpaceException($"Not enough disk space for \"{release.Title}\": it needs {DiskSpace.Gb(size)} and {DiskSpace.Gb(left)} is free. Pick a smaller version, or free some space.");
+        var playing = promised > 0 ? $" once what's already playing has finished downloading" : string.Empty;
+        throw new NotEnoughSpaceException($"Not enough disk space for \"{release.Title}\": it needs {DiskSpace.Gb(size)} and {DiskSpace.Gb(left)} is free{playing}. Pick a smaller version, or free some space.");
     }
 
     private async Task<ResolvedStream?> TryCachedAsync(MediaRequest req, CancellationToken ct)
