@@ -35,6 +35,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<StreamOptions>();
         serviceCollection.AddSingleton<StreamProber>();
         serviceCollection.AddSingleton<StartStatus>();
+        serviceCollection.AddSingleton<Catalog.JellyfinSpace>();
         serviceCollection.AddSingleton<StreamResolver>();
         serviceCollection.AddSingleton<UserPicks>();
         serviceCollection.AddHostedService<FinishedPicks>();

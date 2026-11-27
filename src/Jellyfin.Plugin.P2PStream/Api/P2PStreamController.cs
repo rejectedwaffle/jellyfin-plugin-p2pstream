@@ -49,8 +49,10 @@ public class P2PStreamController : ControllerBase
         LibrarySetup libraries,
         StreamUrlBuilder urls,
         ITaskManager taskManager,
+        JellyfinSpace jellyfinSpace,
         ILogger<P2PStreamController> logger)
     {
+        _jellyfinSpace = jellyfinSpace;
         _engine = engine;
         _resolver = resolver;
         _torznab = torznab;
@@ -553,6 +555,7 @@ public class P2PStreamController : ControllerBase
                 new { Name = "Engine cache", Mb = FolderBytes(Path.Combine(Plugin.Instance.DataFolderPath, "cache")) >> 20, Note = "resume data and peer lists; unused for 30 days are deleted" },
                 new { Name = "Catalog files", Mb = FolderBytes(Plugin.Instance.CatalogPath) >> 20, Note = ".strm files for catalogs and search (artwork is kept by Jellyfin, not here)" }
             },
+            Jellyfin = JellyfinRows(),
             Disks = DisksFor(
                 ("downloads", Plugin.Instance.DownloadPath),
                 ("plugin data", Plugin.Instance.DataFolderPath),
@@ -593,7 +596,16 @@ public class P2PStreamController : ControllerBase
     }
 
     /// <summary>Space the files in a folder take (0 if it can't be read).</summary>
-    private static long FolderBytes(string path)
+    private readonly JellyfinSpace _jellyfinSpace;
+
+    /// <summary>Jellyfin's own folders (measured in the background; empty with Measuring until the first result).</summary>
+    private object JellyfinRows()
+    {
+        var (rows, at, measuring) = _jellyfinSpace.Get();
+        return new { Rows = rows, MeasuredAt = at, Measuring = measuring };
+    }
+
+    internal static long FolderBytes(string? path)
     {
         if (!Directory.Exists(path))
         {

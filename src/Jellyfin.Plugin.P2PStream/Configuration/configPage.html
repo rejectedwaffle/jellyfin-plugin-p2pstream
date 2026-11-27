@@ -898,10 +898,16 @@
                         disks = '<div class="p2p-warn">Low disk space: only ' + mb(low[0].FreeMb) + ' free. Big releases may not fit; ones that do not are skipped. Free some space or lower the disk space limit.</div>' + disks;
                     }
                     if (store.classList.contains('compact')) { store.innerHTML = disks + used; return; }
-                    store.innerHTML = disks + used +
-                        n.Storage.map(function (s) {
-                            return '<div class="p2p-testrow"><span class="neutral">•</span><b>' + esc(s.Name) + '</b><span class="p2p-verdict">' + mb(s.Mb) + '</span><span class="p2p-why">' + esc(s.Note) + '</span></div>';
-                        }).join('');
+                    function row(s) {
+                        return '<div class="p2p-testrow"><span class="neutral">•</span><b>' + esc(s.Name) + '</b><span class="p2p-verdict">' + mb(s.Mb) + '</span><span class="p2p-why">' + esc(s.Note) + '</span></div>';
+                    }
+                    // Jellyfin itself (whole server), measured in the background every 30 minutes.
+                    var jf = n.Jellyfin || {};
+                    var jfRows = jf.Rows || [];
+                    var jfHtml = jfRows.length
+                        ? '<div class="p2p-muted" style="margin:.9em 0 .2em">Jellyfin files (whole server): <b>' + mb(jfRows.filter(function (r) { return r.Name.charAt(0) !== '…'; }).reduce(function (a, r) { return a + r.Mb; }, 0)) + '</b></div>' + jfRows.map(row).join('')
+                        : (jf.Measuring ? '<div class="p2p-muted" style="margin:.9em 0 .2em">Measuring the Jellyfin folders…</div>' : '');
+                    store.innerHTML = disks + used + n.Storage.map(row).join('') + jfHtml;
                 });
             }
             function showPortFile(n) {
