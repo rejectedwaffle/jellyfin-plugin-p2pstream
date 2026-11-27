@@ -739,6 +739,51 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     }
 
     /// <summary>Downloaded data of a torrent (whole pieces it has, which is what's on disk).</summary>
+    /// <summary>Space torrents nobody is watching take (they can be removed to make room), apart from <paramref name="except"/>.</summary>
+    public long ReclaimableBytes(string? except = null) =>
+        _sessions.Values.Where(s => s.ActiveStreams == 0 && s.InfoHash != except).Sum(s => DiskBytes(s.Manager));
+
+    /// <summary>What's still to download of one file (its size less the whole pieces already on disk).</summary>
+    public static long RemainingBytes(TorrentManager m, int fileIndex)
+    {
+        if (!m.HasMetadata || m.Torrent is null || fileIndex < 0 || fileIndex >= m.Files.Count)
+        {
+            return 0;
+        }
+
+        var file = m.Files[fileIndex];
+        long have = 0;
+        for (var i = file.StartPieceIndex; i <= file.EndPieceIndex; i++)
+        {
+            if (m.Bitfield[i])
+            {
+                have += m.Torrent.PieceLength;
+            }
+        }
+
+        return Math.Max(0, file.Length - have);
+    }
+
+    /// <summary>
+    /// Removes torrents nobody is watching (least recently watched first, never <paramref name="except"/>) until at
+    /// least <paramref name="needed"/> bytes are free where torrents download. Returns true if that much is free.
+    /// </summary>
+    public async Task<bool> MakeRoomAsync(long needed, string? except)
+    {
+        foreach (var victim in _sessions.Values.Where(s => s.ActiveStreams == 0 && s.InfoHash != except).OrderBy(s => s.LastAccess).ToList())
+        {
+            if ((DiskSpace.FreeForDownloads() ?? long.MaxValue) >= needed)
+            {
+                break;
+            }
+
+            _logger.LogInformation("Making room on the disk: removing {Name} ({Size} MB)", victim.Manager.Torrent?.Name ?? victim.InfoHash, DiskBytes(victim.Manager) >> 20);
+            await RemoveAsync(victim.InfoHash, true).ConfigureAwait(false);
+        }
+
+        return (DiskSpace.FreeForDownloads() ?? long.MaxValue) >= needed;
+    }
+
     public static long DiskBytes(TorrentManager m) =>
         m.HasMetadata && m.Torrent is not null ? (long)m.Bitfield.TrueCount * m.Torrent.PieceLength : 0;
 

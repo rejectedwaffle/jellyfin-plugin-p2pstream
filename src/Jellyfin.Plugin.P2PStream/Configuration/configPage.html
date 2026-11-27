@@ -528,6 +528,7 @@
                                     <input is="emby-input" type="number" min="0" data-key="MaxDiskGb" data-type="int" label="Disk space limit (GB, 0 = no limit)" />
                                     <div class="fieldDescription">A target for the torrents the plugin is running, checked every few minutes: over it, the least recently watched ones nobody is watching are removed. Not a hard cap: a title being watched is never removed, so a large release can go over it, and files kept after playback aren't counted.</div>
                                 </div>
+                                <div class="p2p-desc" style="margin-left:0">How much space the plugin needs: a release is downloaded as you watch it, so watching one to the end needs its whole size free. Roughly 1 to 3 GB for a 1080p episode, 2 to 8 GB for a 1080p film, 10 to 25 GB for a typical 4K film, and 50 GB or more for a 4K remux. Keep at least your biggest likely release free, plus a few GB for Jellyfin's own transcoding files. Before a stream starts, torrents nobody is watching are removed to make room, and a release that still won't fit is skipped (or, if you picked it, you're told why).</div>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="KeepFilesAfterPlayback" /><span>Keep downloaded files after torrents are removed</span></label>
                                 <div class="p2p-desc">Off: files are deleted when a torrent is removed, so the disk doesn't fill up.</div>
                             </div>
@@ -887,6 +888,11 @@
                             '</div>';
                     }).join('');
                     var used = '<div class="p2p-muted" style="margin:.2em 0">Space the plugin uses now: <b>' + mb(total) + '</b></div>';
+                    // Low on space: below 10 GB or 10% of the disk free.
+                    var low = (n.Disks || []).filter(function (d) { return d.TotalMb > 0 && (d.FreeMb < 10240 || d.FreeMb < d.TotalMb * 0.1); });
+                    if (low.length) {
+                        disks = '<div class="p2p-warn">Low disk space: only ' + mb(low[0].FreeMb) + ' free. Big releases may not fit; ones that do not are skipped. Free some space or lower the disk space limit.</div>' + disks;
+                    }
                     if (store.classList.contains('compact')) { store.innerHTML = disks + used; return; }
                     store.innerHTML = disks + used +
                         n.Storage.map(function (s) {

@@ -566,38 +566,10 @@ public class P2PStreamController : ControllerBase
     /// </summary>
     private static List<object> DisksFor(params (string What, string Path)[] folders)
     {
-        DriveInfo[] drives;
-        try
-        {
-            drives = DriveInfo.GetDrives().Where(d => d.IsReady && d.TotalSize > 0).ToArray();
-        }
-        catch (Exception)
-        {
-            return [];
-        }
-
         var found = new Dictionary<string, (DriveInfo Drive, List<string> What)>(StringComparer.Ordinal);
         foreach (var (what, path) in folders)
         {
-            if (string.IsNullOrEmpty(path))
-            {
-                continue;
-            }
-
-            string full;
-            try
-            {
-                full = System.IO.Path.GetFullPath(path);
-            }
-            catch (Exception)
-            {
-                continue;
-            }
-
-            var drive = drives
-                .Where(d => full.StartsWith(d.RootDirectory.FullName, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-                .OrderByDescending(d => d.RootDirectory.FullName.Length)
-                .FirstOrDefault();
+            var drive = Torrent.DiskSpace.DriveFor(path);
             if (drive is null)
             {
                 continue;
@@ -949,6 +921,9 @@ public class P2PStreamController : ControllerBase
     /// </summary>
     /// <param name="checkKey">Set while Jellyfin answers a Play request for this title: the first read from the start of
     /// the file (Jellyfin's own stream check) is cut at <see cref="PlaybackInfoWindow.CheckBytes"/>.</param>
+    /// <summary>How long Jellyfin's stream check may wait for data before it's ended.</summary>
+    private static readonly TimeSpan CheckStallLimit = TimeSpan.FromSeconds(60);
+
     private async Task ServeAsync(TorrentSession session, int fileIndex, string? checkKey = null)
     {
         var file = session.Manager.Files[fileIndex];
@@ -1001,10 +976,29 @@ public class P2PStreamController : ControllerBase
                 _logger.LogInformation("Giving Jellyfin's stream check the first {Mb} MB of {File}", PlaybackInfoWindow.CheckBytes >> 20, Path.GetFileName(file.Path));
             }
 
+            // Jellyfin's stream check waits as long as it takes; through a dead torrent that's forever, and every later
+            // attempt to play the title queues behind it. If no data arrives for a minute, end the check instead.
+            using var stall = CancellationTokenSource.CreateLinkedTokenSource(aborted);
             var sinceTouch = Stopwatch.StartNew();
             while (remaining > cutAt)
             {
-                var read = await lease.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining - cutAt)), aborted).ConfigureAwait(false);
+                if (cutAt > 0)
+                {
+                    stall.CancelAfter(CheckStallLimit);
+                }
+
+                int read;
+                try
+                {
+                    read = await lease.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining - cutAt)), cutAt > 0 ? stall.Token : aborted).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (stall.IsCancellationRequested && !aborted.IsCancellationRequested)
+                {
+                    _logger.LogWarning("Jellyfin's stream check got no data for {Seconds} s from {File}; ended it so the title isn't held up", (int)CheckStallLimit.TotalSeconds, Path.GetFileName(file.Path));
+                    HttpContext.Abort();
+                    return;
+                }
+
                 if (read == 0)
                 {
                     break;

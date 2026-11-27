@@ -97,3 +97,6 @@ public sealed class ReleaseCandidate
 public sealed record ResolvedStream(TorrentSession Session, int FileIndex);
 
 public sealed class StreamNotFoundException(string message) : Exception(message);
+
+/// <summary>A release that doesn't fit on the disk, even after removing torrents nobody is watching.</summary>
+public sealed class NotEnoughSpaceException(string message) : Exception(message);

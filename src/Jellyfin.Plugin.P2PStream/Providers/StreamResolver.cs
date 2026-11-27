@@ -48,6 +48,13 @@ public sealed class StreamResolver
     private static readonly TimeSpan DeadFor = TimeSpan.FromMinutes(30);
     private readonly ConcurrentDictionary<string, DateTime> _dead = new();
 
+    // Torrents (info hash) that started but didn't download: Auto avoids them for DeadFor.
+    private readonly ConcurrentDictionary<string, DateTime> _deadHashes = new(StringComparer.OrdinalIgnoreCase);
+
+    // A release counts as downloading once this much arrives within FlowWindow of starting (about 100 KB/s).
+    private static readonly TimeSpan FlowWindow = TimeSpan.FromSeconds(30);
+    private const long FlowBytes = 3L << 20;
+
     /// <param name="nextEpisode">
     /// A pre-load of the episode after the one playing: only if that setting is on, and the torrent is paused again right
     /// after, so it doesn't keep downloading alongside the episode being watched.
@@ -307,17 +314,40 @@ public sealed class StreamResolver
             }
 
             var tries = Math.Max(1, Plugin.Instance!.Configuration.CandidatesToTry);
-            foreach (var release in releases.Take(tries))
+            var tooBig = 0;
+
+            // Releases that started but didn't download a little while ago are left out (unless nothing else is left).
+            var candidates = releases.Where(r => !IsDead(r)).Take(tries).ToList();
+            if (candidates.Count == 0)
             {
+                candidates = releases.Take(tries).ToList();
+            }
+
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                var release = candidates[i];
                 NetworkGuard.Require(); // don't try the next release while the VPN/proxy is down
-                var started = await TryStartAsync(req, release, remember: true, ct).ConfigureAwait(false);
+
+                // A film whose size is listed and clearly can't fit (even after removing idle torrents): don't start it.
+                if (req.Kind == MediaKind.Movie && release.Size > 0 && DiskSpace.FreeForDownloads() is long free
+                    && release.Size + DiskSpace.Margin > free + _engine.ReclaimableBytes())
+                {
+                    tooBig++;
+                    _logger.LogWarning("Skipping {Release}: {Size} won't fit on the disk ({Free} free)", release.Title, DiskSpace.Gb(release.Size), DiskSpace.Gb(free));
+                    continue;
+                }
+
+                // The last one left is kept even if it's slow: slow beats nothing.
+                var started = await TryStartAsync(req, release, remember: true, ct, checkFlow: i < candidates.Count - 1).ConfigureAwait(false);
                 if (started is not null)
                 {
                     return started;
                 }
             }
 
-            throw new StreamNotFoundException($"None of the top {tries} releases for {req} could be started");
+            throw new StreamNotFoundException(tooBig > 0
+                ? $"None of the top {tries} releases for {req} could be started; {tooBig} didn't fit on the disk ({DiskSpace.Gb(DiskSpace.FreeForDownloads() ?? 0)} free)"
+                : $"None of the top {tries} releases for {req} could be started");
         }
         finally
         {
@@ -392,7 +422,7 @@ public sealed class StreamResolver
         return started ?? throw new StreamNotFoundException($"Couldn't start \"{chosen.Title}\" (no peers, or no matching video file). Try another version.");
     }
 
-    private async Task<ResolvedStream?> TryStartAsync(MediaRequest req, ReleaseCandidate release, bool remember, CancellationToken ct, bool chosenByUser = false, TimeSpan? metadataTimeout = null, string? chosenBy = null)
+    private async Task<ResolvedStream?> TryStartAsync(MediaRequest req, ReleaseCandidate release, bool remember, CancellationToken ct, bool chosenByUser = false, TimeSpan? metadataTimeout = null, string? chosenBy = null, bool checkFlow = false)
     {
         try
         {
@@ -402,6 +432,24 @@ public sealed class StreamResolver
             var index = PickFile(session.Manager, req);
             if (index >= 0)
             {
+                if (remember)
+                {
+                    await EnsureRoomAsync(session, index, release).ConfigureAwait(false);
+                }
+
+                // Auto, with other releases still to try: make sure this one actually downloads before settling on it
+                // (listed seeder counts are often stale; a "31 seeders" release can have one slow peer).
+                if (checkFlow && !await DataFlowsAsync(session, index, ct).ConfigureAwait(false))
+                {
+                    MarkDead(release, session.InfoHash);
+                    if (session.ActiveStreams == 0)
+                    {
+                        await _engine.RemoveAsync(source.InfoHash, true).ConfigureAwait(false);
+                    }
+
+                    return null;
+                }
+
                 // Remember it: Auto uses this release next time, and repeat requests skip the lookup.
                 if (remember)
                 {
@@ -418,12 +466,91 @@ public sealed class StreamResolver
                 await _engine.RemoveAsync(source.InfoHash, true).ConfigureAwait(false); // never one that's playing another file
             }
         }
+        catch (NotEnoughSpaceException ex) when (chosenByUser)
+        {
+            throw new StreamNotFoundException(ex.Message); // a version someone picked: say why, don't quietly play another
+        }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             _logger.LogWarning("Candidate {Release} failed: {Message}", release.Title, ex.Message);
         }
 
         return null;
+    }
+
+    private bool IsDead(ReleaseCandidate r) =>
+        (_dead.TryGetValue(StreamOptions.IdFor(r), out var at) && DateTime.UtcNow - at < DeadFor)
+        || (!string.IsNullOrEmpty(r.InfoHash) && _deadHashes.TryGetValue(r.InfoHash, out var hashAt) && DateTime.UtcNow - hashAt < DeadFor);
+
+    private void MarkDead(ReleaseCandidate release, string infoHash)
+    {
+        _dead[StreamOptions.IdFor(release)] = DateTime.UtcNow;
+        _deadHashes[infoHash] = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// True if the file's start arrives, or at least <see cref="FlowBytes"/> are downloaded, within
+    /// <see cref="FlowWindow"/>. Reading the start is what makes the torrent fetch it. A file that's already there passes at once.
+    /// </summary>
+    private async Task<bool> DataFlowsAsync(TorrentSession session, int index, CancellationToken ct)
+    {
+        using var window = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        window.CancelAfter(FlowWindow);
+        var before = session.Manager.Monitor.DataBytesReceived;
+        try
+        {
+            await using var lease = await session.OpenAsync(session.Manager.Files[index], window.Token).ConfigureAwait(false);
+            var read = lease.ReadAsync(new byte[16 * 1024], window.Token).AsTask();
+            while (!read.IsCompleted)
+            {
+                if (session.Manager.Monitor.DataBytesReceived - before >= FlowBytes)
+                {
+                    return true;
+                }
+
+                await Task.WhenAny(read, Task.Delay(1000, window.Token)).ConfigureAwait(false);
+            }
+
+            return read.IsCompletedSuccessfully;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            var got = session.Manager.Monitor.DataBytesReceived - before;
+            _logger.LogWarning(
+                "{Name} isn't downloading ({Kb} KB in {Seconds} s); trying the next release",
+                session.Manager.Torrent?.Name ?? session.InfoHash,
+                got >> 10,
+                (int)FlowWindow.TotalSeconds);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Watching a release to the end downloads all of its file. If the disk hasn't room for what's left of it (plus a
+    /// margin for Jellyfin's own files), remove torrents nobody is watching; if it still won't fit, give it up with a
+    /// clear reason instead of failing with "no space left" near the end.
+    /// </summary>
+    private async Task EnsureRoomAsync(TorrentSession session, int index, ReleaseCandidate release)
+    {
+        var need = TorrentEngine.RemainingBytes(session.Manager, index) + DiskSpace.Margin;
+        if (DiskSpace.FreeForDownloads() is not long free || free >= need)
+        {
+            return;
+        }
+
+        if (await _engine.MakeRoomAsync(need, session.InfoHash).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        var size = session.Manager.Files[index].Length;
+        var left = DiskSpace.FreeForDownloads() ?? 0;
+        if (session.ActiveStreams == 0)
+        {
+            await _engine.RemoveAsync(session.InfoHash, true).ConfigureAwait(false);
+        }
+
+        throw new NotEnoughSpaceException($"Not enough disk space for \"{release.Title}\": it needs {DiskSpace.Gb(size)} and {DiskSpace.Gb(left)} is free. Pick a smaller version, or free some space.");
     }
 
     private async Task<ResolvedStream?> TryCachedAsync(MediaRequest req, CancellationToken ct)
@@ -438,6 +565,15 @@ public sealed class StreamResolver
             var session = await _engine.GetOrRestoreAsync(entry.InfoHash, ct).ConfigureAwait(false);
             if (session is not null && entry.FileIndex < session.Manager.Files.Count)
             {
+                // Auto's remembered pick: if it has stopped downloading (its swarm died), search again instead.
+                if (!entry.Chosen && !await DataFlowsAsync(session, entry.FileIndex, ct).ConfigureAwait(false))
+                {
+                    _deadHashes[entry.InfoHash] = DateTime.UtcNow;
+                    _logger.LogWarning("{Title} (remembered for {Request}) isn't downloading any more; picking another release", entry.Title, req);
+                    _cache.Remove(req.Key);
+                    return null;
+                }
+
                 return new ResolvedStream(session, entry.FileIndex);
             }
         }
