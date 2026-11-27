@@ -119,7 +119,7 @@ public sealed class NextEpisodePreloader : IHostedService
             }
 
             _resolver.Prewarm(request, nextEpisode: true, releaseId);
-            _ = _subtitles.EnsureAsync(next, request, TimeSpan.Zero, CancellationToken.None, releaseId);
+            _ = _subtitles.EnsureAsync(next, request, TimeSpan.Zero, CancellationToken.None, releaseId, race: false); // nobody is waiting: one release at a time
         }
         catch (Exception ex)
         {
