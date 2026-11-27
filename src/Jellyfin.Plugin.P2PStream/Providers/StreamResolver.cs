@@ -92,7 +92,7 @@ public sealed class StreamResolver
                 // The next episode has most of the current one to arrive in, so it gets longer and fetches as much of the
                 // start as Jellyfin's stream check reads when Play is pressed (see PlaybackInfoWindow).
                 using var timeout = new CancellationTokenSource(nextEpisode ? TimeSpan.FromMinutes(10) : TimeSpan.FromMinutes(3));
-                var resolved = await ResolveAsync(req, releaseId, timeout.Token, remember: releaseId is null).ConfigureAwait(false);
+                var resolved = await ResolveAsync(req, releaseId, timeout.Token, remember: releaseId is null, race: !nextEpisode).ConfigureAwait(false);
                 var file = resolved.Session.Manager.Files[resolved.FileIndex];
 
                 // The same torrent is playing another of its files (a season pack): reading this one would pull the
@@ -274,7 +274,9 @@ public sealed class StreamResolver
 
     /// <param name="releaseId">A release picked in the Version menu, or null for Auto (best match).</param>
     /// <param name="remember">False for background checks, which must not change Auto's remembered pick.</param>
-    public async Task<ResolvedStream> ResolveAsync(MediaRequest req, string? releaseId, CancellationToken ct, bool remember = true)
+    /// <param name="race">False when nobody is waiting (pre-loading the next episode): releases are tried one at a time,
+    /// so a pre-load never downloads two torrents alongside the episode being watched.</param>
+    public async Task<ResolvedStream> ResolveAsync(MediaRequest req, string? releaseId, CancellationToken ct, bool remember = true, bool race = true)
     {
         NetworkGuard.Require(); // VPN/proxy down: say so, rather than searching (which may be blocked too) and reporting "nothing found"
 
@@ -338,7 +340,7 @@ public sealed class StreamResolver
                 throw new StreamNotFoundException($"No suitable releases found for {req}");
             }
 
-            return await StartBestAsync(req, releases, ct).ConfigureAwait(false);
+            return await StartBestAsync(req, releases, ct, race).ConfigureAwait(false);
         }
         finally
         {
@@ -355,8 +357,9 @@ public sealed class StreamResolver
     /// live seeders are checked, and one with 0-1 is passed over while others remain. The last release tried is kept
     /// even if slow: slow beats nothing.
     /// </summary>
-    private async Task<ResolvedStream> StartBestAsync(MediaRequest req, List<ReleaseCandidate> releases, CancellationToken ct)
+    private async Task<ResolvedStream> StartBestAsync(MediaRequest req, List<ReleaseCandidate> releases, CancellationToken ct, bool race = true)
     {
+        var perRound = race ? 2 : 1;
         var tries = Math.Max(1, Plugin.Instance!.Configuration.CandidatesToTry);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var attempts = 0;
@@ -383,7 +386,7 @@ public sealed class StreamResolver
             }
 
             var round = new List<ReleaseCandidate>();
-            for (var i = 0; i < fresh.Count && round.Count < 2 && attempts + round.Count < tries; i++)
+            for (var i = 0; i < fresh.Count && round.Count < perRound && attempts + round.Count < tries; i++)
             {
                 var release = fresh[i];
                 seen.Add(StreamOptions.IdFor(release));
