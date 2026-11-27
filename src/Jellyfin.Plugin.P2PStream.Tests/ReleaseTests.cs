@@ -39,6 +39,13 @@ public class ResolutionTests
     }
 
     [Fact]
+    public void A_cut_name_mentioning_WEB_before_the_cut_is_still_completed()
+    {
+        var cut = "Example Show S02E03 A Long Episode Title WEB x264 That Goes On And On Until Here 1";
+        Assert.EndsWith("1080p", ApibayProvider.CompleteCutName(cut));
+    }
+
+        [Fact]
     public void Short_or_complete_names_are_left_alone()
     {
         Assert.Equal("Example Show S02E05 1", ApibayProvider.CompleteCutName("Example Show S02E05 1"));
@@ -152,7 +159,18 @@ public class RankingTests
         var cut = Release("Example Show S02E05 1", 12, live: true, hash: Hash('c'));
         var kept = ReleaseRanker.KeepOne([site, cut]);
         Assert.Same(cut, kept);
-        Assert.Equal("Example Show S02E05 1080p WEB H264-GROUP[site].mkv", kept.Title);
+        Assert.Equal("Example Show S02E05 1", kept.Title); // its own name stays: remembered picks are found by it
+        Assert.Equal("Example Show S02E05 1080p WEB H264-GROUP[site].mkv", kept.FullTitle);
+    }
+
+    [Fact]
+    public void The_resolution_comes_from_the_longer_name_when_the_kept_one_is_cut()
+    {
+        Settings();
+        var cut = Release("Example Show S02E05 A Long Episode Title", 12, 600, live: true, hash: Hash('f'));
+        cut.FullTitle = "Example Show S02E05 A Long Episode Title 1080p WEB H264-GROUP";
+        var ranked = ReleaseRanker.Rank([cut], Episode());
+        Assert.Equal(1080, Assert.Single(ranked).Resolution);
     }
 }
 
@@ -211,4 +229,16 @@ public class DiskSpaceTests
     [Fact]
     public void A_smaller_release_still_fits_beside_a_film_being_watched() =>
         Assert.True(Torrent.DiskSpace.Fits(8 * Gb, free: 42 * Gb, promised: 25 * Gb));
+}
+
+/// <summary>Which disk a folder is on: whole folder names only.</summary>
+public class DriveMatchTests
+{
+    [Theory]
+    [InlineData("/mnt/data/downloads", "/mnt/data", true)]
+    [InlineData("/mnt/data2/downloads", "/mnt/data", false)]
+    [InlineData("/mnt/data", "/mnt/data", true)]
+    [InlineData("/var/lib/jellyfin", "/", true)]
+    public void A_folder_is_on_a_mount_only_by_whole_folder_names(string path, string root, bool expected) =>
+        Assert.Equal(expected, Torrent.DiskSpace.IsUnder(path, root, StringComparison.Ordinal));
 }

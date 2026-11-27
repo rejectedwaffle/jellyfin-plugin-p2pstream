@@ -52,7 +52,13 @@ public sealed class StartStatus
         }
 
         var map = _pages.GetOrAdd(request.Key, _ => new());
-        if (!map.TryAdd(sessionId, DateTime.UtcNow))
+        var now = DateTime.UtcNow;
+        foreach (var stale in map.Where(kv => now - kv.Value > WatchFor).Select(kv => kv.Key).ToList())
+        {
+            map.TryRemove(stale, out _); // told long ago and the check never reported back (e.g. nothing was found)
+        }
+
+        if (!map.TryAdd(sessionId, now))
         {
             return; // already told
         }

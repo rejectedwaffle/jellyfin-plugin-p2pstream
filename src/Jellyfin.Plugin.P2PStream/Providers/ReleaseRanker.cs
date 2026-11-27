@@ -70,6 +70,10 @@ public static partial class ReleaseRanker
         {
             r.Title = CleanTitle(r.Title);
             r.Resolution = ParseResolution(r.Title);
+            if (!StatesResolution(r.Title) && !string.IsNullOrEmpty(r.FullTitle) && StatesResolution(r.FullTitle))
+            {
+                r.Resolution = ParseResolution(r.FullTitle); // the name another site gave the same torrent says it
+            }
             var type = DetectReleaseType(r.Title);
             if ((r.Seeders >= 0 && r.Seeders < c.MinSeeders) // -1 = unknown (e.g. web-seeded), don't filter
                 || (r.Resolution > 0 && !resolutions.Contains(r.Resolution))
@@ -182,6 +186,11 @@ public static partial class ReleaseRanker
 
         return null;
     }
+
+    /// <summary>True if the name states a resolution (2160p, 1080p, 720p, 480p, ...), not only a source or codec.</summary>
+    public static bool StatesResolution(string title) =>
+        Res2160().IsMatch(title) || Res1440().IsMatch(title) || title.Contains("1080", StringComparison.Ordinal)
+        || title.Contains("720p", StringComparison.OrdinalIgnoreCase) || ResSd().IsMatch(title) || ResLow().IsMatch(title);
 
     public static int ParseResolution(string title)
     {
@@ -337,7 +346,8 @@ public static partial class ReleaseRanker
         var longest = all.OrderByDescending(r => r.Title?.Length ?? 0).First().Title;
         if (!string.IsNullOrEmpty(longest) && longest.Length > (kept.Title?.Length ?? 0))
         {
-            kept.Title = longest;
+            // Kept as a second name (the release keeps its own: remembered picks are found by it).
+            kept.FullTitle = longest;
         }
 
         return kept;

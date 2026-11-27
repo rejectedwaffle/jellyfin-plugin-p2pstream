@@ -21,15 +21,36 @@ public static class DiskSpace
         {
             var full = Path.GetFullPath(path);
             var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            return DriveInfo.GetDrives()
-                .Where(d => d.IsReady && d.TotalSize > 0 && full.StartsWith(d.RootDirectory.FullName, comparison))
-                .OrderByDescending(d => d.RootDirectory.FullName.Length)
-                .FirstOrDefault();
+            bool Holds(DriveInfo d)
+            {
+                try
+                {
+                    return d.IsReady && d.TotalSize > 0 && IsUnder(full, d.RootDirectory.FullName, comparison);
+                }
+                catch (Exception)
+                {
+                    return false; // a mount this process can't read: skip it, don't give up on the rest
+                }
+            }
+
+            return DriveInfo.GetDrives().Where(Holds).OrderByDescending(d => d.RootDirectory.FullName.Length).FirstOrDefault();
         }
         catch (Exception)
         {
             return null;
         }
+    }
+
+    /// <summary>True if <paramref name="path"/> is <paramref name="root"/> or inside it (whole folder names: /mnt/data isn't /mnt/data2).</summary>
+    internal static bool IsUnder(string path, string root, StringComparison comparison)
+    {
+        if (!path.StartsWith(root, comparison))
+        {
+            return false;
+        }
+
+        return path.Length == root.Length || root.EndsWith(Path.DirectorySeparatorChar) || root.EndsWith(Path.AltDirectorySeparatorChar)
+            || path[root.Length] == Path.DirectorySeparatorChar || path[root.Length] == Path.AltDirectorySeparatorChar;
     }
 
     /// <summary>Free space where torrents download to, or null if it can't be told.</summary>

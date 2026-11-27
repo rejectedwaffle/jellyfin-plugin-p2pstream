@@ -263,7 +263,7 @@ public sealed class ApibayProvider : SearchProvider
     /// </summary>
     internal static string CompleteCutName(string name)
     {
-        if (name.Length < 78 || ReleaseRanker.ParseResolution(name) > 0)
+        if (name.Length < 78 || ReleaseRanker.StatesResolution(name))
         {
             return name;
         }

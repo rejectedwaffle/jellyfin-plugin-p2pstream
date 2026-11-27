@@ -96,6 +96,9 @@ public sealed class ReleaseCandidate
     /// </summary>
     public bool StaleCounts { get; set; }
 
+    /// <summary>Gets or sets a longer name another site gave the same torrent (used when this one is cut short).</summary>
+    public string? FullTitle { get; set; }
+
     public int Peers { get; set; }
 
     public int Resolution { get; set; }

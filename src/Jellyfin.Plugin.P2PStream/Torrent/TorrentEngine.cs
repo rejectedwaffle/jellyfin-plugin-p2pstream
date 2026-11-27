@@ -152,12 +152,22 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     }
 
     private readonly SemaphoreSlim _admission = new(1, 1);
+
+    /// <summary>Torrents whose removal from the engine took long and is still finishing (info hash to that removal).</summary>
+    private readonly ConcurrentDictionary<string, Task> _removing = new(StringComparer.OrdinalIgnoreCase);
     private int _starting;
 
     private async Task<TorrentSession> StartNewAsync(ClientEngine engine, TorrentSource source, CancellationToken cancellationToken, TimeSpan? metadataTimeout)
     {
         {
             Persist(source);
+
+            // The same torrent is still being taken out of the engine (a slow removal): let that finish first, or this
+            // would pick up the manager that is about to disappear.
+            if (_removing.TryGetValue(source.InfoHash, out var leaving))
+            {
+                await Task.WhenAny(leaving, Task.Delay(TimeSpan.FromSeconds(60), cancellationToken)).ConfigureAwait(false);
+            }
 
             TorrentManager manager;
             await _engineLock.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -799,7 +809,9 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     /// </summary>
     public async Task<bool> MakeRoomAsync(long needed, string? except)
     {
-        foreach (var victim in _sessions.Values.Where(s => s.ActiveStreams == 0 && s.InfoHash != except).OrderBy(s => s.LastAccess).ToList())
+        // Not one used in the last half minute: it may have just been picked for a player that hasn't opened it yet.
+        var recent = DateTime.UtcNow - TimeSpan.FromSeconds(30);
+        foreach (var victim in _sessions.Values.Where(s => s.ActiveStreams == 0 && s.InfoHash != except && s.LastAccess < recent).OrderBy(s => s.LastAccess).ToList())
         {
             if ((DiskSpace.FreeForDownloads() ?? long.MaxValue) >= needed)
             {
@@ -946,8 +958,22 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
             var removal = engine.RemoveAsync(manager, deleteData ? RemoveMode.DownloadedDataOnly : RemoveMode.KeepAllData);
             if (await Task.WhenAny(removal, Task.Delay(TimeSpan.FromSeconds(20))).ConfigureAwait(false) != removal)
             {
-                _logger.LogWarning("Removing {Name} is taking more than 20 s; carrying on without waiting for it", manager.Torrent?.Name ?? Hash(manager));
-                _ = removal.ContinueWith(t => _logger.LogInformation("Removal of {Name} finished late ({Status})", manager.Torrent?.Name ?? Hash(manager), t.Status), TaskScheduler.Default);
+                var hash = Hash(manager);
+                _logger.LogWarning("Removing {Name} is taking more than 20 s; carrying on without waiting for it", manager.Torrent?.Name ?? hash);
+                _removing[hash] = removal;
+                _ = removal.ContinueWith(
+                    t =>
+                    {
+                        _logger.LogInformation("Removal of {Name} finished late ({Status})", manager.Torrent?.Name ?? hash, t.Status);
+                        if (deleteData)
+                        {
+                            DeleteTorrentDirectory(hash);
+                        }
+
+                        Untrack(hash);
+                        _removing.TryRemove(hash, out _);
+                    },
+                    TaskScheduler.Default);
                 return;
             }
 

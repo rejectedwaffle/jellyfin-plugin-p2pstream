@@ -315,9 +315,15 @@ public sealed class StreamResolver
                     if (pinOwner is not null)
                     {
                         _userPicks.Remove(pinOwner, req.Key);
-                        _cache.Remove(req.Key);
+                        if (_cache.TryGet(req.Key, out var remembered) && remembered.Chosen && remembered.ChosenBy == pinOwner)
+                        {
+                            _cache.Remove(req.Key); // only this person's own pick; Auto's working one stays
+                        }
+
                         _status.Report(req, ex.Message.StartsWith("Not enough disk space", StringComparison.Ordinal)
                             ? "The version you chose won't fit on the disk, so Auto is playing a smaller one instead (your pick was cleared)."
+                            : ex.Message.StartsWith("That stream is no longer listed", StringComparison.Ordinal)
+                            ? "The version you chose isn't available any more, so Auto is playing instead (your pick was cleared)."
                             : "The version you chose couldn't connect to any peers, so Auto is playing instead (your pick was cleared).");
                     }
                 }
@@ -928,12 +934,21 @@ public sealed class StreamResolver
                     return true;
                 }
 
-                if (read.IsFaulted || read.IsCanceled)
+                if (read.IsFaulted || read.IsCanceled || window.IsCancellationRequested)
                 {
                     break;
                 }
 
-                await Task.WhenAny(read, Task.Delay(1000, window.Token)).ConfigureAwait(false);
+                // Once the first read is done it can't wake the loop any more: wait on the clock alone (awaiting a
+                // finished task returns at once and spun a CPU core flat out, holding the title's lock).
+                try
+                {
+                    await (read.IsCompleted ? Task.Delay(500, window.Token) : Task.WhenAny(read, Task.Delay(1000, window.Token))).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break; // the window is over (or the caller stopped)
+                }
             }
 
             // Stopped from outside (another release won the race, or the player left): not a verdict on this release.
@@ -1005,7 +1020,8 @@ public sealed class StreamResolver
             if (session is not null && entry.FileIndex < session.Manager.Files.Count)
             {
                 // Auto's remembered pick: if it has stopped downloading (its swarm died), search again instead.
-                if (!entry.Chosen && !await DataFlowsAsync(session, entry.FileIndex, req, ct).ConfigureAwait(false))
+                // Only before playback: not on every range request (seeks) of a title that is already playing.
+                if (!entry.Chosen && session.ActiveStreams == 0 && !await DataFlowsAsync(session, entry.FileIndex, req, ct).ConfigureAwait(false))
                 {
                     _deadHashes[entry.InfoHash] = DateTime.UtcNow;
                     _logger.LogWarning("{Title} (remembered for {Request}) isn't downloading any more; picking another release", entry.Title, req);
