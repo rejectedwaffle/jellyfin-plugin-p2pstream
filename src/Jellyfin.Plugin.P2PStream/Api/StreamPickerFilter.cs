@@ -32,12 +32,14 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
     private readonly StreamProber _prober;
     private readonly TorrentSubtitles _subtitles;
     private readonly UserPicks _userPicks;
+    private readonly MissingSubtitles _missingSubtitles;
     private readonly ILibraryManager _libraryManager;
     private readonly IServiceProvider _services;
     private readonly ILogger<StreamPickerFilter> _logger;
 
-    public StreamPickerFilter(StreamOptions options, StreamResolver resolver, StreamProber prober, TorrentSubtitles subtitles, UserPicks userPicks, ILibraryManager libraryManager, IServiceProvider services, ILogger<StreamPickerFilter> logger)
+    public StreamPickerFilter(StreamOptions options, StreamResolver resolver, StreamProber prober, TorrentSubtitles subtitles, UserPicks userPicks, MissingSubtitles missingSubtitles, ILibraryManager libraryManager, IServiceProvider services, ILogger<StreamPickerFilter> logger)
     {
+        _missingSubtitles = missingSubtitles;
         _userPicks = userPicks;
         _subtitles = subtitles;
         _options = options;
@@ -89,6 +91,9 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         if (playItem is not null && playRequest is not null)
         {
             await _subtitles.EnsureAsync(playItem, playRequest, TimeSpan.FromSeconds(12), http.RequestAborted).ConfigureAwait(false);
+
+            // No subtitle in the plugin's language: ask Jellyfin's subtitle providers for one (only for what's played).
+            await _missingSubtitles.EnsureAsync(playItem, playRequest, TimeSpan.FromSeconds(8), http.RequestAborted).ConfigureAwait(false);
         }
         else if (playItem is not null && StreamPicker.TryGetTorrentFile(playItem, out var addedHash, out var addedIndex))
         {

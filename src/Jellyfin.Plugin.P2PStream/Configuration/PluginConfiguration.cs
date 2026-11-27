@@ -222,6 +222,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool TorrentSubtitles { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether a subtitle in the plugin's language is fetched from Jellyfin's subtitle
+    /// providers (e.g. the OpenSubtitles plugin) when a played release has none.
+    /// </summary>
+    public bool FetchMissingSubtitles { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a value indicating whether, two minutes into an episode, the start of the next episode is fetched
     /// quietly (then the download pauses), so Next or autoplay starts almost at once.
     /// </summary>
