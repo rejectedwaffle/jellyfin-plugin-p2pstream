@@ -64,7 +64,11 @@ public sealed class MissingSubtitles
         }
 
         _tried[key] = DateTime.UtcNow;
-        var fetch = FetchAsync(video, three, english);
+
+        // The release that is playing (what the resolver started, e.g. a device rule's pick), to match subtitles to.
+        var playing = _resolver.CurrentPickTitle(request)
+            ?? (releaseId is not null && _options.TryGetCached(request, out var listed) ? listed.FirstOrDefault(r => StreamOptions.IdFor(r) == releaseId)?.Title : null);
+        var fetch = FetchAsync(video, three, english, playing);
         try
         {
             await fetch.WaitAsync(wait, ct).ConfigureAwait(false);
@@ -79,13 +83,17 @@ public sealed class MissingSubtitles
         }
     }
 
-    private async Task FetchAsync(Video video, string language, string languageName)
+    private async Task FetchAsync(Video video, string language, string languageName, string? playingRelease)
     {
         try
         {
+            // Subtitles are timed to a particular release: one made for another rip (different frame rate or cut)
+            // drifts out of sync. Prefer one made for a release like the one playing; popularity only breaks ties.
             var found = await _subtitles.SearchSubtitles(video, language, null, true, CancellationToken.None).ConfigureAwait(false);
             var best = found
                 .OrderByDescending(s => s.IsHashMatch == true)
+                .ThenByDescending(s => ReleaseMatch(playingRelease, s.Name))
+                .ThenBy(s => s.MachineTranslated == true || s.AiTranslated == true)
                 .ThenByDescending(s => s.DownloadCount ?? 0)
                 .FirstOrDefault();
             if (best is null)
@@ -106,7 +114,14 @@ public sealed class MissingSubtitles
                 _services.GetService<IDirectoryService>()?.GetFilePaths(dir, true);
             }
 
-            _logger.LogInformation("{Item}: added a {Language:l} subtitle from {Provider:l}", video.Name, languageName, best.ProviderName);
+            _logger.LogInformation(
+                "{Item}: added a {Language:l} subtitle from {Provider:l} (made for {Made}; playing {Playing}; match {Score})",
+                video.Name,
+                languageName,
+                best.ProviderName,
+                best.Name,
+                playingRelease ?? "?",
+                ReleaseMatch(playingRelease, best.Name));
         }
         catch (Exception ex)
         {
@@ -115,6 +130,80 @@ public sealed class MissingSubtitles
     }
 
     /// <summary>The release that will play: a chosen version (pinned just before this), or Auto's pick.</summary>
+    /// <summary>
+    /// How well a subtitle's release name fits the release being played: the same site or group (YTS and YIFY count as
+    /// one), source (BluRay, WEB, ...), cut (Extended, Director's) and resolution score; a different cut counts against.
+    /// </summary>
+    internal static int ReleaseMatch(string? playing, string? subtitle)
+    {
+        if (string.IsNullOrWhiteSpace(playing) || string.IsNullOrWhiteSpace(subtitle))
+        {
+            return 0;
+        }
+
+        static HashSet<string> Words(string name)
+        {
+            var words = System.Text.RegularExpressions.Regex.Split(name.ToLowerInvariant(), "[^a-z0-9]+").Where(w => w.Length > 0).ToHashSet();
+            if (words.Contains("yify"))
+            {
+                words.Add("yts"); // the same group
+            }
+
+            if (words.Contains("brrip") || words.Contains("bdrip") || words.Contains("bluray"))
+            {
+                words.Add("bluray");
+            }
+
+            if (words.Contains("webrip") || words.Contains("webdl") || (words.Contains("web") && words.Contains("dl")))
+            {
+                words.Add("web");
+            }
+
+            return words;
+        }
+
+        var a = Words(playing);
+        var b = Words(subtitle);
+        var score = 0;
+        foreach (var site in new[] { "yts", "rarbg", "eztv", "tgx", "psa", "qxr", "tigole", "ntb", "flux", "megusta", "elite", "fenix" })
+        {
+            if (a.Contains(site) && b.Contains(site))
+            {
+                score += 4;
+            }
+        }
+
+        foreach (var source in new[] { "bluray", "web", "hdtv", "dvdrip", "remux" })
+        {
+            if (a.Contains(source) && b.Contains(source))
+            {
+                score += 2;
+            }
+        }
+
+        foreach (var cut in new[] { "extended", "directors", "unrated", "theatrical", "remastered", "imax" })
+        {
+            score += a.Contains(cut) == b.Contains(cut) ? (a.Contains(cut) ? 3 : 0) : -3;
+        }
+
+        foreach (var res in new[] { "2160p", "1080p", "720p", "480p" })
+        {
+            if (a.Contains(res) && b.Contains(res))
+            {
+                score += 1;
+            }
+        }
+
+        // The group at the end of the name ("...-SPARKS"), whatever it is.
+        var group = System.Text.RegularExpressions.Regex.Match(playing, @"-([A-Za-z0-9]+)\]?\s*$");
+        if (group.Success && b.Contains(group.Groups[1].Value.ToLowerInvariant()))
+        {
+            score += 4;
+        }
+
+        return score;
+    }
+
     private string? CurrentReleaseId(MediaRequest request)
     {
         if (!_options.TryGetCached(request, out var releases) || releases.Count == 0)
