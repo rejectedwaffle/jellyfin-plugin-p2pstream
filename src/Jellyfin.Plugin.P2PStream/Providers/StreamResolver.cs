@@ -18,6 +18,7 @@ public sealed class StreamResolver
     private readonly StreamOptions _options;
     private readonly ResolutionCache _cache;
     private readonly StartStatus _status;
+    private readonly UserPicks _userPicks;
     private readonly ILogger<StreamResolver> _logger;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
 
@@ -27,8 +28,9 @@ public sealed class StreamResolver
     // A version chosen in the Version menu, played the next time the title's normal source is requested.
     private readonly ConcurrentDictionary<string, string> _pinned = new();
 
-    public StreamResolver(TorrentEngine engine, TorznabClient torznab, StreamOptions options, ResolutionCache cache, StartStatus status, ILogger<StreamResolver> logger)
+    public StreamResolver(TorrentEngine engine, TorznabClient torznab, StreamOptions options, ResolutionCache cache, StartStatus status, UserPicks userPicks, ILogger<StreamResolver> logger)
     {
+        _userPicks = userPicks;
         _status = status;
         _engine = engine;
         _torznab = torznab;
@@ -305,6 +307,15 @@ public sealed class StreamResolver
                 catch (StreamNotFoundException ex)
                 {
                     _logger.LogWarning("Chosen version failed ({Message}); falling back to Auto", ex.Message);
+
+                    // Someone's pick lasts until they finish the title; one that can't start would be tried first (and
+                    // fail, at a minute a time) on every Play. Drop it: Auto plays, and the Version menu still offers it.
+                    if (pinOwner is not null)
+                    {
+                        _userPicks.Remove(pinOwner, req.Key);
+                        _cache.Remove(req.Key);
+                        _status.Report(req, "The version you chose couldn't connect to any peers, so Auto is playing instead (your pick was cleared).");
+                    }
                 }
             }
 
@@ -735,9 +746,14 @@ public sealed class StreamResolver
             }
         }
 
-        if (started is null && !remember)
+        // Remembered as dead either way, so Auto (falling back from a chosen version) doesn't try the same torrent again.
+        if (started is null)
         {
             _dead[releaseId] = DateTime.UtcNow;
+            if (!string.IsNullOrEmpty(chosen.InfoHash))
+            {
+                _deadHashes[chosen.InfoHash] = DateTime.UtcNow;
+            }
         }
 
         if (started is null && remember)
