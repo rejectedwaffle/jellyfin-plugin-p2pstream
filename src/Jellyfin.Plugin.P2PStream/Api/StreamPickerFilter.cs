@@ -226,7 +226,6 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         var ownId = userId is null ? null : _userPicks.Get(userId, request.Key);
         var own = ownId is null ? null : releases.FirstOrDefault(r => StreamOptions.IdFor(r) == ownId);
 
-        _resolver.Prewarm(request, releaseId: own is null ? null : ownId);
         if (Plugin.Instance?.Configuration.PrewarmOnOpen == true)
         {
             _ = _subtitles.EnsureAsync(item, request, TimeSpan.Zero, CancellationToken.None); // ready before Play is pressed
@@ -239,8 +238,10 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         var current = own is not null ? ReleaseRanker.CleanTitle(own.Title) : _resolver.CurrentPickTitleFor(request, userId);
         var autoRelease = current is null ? releases[0] : releases.FirstOrDefault(r => r.Title == current);
         var (rule, _) = await DeviceRules.FindAsync(http, _services).ConfigureAwait(false);
+        ReleaseCandidate? deviceFits = null;
         if (rule is not null && (autoRelease is null || !DeviceRules.Allows(rule, autoRelease)) && DeviceRules.BestWithin(rule, releases) is { } fits)
         {
+            deviceFits = fits;
             autoRelease = fits;
             auto.Name = $"Auto ({DeviceRules.Describe(rule)} on this device) — plays: " + ReleaseRanker.CleanTitle(fits.Title);
         }
@@ -252,6 +253,10 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
                 ? "Auto (best match) — now: " + current
                 : "Auto (best match) — tries first: " + ReleaseRanker.CleanTitle(releases[0].Title);
         }
+
+        // Start loading what this device will play: this person's pick, else the best release within the device's
+        // limits, else Auto's pick (not a 4K release a 1080p-limited TV won't use).
+        _resolver.Prewarm(request, releaseId: own is not null ? ownId : deviceFits is not null ? StreamOptions.IdFor(deviceFits) : null);
 
         _prober.ProbeTopInBackground(item, url, releases, autoRelease);
 
