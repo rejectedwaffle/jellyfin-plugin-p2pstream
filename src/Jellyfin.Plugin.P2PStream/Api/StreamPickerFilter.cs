@@ -256,7 +256,10 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
 
         // Start loading what this device will play: this person's pick, else the best release within the device's
         // limits, else Auto's pick (not a 4K release a 1080p-limited TV won't use).
-        _resolver.Prewarm(request, releaseId: own is not null ? ownId : deviceFits is not null ? StreamOptions.IdFor(deviceFits) : null);
+        // A device that is playing something asks for the next episode's details for its "Up next" card: that's not
+        // someone about to press Play, so it doesn't start two releases alongside what's playing.
+        var busy = await IsPlayingAsync(http).ConfigureAwait(false);
+        _resolver.Prewarm(request, releaseId: own is not null ? ownId : deviceFits is not null ? StreamOptions.IdFor(deviceFits) : null, race: !busy);
 
         _prober.ProbeTopInBackground(item, url, releases, autoRelease);
 
@@ -505,6 +508,14 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         {
             _startStatus.Watch(request, sessionId);
         }
+    }
+
+    /// <summary>True if the device making the request is playing something right now.</summary>
+    private async Task<bool> IsPlayingAsync(HttpContext http)
+    {
+        var id = await SessionIdAsync(http).ConfigureAwait(false);
+        var sessions = _services.GetService<MediaBrowser.Controller.Session.ISessionManager>();
+        return id is not null && sessions?.Sessions.FirstOrDefault(s => s.Id == id)?.NowPlayingItem is not null;
     }
 
     /// <summary>The Jellyfin session (app on a device, signed in) making the request, or null.</summary>

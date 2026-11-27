@@ -81,8 +81,9 @@ public sealed class StartStatus
         foreach (var (sessionId, since) in map)
         {
             // Not someone who has since started playing (start-up messages cover that), nor long gone.
+            // Not someone who has pressed Play since (start-up messages cover them), nor long gone.
             var session = _sessions.Sessions.FirstOrDefault(s => s.Id == sessionId);
-            if (now - since > WatchFor || session is null || session.NowPlayingItem is not null)
+            if (now - since > WatchFor || session is null || session.NowPlayingItem is not null || _watching.Values.Any(w => w.ContainsKey(sessionId)))
             {
                 _logger.LogDebug("Not telling {Device} that {Request}'s live seeder counts are in ({Why:l})", session?.DeviceName ?? sessionId, request, session is null ? "session gone" : session.NowPlayingItem is not null ? "it's playing" : "page opened long ago");
                 continue;

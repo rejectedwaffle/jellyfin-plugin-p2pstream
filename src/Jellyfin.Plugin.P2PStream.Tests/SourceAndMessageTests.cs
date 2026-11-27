@@ -195,6 +195,22 @@ public class StartStatusTests
     }
 
     [Fact]
+    public void Someone_who_pressed_play_meanwhile_is_not_told_to_reopen_the_page()
+    {
+        var title = Episode(3, 3);
+        var inflight = typeof(StreamOptions).GetField("_liveChecking", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        ((System.Collections.Concurrent.ConcurrentDictionary<string, byte>)inflight.GetValue(_options)!)[title.Key] = 0;
+        _sessions.SetupGet(s => s.Sessions).Returns([new SessionInfo(_sessions.Object, NullLogger.Instance) { Id = "tv" }]);
+
+        _status.WatchPage(title, "tv", listShown: true);
+        _status.Watch(title, "tv"); // Play pressed
+        _options.NotifyLiveCheckFinished(title);
+        var sent = SentAfter(3500);
+        Assert.Single(sent);
+        Assert.Contains("Checking live seeder counts", sent[0].Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void No_message_when_the_check_finished_before_the_page_registered()
     {
         _status.WatchPage(Episode(3, 2), "phone", listShown: true); // nothing is being checked

@@ -70,7 +70,8 @@ public sealed class StreamResolver
     /// </param>
     /// <param name="releaseId">A particular release (what a device with limits will play) instead of Auto's pick; it
     /// doesn't change Auto's remembered pick.</param>
-    public void Prewarm(MediaRequest req, bool nextEpisode = false, string? releaseId = null)
+    /// <param name="race">False when the device is busy playing something else: try one release at a time.</param>
+    public void Prewarm(MediaRequest req, bool nextEpisode = false, string? releaseId = null, bool race = true)
     {
         var c = Plugin.Instance?.Configuration;
         var key = releaseId is null ? req.Key : req.Key + "|" + releaseId;
@@ -92,7 +93,7 @@ public sealed class StreamResolver
                 // The next episode has most of the current one to arrive in, so it gets longer and fetches as much of the
                 // start as Jellyfin's stream check reads when Play is pressed (see PlaybackInfoWindow).
                 using var timeout = new CancellationTokenSource(nextEpisode ? TimeSpan.FromMinutes(10) : TimeSpan.FromMinutes(3));
-                var resolved = await ResolveAsync(req, releaseId, timeout.Token, remember: releaseId is null, race: !nextEpisode).ConfigureAwait(false);
+                var resolved = await ResolveAsync(req, releaseId, timeout.Token, remember: releaseId is null, race: race && !nextEpisode).ConfigureAwait(false);
                 var file = resolved.Session.Manager.Files[resolved.FileIndex];
 
                 // The same torrent is playing another of its files (a season pack): reading this one would pull the
@@ -951,6 +952,8 @@ public sealed class StreamResolver
                 await Task.WhenAny(read, Task.Delay(1000, window.Token)).ConfigureAwait(false);
             }
 
+            // Stopped from outside (another release won the race, or the player left): not a verdict on this release.
+            ct.ThrowIfCancellationRequested();
             LogNotDownloading(session, before, needRate, req, label);
             return false;
         }
