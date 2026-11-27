@@ -108,7 +108,9 @@
                 #P2PStreamConfigPage .p2p-testrow .bad { color: #e5734d; }
                 #P2PStreamConfigPage .p2p-testrow .warn { color: #e5a00d; }
                 #P2PStreamConfigPage .p2p-rule-row { padding: .55em 0; border-top: 1px solid rgba(128,128,128,.18); }
-                #P2PStreamConfigPage .p2p-rule-row .rule-match { width: 100%; box-sizing: border-box; }
+                #P2PStreamConfigPage .p2p-rule-row .p2p-rule-name { display: flex; gap: .5em; align-items: center; }
+                #P2PStreamConfigPage .p2p-rule-row .rule-match { flex: 1; min-width: 0; box-sizing: border-box; }
+                #P2PStreamConfigPage .p2p-rule-row .rule-pick { max-width: 45%; }
                 #P2PStreamConfigPage .p2p-rule-limits { display: flex; align-items: center; flex-wrap: wrap; gap: .4em .9em; margin-top: .45em; font-size: .92em; }
                 #P2PStreamConfigPage .p2p-rule-limits label { display: flex; align-items: center; gap: .4em; }
                 #P2PStreamConfigPage .p2p-rule-limits .rule-size { width: 4.5em; }
@@ -131,8 +133,10 @@
                     #P2PStreamConfigPage .p2p-tab-btn .material-icons { font-size: 1.7em; }
                     #P2PStreamConfigPage .p2p-card { padding: .7em .8em .3em; }
                     #P2PStreamConfigPage .p2p-desc { margin-left: 2.2em; }
-                    #P2PStreamConfigPage .p2p-testrow { grid-template-columns: 1.2em 1fr; }
-                    #P2PStreamConfigPage .p2p-testrow b, #P2PStreamConfigPage .p2p-testrow .p2p-verdict, #P2PStreamConfigPage .p2p-testrow .p2p-why { grid-column: 2; }
+                    #P2PStreamConfigPage .p2p-testrow { grid-template-columns: 1.2em minmax(0, 1fr) auto; }
+                    #P2PStreamConfigPage .p2p-testrow b { grid-column: 2; grid-row: 1; }
+                    #P2PStreamConfigPage .p2p-testrow .p2p-verdict { grid-column: 3; grid-row: 1; text-align: right; max-width: 12em; overflow-wrap: anywhere; }
+                    #P2PStreamConfigPage .p2p-testrow .p2p-why { grid-column: 2 / span 2; grid-row: 2; }
                     #P2PStreamConfigPage .p2p-savebar { left: .75em; right: .75em; bottom: .75em; justify-content: space-between; }
                 }
                 #P2PStreamConfigPage .p2p-warn { border-left: 3px solid #e5a00d; padding: .4em .8em; margin: .5em 0 1em; background: rgba(229,160,13,.1); }
@@ -366,7 +370,6 @@
                                 <h3><span class="material-icons">devices</span>Per-device limits</h3>
                                 <p class="p2p-muted">Caps what <b>Auto</b> plays on a device, e.g. a TV that can't handle 4K. "Device" matches the device's name, its name in Dashboard &gt; Devices, or the app. Picking a version in the Version menu always plays that version.</p>
                                 <div id="p2pRules"></div>
-                                <datalist id="p2pDeviceList"></datalist>
                                 <div style="margin:.6em 0 .8em"><button is="emby-button" type="button" class="raised" id="p2pAddRule"><span>Add a device</span></button></div>
                             </div>
                             <div class="p2p-card">
@@ -983,11 +986,17 @@
 
             // ---------- per-device limits ----------
             var resOptions = [[0, 'Any'], [2160, '4K'], [1440, '1440p'], [1080, '1080p'], [720, '720p'], [480, '480p']];
+            var deviceNames = [];
+            function deviceOptions() {
+                return '<option value="">Pick a device…</option>' + deviceNames.map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
+            }
             function ruleRow(r) {
                 r = r || { Match: '', MaxResolution: 1080, MaxSizeGb: 0 };
                 var row = document.createElement('div');
                 row.className = 'p2p-rule-row';
-                row.innerHTML = '<input type="text" class="p2p-plain rule-match" list="p2pDeviceList" placeholder="Device, e.g. Living Room TV" aria-label="Device" value="' + esc(r.Match || '') + '" />' +
+                // A real drop-down (suggestion lists from a datalist do not open in some apps, e.g. the Android app).
+                row.innerHTML = '<div class="p2p-rule-name"><input type="text" class="p2p-plain rule-match" placeholder="Device, e.g. Living Room TV" aria-label="Device" value="' + esc(r.Match || '') + '" />' +
+                    '<select class="p2p-plain rule-pick" aria-label="Pick a device">' + deviceOptions() + '</select></div>' +
                     '<div class="p2p-rule-limits">' +
                     '<label>Max resolution <select class="p2p-plain rule-res">' + resOptions.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === (r.MaxResolution || 0) ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
                     '<label>Max GB <input type="number" min="0" class="p2p-plain rule-size" value="' + (r.MaxSizeGb || 0) + '" title="0 = any size" /></label>' +
@@ -1003,11 +1012,19 @@
             page.querySelector('#p2pRules').addEventListener('click', function (e) {
                 if (e.target.classList.contains('rule-remove')) { e.preventDefault(); e.target.closest('.p2p-rule-row').remove(); setDirty(true); }
             });
+            page.querySelector('#p2pRules').addEventListener('change', function (e) {
+                if (e.target.classList.contains('rule-pick') && e.target.value) {
+                    e.target.closest('.p2p-rule-row').querySelector('.rule-match').value = e.target.value;
+                    e.target.value = '';
+                    setDirty(true);
+                }
+            });
             function loadDevices() {
                 api('GET', 'P2PStream/Devices').then(function (list) {
                     var names = [];
                     (list || []).forEach(function (d) { [d.Name, d.App].forEach(function (n) { if (n && names.indexOf(n) === -1) { names.push(n); } }); });
-                    page.querySelector('#p2pDeviceList').innerHTML = names.map(function (n) { return '<option value="' + esc(n) + '"></option>'; }).join('');
+                    deviceNames = names;
+                    page.querySelectorAll('#p2pRules .rule-pick').forEach(function (sel) { sel.innerHTML = deviceOptions(); });
                 }).catch(function () { /* not important */ });
             }
 
