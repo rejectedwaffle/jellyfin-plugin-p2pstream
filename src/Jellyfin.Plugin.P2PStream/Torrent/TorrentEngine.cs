@@ -250,6 +250,25 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         return source is null ? null : await AddAsync(source, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>How a torrent is doing right now (also while it is still fetching its file list), or null if it isn't running.</summary>
+    public (int Peers, long BytesPerSecond, long Received, bool HasMetadata)? Peek(string infoHash)
+    {
+        TorrentManager? m = _sessions.TryGetValue(infoHash, out var s) ? s.Manager : null;
+        if (m is null && _engine is { } engine)
+        {
+            try
+            {
+                m = engine.Torrents.ToArray().FirstOrDefault(t => Hash(t).Equals(infoHash, StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception)
+            {
+                return null; // the list changed while being read
+            }
+        }
+
+        return m is null ? null : (m.OpenConnections, m.Monitor.DownloadRate, m.Monitor.DataBytesReceived, m.HasMetadata);
+    }
+
     public IReadOnlyList<TorrentStatus> GetStatus()
     {
         return _sessions.Values.Select(s =>

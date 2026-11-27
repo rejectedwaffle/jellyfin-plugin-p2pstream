@@ -116,7 +116,7 @@ public sealed class TorznabClient
 
     public bool HasIndexers => Config.Indexers.Any(i => i.Enabled && !string.IsNullOrWhiteSpace(i.Url));
 
-    private static bool IsMagnet(string? s) => s is not null && s.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase);
+    internal static bool IsMagnet(string? s) => s is not null && s.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase);
 
     private static string BuildMagnet(string infoHash, string name, IEnumerable<string> extraTrackers)
     {

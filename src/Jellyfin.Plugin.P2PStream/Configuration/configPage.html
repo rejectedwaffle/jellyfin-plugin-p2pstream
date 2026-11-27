@@ -324,7 +324,7 @@
                                 <div class="inputContainer">
                                     <input is="emby-input" type="number" min="0" data-key="Min4KSeeders" data-type="int" label="Minimum seeders for 4K (0 = off)" />
                                     <div class="fieldDescription">A 4K release with fewer seeders is tried after the best 1080p one: a small swarm can't download 4K fast enough to start quickly. It stays in the Version menu.</div>
-                                    <div class="fieldDescription">Suggested: 50. Lower it (20-30) if your connection is fast and 4K starts well; raise it if 4K still starts slowly or stutters.</div>
+                                    <div class="fieldDescription">Default: 20. Live counts (see above) are usually much lower than the sites’ counts, so 20 live seeders is a healthy swarm. Lower it if your connection is fast and 4K starts well; raise it if 4K still starts slowly or stutters.</div>
                                 </div>
                                 <div class="p2p-row">
                                     <div class="inputContainer"><input is="emby-input" type="number" min="1" max="10" data-key="CandidatesToTry" data-type="int" label="Releases to try" /></div>
@@ -421,6 +421,8 @@
                                 <div class="p2p-desc">Fetches the start and end of Auto's release (about 6 MB) so play starts much sooner. Leave the page and it stops after a minute.</div>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="PreloadNextEpisode" /><span>Pre-load the next episode</span></label>
                                 <div class="p2p-desc">Two minutes into an episode, quietly fetches the start of the next one (about 40 MB, then it pauses), so Next or autoplay starts almost at once.</div>
+                                <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="ShowStartStatus" /><span>Show what is happening while a title starts</span></label>
+                                <div class="p2p-desc">Short messages on the screen of whoever pressed Play: which release is being tried, peers and speed, and moving on from a slow one. Shown by the Jellyfin web app and apps built on it; some TV apps ignore them.</div>
                                 <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" data-key="ProbeStreams" /><span>Check the top streams' tracks</span></label>
                                 <div class="p2p-desc">Reads the video, audio and subtitle tracks of the top releases so they show in the Version menu. Uses some bandwidth per title page.</div>
                                 <div class="inputContainer"><input is="emby-input" type="number" min="1" max="5" data-key="ProbeStreamCount" data-type="int" label="Streams to check" /></div>

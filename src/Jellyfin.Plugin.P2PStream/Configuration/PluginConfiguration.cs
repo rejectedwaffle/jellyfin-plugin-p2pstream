@@ -207,7 +207,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the fewest seeders a 4K release needs to be preferred (0 = off). A 4K release with fewer ranks after
     /// the best 1080p one: a thin swarm can't download 4K fast enough to start quickly or play smoothly.
     /// </summary>
-    public int Min4KSeeders { get; set; }
+    public int Min4KSeeders { get; set; } = 20;
 
     /// <summary>Gets or sets a value indicating whether a title's releases are listed in Jellyfin's Version menu (Elementum-style picker).</summary>
     public bool StreamPicker { get; set; } = true;
@@ -232,6 +232,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// own counts are often stale) before Auto picks.
     /// </summary>
     public bool CheckLiveSeeders { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether short messages appear on the screen of whoever pressed Play while a title
+    /// starts (which release is tried, peers and speed, moving on from a slow one).
+    /// </summary>
+    public bool ShowStartStatus { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether, two minutes into an episode, the start of the next episode is fetched

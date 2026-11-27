@@ -154,7 +154,7 @@ public sealed class StreamOptions
         // Releases whose torrent id is known are scraped straight away, while the others' pages are fetched for theirs.
         var known = top.Where(r => !string.IsNullOrEmpty(r.InfoHash)).ToList();
         var scrapeLimit = TimeSpan.FromSeconds(followUp ? 6 : 2.5);
-        var firstScrape = TrackerScrape.ScrapeAsync(known.Select(r => r.InfoHash!), scrapeLimit, CancellationToken.None);
+        var firstScrape = TrackerScrape.ScrapeAsync(known.Select(r => r.InfoHash!), scrapeLimit, CancellationToken.None, known.SelectMany(r => TrackerScrape.TrackersOf(r.MagnetUrl ?? r.DownloadUrl)));
 
         using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(followUp ? 10 : 2.5));
         var lookedUp = top.Where(r => string.IsNullOrEmpty(r.InfoHash) && !string.IsNullOrEmpty(r.MagnetPageUrl)).Take(followUp ? 12 : 5).ToList();
@@ -162,7 +162,7 @@ public sealed class StreamOptions
         {
             try
             {
-                var source = await _torznab.ToSourceAsync(r, limit.Token).ConfigureAwait(false);
+                var source = await _torznab.ToSourceAsync(r, limit.Token).WaitAsync(limit.Token).ConfigureAwait(false);
                 r.InfoHash = source.InfoHash;
                 if (source.Magnet is { } magnet)
                 {
@@ -179,7 +179,7 @@ public sealed class StreamOptions
         var live = new Dictionary<string, TrackerScrape.Result>(await firstScrape.ConfigureAwait(false));
         if (found.Count > 0)
         {
-            foreach (var (hash, result) in await TrackerScrape.ScrapeAsync(found.Select(r => r.InfoHash!), followUp ? scrapeLimit : TimeSpan.FromSeconds(2), CancellationToken.None).ConfigureAwait(false))
+            foreach (var (hash, result) in await TrackerScrape.ScrapeAsync(found.Select(r => r.InfoHash!), followUp ? scrapeLimit : TimeSpan.FromSeconds(2), CancellationToken.None, found.SelectMany(r => TrackerScrape.TrackersOf(r.MagnetUrl))).ConfigureAwait(false))
             {
                 live[hash] = result;
             }

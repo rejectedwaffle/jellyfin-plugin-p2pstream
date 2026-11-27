@@ -25,6 +25,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<SearchProvider, KickassProvider>();
         serviceCollection.AddSingleton<SearchProvider, KnabenProvider>();
         serviceCollection.AddSingleton<SearchProvider, NyaaProvider>();
+        serviceCollection.AddSingleton<SearchProvider, TorrentsCsvProvider>();
+        serviceCollection.AddSingleton<SearchProvider, BitSearchProvider>();
         serviceCollection.AddSingleton<SourceHealth>();
         serviceCollection.AddSingleton<Catalog.TraktClient>();
         serviceCollection.AddSingleton<TorznabClient>();
@@ -32,6 +34,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ResolutionCache>();
         serviceCollection.AddSingleton<StreamOptions>();
         serviceCollection.AddSingleton<StreamProber>();
+        serviceCollection.AddSingleton<StartStatus>();
         serviceCollection.AddSingleton<StreamResolver>();
         serviceCollection.AddSingleton<UserPicks>();
         serviceCollection.AddHostedService<FinishedPicks>();

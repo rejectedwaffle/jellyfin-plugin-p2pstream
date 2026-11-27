@@ -33,12 +33,14 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
     private readonly TorrentSubtitles _subtitles;
     private readonly UserPicks _userPicks;
     private readonly MissingSubtitles _missingSubtitles;
+    private readonly StartStatus _startStatus;
     private readonly ILibraryManager _libraryManager;
     private readonly IServiceProvider _services;
     private readonly ILogger<StreamPickerFilter> _logger;
 
-    public StreamPickerFilter(StreamOptions options, StreamResolver resolver, StreamProber prober, TorrentSubtitles subtitles, UserPicks userPicks, MissingSubtitles missingSubtitles, ILibraryManager libraryManager, IServiceProvider services, ILogger<StreamPickerFilter> logger)
+    public StreamPickerFilter(StreamOptions options, StreamResolver resolver, StreamProber prober, TorrentSubtitles subtitles, UserPicks userPicks, MissingSubtitles missingSubtitles, StartStatus startStatus, ILibraryManager libraryManager, IServiceProvider services, ILogger<StreamPickerFilter> logger)
     {
+        _startStatus = startStatus;
         _missingSubtitles = missingSubtitles;
         _userPicks = userPicks;
         _subtitles = subtitles;
@@ -73,6 +75,12 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         // (see PlaybackInfoWindow). Held from here until Jellyfin has answered, whatever happens in between.
         MediaRequest? playRequest = playItem is not null && StreamPicker.TryGetRequest(playItem, out _, out var foundRequest) ? foundRequest : null;
         using var checkWindow = playRequest is not null ? PlaybackInfoWindow.Begin(playRequest.Key) : null;
+
+        // Whoever pressed Play sees short messages while the title starts (see StartStatus).
+        if (playRequest is not null)
+        {
+            await WatchStartAsync(http, playRequest).ConfigureAwait(false);
+        }
 
         if (enabled && playItem is not null)
         {
@@ -471,6 +479,31 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
 
         _resolver.Pin(request, ownId, chosenBy: userId);
         _logger.LogInformation("{Item}: playing this person's chosen version {Release}", item.Name, own.Title);
+    }
+
+    /// <summary>Registers the session making a Play request for start-up messages about the title.</summary>
+    private async Task WatchStartAsync(HttpContext http, MediaRequest request)
+    {
+        try
+        {
+            var auth = _services.GetService<MediaBrowser.Controller.Net.IAuthorizationContext>();
+            var sessions = _services.GetService<MediaBrowser.Controller.Session.ISessionManager>();
+            var info = auth is null ? null : await auth.GetAuthorizationInfo(http).ConfigureAwait(false);
+            if (info?.User is null || sessions is null || string.IsNullOrEmpty(info.DeviceId))
+            {
+                return;
+            }
+
+            var session = sessions.Sessions.FirstOrDefault(s => s.DeviceId == info.DeviceId && s.UserId == info.User.Id);
+            if (session is not null)
+            {
+                _startStatus.Watch(request, session.Id);
+            }
+        }
+        catch (Exception)
+        {
+            // messages are a nicety
+        }
     }
 
     /// <summary>The id of the Jellyfin user making the request (no dashes), or null (an API key, or not signed in).</summary>

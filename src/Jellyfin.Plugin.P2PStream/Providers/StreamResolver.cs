@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using Jellyfin.Plugin.P2PStream.Torrent;
 using NetworkGuard = Jellyfin.Plugin.P2PStream.Torrent.NetworkGuard;
 using Microsoft.Extensions.Logging;
@@ -16,6 +17,7 @@ public sealed class StreamResolver
     private readonly TorznabClient _torznab;
     private readonly StreamOptions _options;
     private readonly ResolutionCache _cache;
+    private readonly StartStatus _status;
     private readonly ILogger<StreamResolver> _logger;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
 
@@ -25,8 +27,9 @@ public sealed class StreamResolver
     // A version chosen in the Version menu, played the next time the title's normal source is requested.
     private readonly ConcurrentDictionary<string, string> _pinned = new();
 
-    public StreamResolver(TorrentEngine engine, TorznabClient torznab, StreamOptions options, ResolutionCache cache, ILogger<StreamResolver> logger)
+    public StreamResolver(TorrentEngine engine, TorznabClient torznab, StreamOptions options, ResolutionCache cache, StartStatus status, ILogger<StreamResolver> logger)
     {
+        _status = status;
         _engine = engine;
         _torznab = torznab;
         _options = options;
@@ -46,6 +49,9 @@ public sealed class StreamResolver
     // Releases a background check couldn't start (no peers sent the file list): not tried again in the background for a
     // while, so a dead release doesn't keep costing a torrent slot and a minute of waiting every time a page opens.
     private static readonly TimeSpan BackgroundMetadataTimeout = TimeSpan.FromSeconds(20);
+
+    // How long to wait for the file list of a release the trackers report 0-1 seeders for.
+    private static readonly TimeSpan NearlyDeadTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan DeadFor = TimeSpan.FromMinutes(30);
     private readonly ConcurrentDictionary<string, DateTime> _dead = new();
 
@@ -308,46 +314,68 @@ public sealed class StreamResolver
                 return cached;
             }
 
+            if (!_options.TryGetCached(req, out _))
+            {
+                _status.Report(req, $"Finding releases for {req}…");
+            }
+
             var releases = await _options.GetAsync(req, ct).ConfigureAwait(false);
             if (releases.Count == 0)
             {
+                _status.Report(req, $"No releases found for {req}.");
+                _status.Done(req);
                 throw new StreamNotFoundException($"No suitable releases found for {req}");
             }
 
-            var tries = Math.Max(1, Plugin.Instance!.Configuration.CandidatesToTry);
-            var tooBig = 0;
+            return await StartBestAsync(req, releases, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>How many releases found to have too few live seeders may be passed over (they don't count as tries).</summary>
+    private const int MaxSkips = 6;
+
+    /// <summary>
+    /// Auto: tries the best releases two at a time (whichever downloads fast enough first plays; the other is removed),
+    /// following the current ranking (live seeder counts arrive in the background). Just before a release is tried its
+    /// live seeders are checked, and one with 0-1 is passed over while others remain. The last release tried is kept
+    /// even if slow: slow beats nothing.
+    /// </summary>
+    private async Task<ResolvedStream> StartBestAsync(MediaRequest req, List<ReleaseCandidate> releases, CancellationToken ct)
+    {
+        var tries = Math.Max(1, Plugin.Instance!.Configuration.CandidatesToTry);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var attempts = 0;
+        var skips = 0;
+        var tooBig = 0;
+
+        List<ReleaseCandidate> Remaining()
+        {
+            var pool = (_options.TryGetCached(req, out var latest) ? latest : releases)
+                .Where(r => !seen.Contains(StreamOptions.IdFor(r)))
+                .ToList();
 
             // Releases that started but didn't download a little while ago are left out (unless nothing else is left).
-            var candidates = releases.Where(r => !IsDead(r)).Take(tries).ToList();
-            if (candidates.Count == 0)
+            var fresh = pool.Where(r => !IsDead(r)).ToList();
+            return fresh.Count == 0 && seen.Count == 0 ? pool : fresh;
+        }
+
+        while (attempts < tries)
+        {
+            var fresh = Remaining();
+            if (fresh.Count == 0)
             {
-                candidates = releases.Take(tries).ToList();
+                break;
             }
 
-            var tried = new HashSet<string>(StringComparer.Ordinal);
-            for (var i = 0; i < candidates.Count; i++)
+            var round = new List<ReleaseCandidate>();
+            for (var i = 0; i < fresh.Count && round.Count < 2 && attempts + round.Count < tries; i++)
             {
-                // The list may have been ranked again since this started (live seeder counts arrive in the background,
-                // and can show a listed favourite has no seeders): try the rest in the current order.
-                if (i > 0 && _options.TryGetCached(req, out var latest))
-                {
-                    var rest = latest.Where(r => !tried.Contains(StreamOptions.IdFor(r)) && !IsDead(r)).Take(tries - i).ToList();
-                    if (rest.Count > 0)
-                    {
-                        candidates = candidates.Take(i).Concat(rest).ToList();
-                    }
-                }
-
-                var release = candidates[i];
-                tried.Add(StreamOptions.IdFor(release));
-
-                // Just found dead under another listing (the same torrent is often listed by several sites).
-                if (i < candidates.Count - 1 && IsDead(release))
-                {
-                    _logger.LogInformation("Skipping {Release}: the same torrent just failed to download", release.Title);
-                    continue;
-                }
-
+                var release = fresh[i];
+                seen.Add(StreamOptions.IdFor(release));
                 NetworkGuard.Require(); // don't try the next release while the VPN/proxy is down
 
                 // A film whose size is listed and clearly can't fit (even after removing idle torrents): don't start it.
@@ -359,23 +387,274 @@ public sealed class StreamResolver
                     continue;
                 }
 
-                // The last one left is kept even if it's slow: slow beats nothing.
-                var started = await TryStartAsync(req, release, remember: true, ct, checkFlow: i < candidates.Count - 1).ConfigureAwait(false);
-                if (started is not null)
+                // Its real seeders, just before starting it (sites' counts are often stale).
+                var live = await LiveSeedersAsync(release, ct).ConfigureAwait(false);
+                if (live <= 1 && i < fresh.Count - 1 && skips < MaxSkips)
                 {
-                    return started;
+                    skips++;
+                    _logger.LogInformation("Skipping {Release}: the trackers report {Seeders} seeders", release.Title, live);
+                    _status.Report(req, $"Skipping {Label(release, seeds: false)}: only {live} live seeder{(live == 1 ? string.Empty : "s")}");
+                    continue;
+                }
+
+                if (round.Count == 1 && !string.IsNullOrEmpty(release.InfoHash)
+                    && string.Equals(round[0].InfoHash, release.InfoHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue; // the same torrent under another site's listing
+                }
+
+                round.Add(release);
+            }
+
+            if (round.Count == 0)
+            {
+                continue;
+            }
+
+            attempts += round.Count;
+            var final = attempts >= tries || Remaining().Count == 0;
+
+            ResolvedStream? started;
+            using (var ticker = new CancellationTokenSource())
+            {
+                var progress = ReportProgressAsync(req, round, ticker.Token);
+                try
+                {
+                    if (round.Count == 1)
+                    {
+                        _status.Report(req, $"Trying {Label(round[0])}…");
+                        var one = await StartCoreAsync(req, round[0], ct, remember: true, checkFlow: !final, keepSlow: false).ConfigureAwait(false);
+                        started = one.Ok;
+                        if (started is not null)
+                        {
+                            Commit(req, round[0], started, remember: true);
+                        }
+                    }
+                    else
+                    {
+                        _status.Report(req, $"Trying 2 releases at once: {Label(round[0])} and {Label(round[1])}…");
+                        started = await RaceAsync(req, round[0], round[1], final, ct).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    await ticker.CancelAsync().ConfigureAwait(false);
+                    await progress.ConfigureAwait(false);
                 }
             }
 
-            throw new StreamNotFoundException(tooBig > 0
-                ? $"None of the top {tries} releases for {req} could be started; {tooBig} didn't fit on the disk ({DiskSpace.Gb(DiskSpace.FreeForDownloads() ?? 0)} free)"
-                : $"None of the top {tries} releases for {req} could be started");
+            if (started is not null)
+            {
+                var peek = _engine.Peek(started.Session.InfoHash);
+                _status.Report(req, peek is { BytesPerSecond: > 0 } p ? $"Starting playback ({Speed(p.BytesPerSecond)})…" : "Starting playback…");
+                return started;
+            }
         }
-        finally
+
+        _status.Report(req, attempts == 0 && skips > 0
+            ? $"Couldn't play {req}: no release has enough seeders right now."
+            : $"Couldn't play {req}: the releases tried had no peers or were too slow. Try another version, or later.");
+        _status.Done(req);
+        throw new StreamNotFoundException(tooBig > 0
+            ? $"None of the top {tries} releases for {req} could be started; {tooBig} didn't fit on the disk ({DiskSpace.Gb(DiskSpace.FreeForDownloads() ?? 0)} free)"
+            : $"None of the top {tries} releases for {req} could be started");
+    }
+
+    /// <summary>
+    /// Starts two releases at once. The first that downloads fast enough plays, and the other is stopped and removed.
+    /// If neither is fast enough: on the last round the one that got more is kept (slow beats nothing), else both go.
+    /// </summary>
+    private async Task<ResolvedStream?> RaceAsync(MediaRequest req, ReleaseCandidate a, ReleaseCandidate b, bool final, CancellationToken ct)
+    {
+        using var race = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var winner = new StrongBox<string?>();
+        var entries = new[] { a, b }
+            .Select(r => (Release: r, Task: StartCoreAsync(req, r, race.Token, remember: true, checkFlow: true, keepSlow: final, winner: winner)))
+            .ToList();
+        var pending = entries.Select(e => e.Task).ToList();
+        var slow = new List<(ReleaseCandidate Release, ResolvedStream Stream)>();
+        while (pending.Count > 0)
         {
-            gate.Release();
+            var done = await Task.WhenAny(pending).ConfigureAwait(false);
+            pending.Remove(done);
+            StartResult result;
+            try
+            {
+                result = await done.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                continue;
+            }
+
+            var release = entries.First(e => e.Task == done).Release;
+            if (result.Ok is { } ok)
+            {
+                // The other one stops at once (and removes its own torrent unless something else reads it).
+                winner.Value = ok.Session.InfoHash;
+                await race.CancelAsync().ConfigureAwait(false);
+                foreach (var (_, stream) in slow)
+                {
+                    await DiscardAsync(stream, ok.Session.InfoHash).ConfigureAwait(false);
+                }
+
+                _logger.LogInformation("{Release} won the start-up race", release.Title);
+                Commit(req, release, ok, remember: true);
+                _ = Task.WhenAll(pending).ContinueWith(t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+                return ok;
+            }
+
+            if (result.Slow is { } s)
+            {
+                slow.Add((release, s));
+            }
+        }
+
+        ct.ThrowIfCancellationRequested();
+        if (slow.Count == 0)
+        {
+            return null;
+        }
+
+        // Neither was fast enough. Last round: keep the one that got more; otherwise remove both and try the next ones.
+        var keep = final ? slow.OrderByDescending(x => x.Stream.Session.Manager.Monitor.DataBytesReceived).First() : default;
+        foreach (var (release, stream) in slow)
+        {
+            if (keep.Stream is null || !ReferenceEquals(stream, keep.Stream))
+            {
+                MarkDead(release, stream.Session.InfoHash);
+                await DiscardAsync(stream, keep.Stream?.Session.InfoHash).ConfigureAwait(false);
+            }
+        }
+
+        if (keep.Stream is null)
+        {
+            return null;
+        }
+
+        _logger.LogInformation("Keeping {Release} although it's slow: it's the last one to try", keep.Release.Title);
+        Commit(req, keep.Release, keep.Stream, remember: true);
+        return keep.Stream;
+    }
+
+    /// <summary>Removes a started torrent that isn't used, unless something else reads it or it's <paramref name="keepHash"/>.</summary>
+    private async Task DiscardAsync(ResolvedStream stream, string? keepHash)
+    {
+        if (stream.Session.ActiveStreams == 0 && !string.Equals(stream.Session.InfoHash, keepHash, StringComparison.OrdinalIgnoreCase))
+        {
+            await _engine.RemoveAsync(stream.Session.InfoHash, true).ConfigureAwait(false);
         }
     }
+
+    /// <summary>
+    /// A release's seeders as the trackers report them now (instant if checked in the last 15 minutes), or null if
+    /// unknown (no torrent id, or no tracker answered). A listing without its torrent id has its page fetched for it.
+    /// </summary>
+    private async Task<int?> LiveSeedersAsync(ReleaseCandidate r, CancellationToken ct)
+    {
+        if (Plugin.Instance?.Configuration.CheckLiveSeeders != true || r.Seeders < 0)
+        {
+            return null;
+        }
+
+        if (r.LiveSeeders)
+        {
+            return r.Seeders;
+        }
+
+        try
+        {
+            if (string.IsNullOrEmpty(r.InfoHash) && (TorznabClient.IsMagnet(r.MagnetUrl) || !string.IsNullOrEmpty(r.MagnetPageUrl)))
+            {
+                using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                limit.CancelAfter(TimeSpan.FromSeconds(5));
+                var source = await _torznab.ToSourceAsync(r, limit.Token).WaitAsync(limit.Token).ConfigureAwait(false);
+                r.InfoHash = source.InfoHash;
+                if (source.Magnet is { } magnet)
+                {
+                    r.MagnetUrl = magnet; // so starting it doesn't fetch the page again
+                }
+            }
+
+            if (string.IsNullOrEmpty(r.InfoHash))
+            {
+                return null;
+            }
+
+            var hash = r.InfoHash.ToLowerInvariant();
+            var live = await TrackerScrape.ScrapeAsync([hash], TimeSpan.FromSeconds(2.5), ct, TrackerScrape.TrackersOf(r.MagnetUrl ?? r.DownloadUrl)).ConfigureAwait(false);
+            if (live.TryGetValue(hash, out var counts))
+            {
+                r.Seeders = counts.Seeders;
+                r.LiveSeeders = true;
+                return counts.Seeders;
+            }
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            // unknown: try it as listed
+        }
+
+        return null;
+    }
+
+    /// <summary>While releases start, tells whoever pressed Play how the best of them is doing (every few seconds).</summary>
+    private async Task ReportProgressAsync(MediaRequest req, List<ReleaseCandidate> round, CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(4), ct).ConfigureAwait(false);
+            while (!ct.IsCancellationRequested)
+            {
+                if (_status.IsWatched(req))
+                {
+                    var states = round
+                        .Where(r => !string.IsNullOrEmpty(r.InfoHash))
+                        .Select(r => (Release: r, State: _engine.Peek(r.InfoHash!.ToLowerInvariant())))
+                        .Where(x => x.State is not null)
+                        .Select(x => (x.Release, State: x.State!.Value))
+                        .OrderByDescending(x => x.State.HasMetadata)
+                        .ThenByDescending(x => x.State.BytesPerSecond)
+                        .ThenByDescending(x => x.State.Peers)
+                        .ToList();
+                    if (states.Count > 0)
+                    {
+                        var (release, st) = states[0];
+                        var who = round.Count > 1 ? $"best so far: {Label(release, seeds: false)}" : Label(release, seeds: false);
+                        _status.Report(req, st.HasMetadata
+                            ? $"Downloading the start ({who}): {st.Peers} peers, {Speed(st.BytesPerSecond)}, {st.Received >> 20} MB so far"
+                            : $"Finding peers ({who}): {st.Peers} connected");
+                    }
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(4), ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    /// <summary>A short description of a release for start-up messages: "1080p, EZTV, 44 live seeders".</summary>
+    private static string Label(ReleaseCandidate r, bool seeds = true)
+    {
+        var parts = new List<string>();
+        if (r.Resolution > 0)
+        {
+            parts.Add(r.Resolution >= 2160 ? "4K" : r.Resolution + "p");
+        }
+
+        parts.Add(string.IsNullOrEmpty(r.Origin) ? "release" : r.Origin);
+        if (seeds && r.Seeders >= 0)
+        {
+            parts.Add($"{r.Seeders} {(r.LiveSeeders ? "live " : string.Empty)}seeder{(r.Seeders == 1 ? string.Empty : "s")}");
+        }
+
+        return string.Join(", ", parts);
+    }
+
+    private static string Speed(long bytesPerSecond) =>
+        bytesPerSecond >= 1 << 20 ? $"{bytesPerSecond / 1048576.0:0.0} MB/s" : $"{bytesPerSecond >> 10} KB/s";
 
     /// <summary>
     /// Picks the video file to play: the matching episode, or the largest video for movies.
@@ -434,70 +713,163 @@ public sealed class StreamResolver
         var releases = await _options.GetAsync(req, ct).ConfigureAwait(false);
         var chosen = releases.FirstOrDefault(r => StreamOptions.IdFor(r) == releaseId)
             ?? throw new StreamNotFoundException("That stream is no longer listed. Reopen the title to refresh the list, or use Auto.");
+        if (remember)
+        {
+            await LiveSeedersAsync(chosen, ct).ConfigureAwait(false); // for the message, and a shorter wait if it has (almost) none
+            _status.Report(req, $"Starting the version you chose ({Label(chosen)})…");
+        }
+
         // A background check (not something being played) gives up on a release with no peers sooner, and remembers it.
-        var started = await TryStartAsync(req, chosen, remember, ct, chosenByUser: true, remember ? null : BackgroundMetadataTimeout, chosenBy).ConfigureAwait(false);
+        ResolvedStream? started;
+        using (var ticker = new CancellationTokenSource())
+        {
+            var progress = remember ? ReportProgressAsync(req, [chosen], ticker.Token) : Task.CompletedTask;
+            try
+            {
+                started = await TryStartAsync(req, chosen, remember, ct, chosenByUser: true, remember ? null : BackgroundMetadataTimeout, chosenBy).ConfigureAwait(false);
+            }
+            finally
+            {
+                await ticker.CancelAsync().ConfigureAwait(false);
+                await progress.ConfigureAwait(false);
+            }
+        }
+
         if (started is null && !remember)
         {
             _dead[releaseId] = DateTime.UtcNow;
         }
 
+        if (started is null && remember)
+        {
+            _status.Report(req, $"Couldn't start the version you chose ({Label(chosen)}): no peers answered.");
+        }
+
         return started ?? throw new StreamNotFoundException($"Couldn't start \"{chosen.Title}\" (no peers, or no matching video file). Try another version.");
+    }
+
+    /// <summary>What starting a release gave: a stream to play, or (when asked to keep it) one that downloads too slowly.</summary>
+    private sealed record StartResult(ResolvedStream? Ok, ResolvedStream? Slow)
+    {
+        public static readonly StartResult Failed = new(null, null);
     }
 
     private async Task<ResolvedStream?> TryStartAsync(MediaRequest req, ReleaseCandidate release, bool remember, CancellationToken ct, bool chosenByUser = false, TimeSpan? metadataTimeout = null, string? chosenBy = null, bool checkFlow = false)
     {
+        var result = await StartCoreAsync(req, release, ct, remember, checkFlow, keepSlow: false, chosenByUser, metadataTimeout).ConfigureAwait(false);
+        if (result.Ok is { } ok)
+        {
+            Commit(req, release, ok, remember, chosenByUser, chosenBy);
+        }
+
+        return result.Ok;
+    }
+
+    /// <summary>Remembers a started release: Auto uses it next time, and repeat requests skip the lookup.</summary>
+    private void Commit(MediaRequest req, ReleaseCandidate release, ResolvedStream stream, bool remember, bool chosenByUser = false, string? chosenBy = null)
+    {
+        if (remember)
+        {
+            _cache.Set(req.Key, stream.Session.InfoHash, stream.FileIndex, release.Title, chosenByUser, byDeviceRule: chosenByUser && _rulePicks.ContainsKey(req.Key), chosenBy);
+        }
+
+        _started[StreamOptions.IdFor(release)] = (stream.Session.InfoHash, stream.FileIndex);
+    }
+
+    /// <summary>
+    /// Starts a release and finds the file to play. With <paramref name="checkFlow"/>, also makes sure it downloads fast
+    /// enough (listed seeder counts are often stale; a "31 seeders" release can have one slow peer): a slow one is
+    /// removed, or returned as <see cref="StartResult.Slow"/> with <paramref name="keepSlow"/>. If <paramref name="ct"/>
+    /// is cancelled (the player left, or another release won a race), a torrent this started is removed again.
+    /// </summary>
+    private async Task<StartResult> StartCoreAsync(MediaRequest req, ReleaseCandidate release, CancellationToken ct, bool remember, bool checkFlow, bool keepSlow, bool chosenByUser = false, TimeSpan? metadataTimeout = null, StrongBox<string?>? winner = null)
+    {
+        TorrentSession? added = null;
+        var existed = false;
         try
         {
-            _logger.LogInformation("Trying {Release} from {Origin} ({Seeders} seeders) for {Request}", release.Title, release.Origin, release.Seeders, req);
+            _logger.LogInformation("Trying {Release} from {Origin} ({Seeders}{Live:l} seeders) for {Request}", release.Title, release.Origin, release.Seeders, release.LiveSeeders ? " live" : string.Empty, req);
             var source = await _torznab.ToSourceAsync(release, ct).ConfigureAwait(false);
+
+            // The trackers know of (almost) no seeders: don't wait the full time for the file list.
+            if (release.LiveSeeders && release.Seeders <= 1)
+            {
+                var full = metadataTimeout ?? TimeSpan.FromSeconds(Math.Max(10, Plugin.Instance!.Configuration.MetadataTimeoutSeconds));
+                metadataTimeout = full < NearlyDeadTimeout ? full : NearlyDeadTimeout;
+            }
+
+            existed = _engine.Peek(source.InfoHash) is not null;
             var session = await _engine.AddAsync(source, ct, metadataTimeout).ConfigureAwait(false);
+            added = session;
             var index = PickFile(session.Manager, req);
-            if (index >= 0)
+            if (index < 0)
             {
-                if (remember)
+                _logger.LogInformation("No matching video file in {Release}", release.Title);
+                if (session.ActiveStreams == 0)
                 {
-                    await EnsureRoomAsync(session, index, release).ConfigureAwait(false);
+                    await _engine.RemoveAsync(source.InfoHash, true).ConfigureAwait(false); // never one that's playing another file
                 }
 
-                // Auto, with other releases still to try: make sure this one actually downloads before settling on it
-                // (listed seeder counts are often stale; a "31 seeders" release can have one slow peer).
-                if (checkFlow && !await DataFlowsAsync(session, index, req, ct).ConfigureAwait(false))
-                {
-                    MarkDead(release, session.InfoHash);
-                    if (session.ActiveStreams == 0)
-                    {
-                        await _engine.RemoveAsync(source.InfoHash, true).ConfigureAwait(false);
-                    }
-
-                    return null;
-                }
-
-                // Remember it: Auto uses this release next time, and repeat requests skip the lookup.
-                if (remember)
-                {
-                    _cache.Set(req.Key, source.InfoHash, index, release.Title, chosenByUser, byDeviceRule: chosenByUser && _rulePicks.ContainsKey(req.Key), chosenBy);
-                }
-
-                _started[StreamOptions.IdFor(release)] = (source.InfoHash, index);
-                return new ResolvedStream(session, index);
+                return StartResult.Failed;
             }
 
-            _logger.LogInformation("No matching video file in {Release}", release.Title);
-            if (session.ActiveStreams == 0)
+            if (remember)
             {
-                await _engine.RemoveAsync(source.InfoHash, true).ConfigureAwait(false); // never one that's playing another file
+                await EnsureRoomAsync(session, index, release).ConfigureAwait(false);
             }
+
+            if (checkFlow && !await DataFlowsAsync(session, index, req, ct, remember ? Label(release, seeds: false) : null).ConfigureAwait(false))
+            {
+                if (keepSlow)
+                {
+                    return new StartResult(null, new ResolvedStream(session, index));
+                }
+
+                MarkDead(release, session.InfoHash);
+                if (session.ActiveStreams == 0)
+                {
+                    await _engine.RemoveAsync(source.InfoHash, true).ConfigureAwait(false);
+                }
+
+                return StartResult.Failed;
+            }
+
+            return new StartResult(new ResolvedStream(session, index), null);
         }
         catch (NotEnoughSpaceException ex) when (chosenByUser)
         {
             throw new StreamNotFoundException(ex.Message); // a version someone picked: say why, don't quietly play another
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Lost a race (or the player left): a torrent this started and nothing reads goes again.
+            if (added is not null && !existed && added.ActiveStreams == 0
+                && !string.Equals(added.InfoHash, winner?.Value, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    await _engine.RemoveAsync(added.InfoHash, true).ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    // best effort
+                }
+            }
+
+            throw;
+        }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             _logger.LogWarning("Candidate {Release} failed: {Message}", release.Title, ex.Message);
+            if (remember)
+            {
+                _status.Report(req, ex is TimeoutException
+                    ? $"No peers answered for {Label(release, seeds: false)}"
+                    : $"{Label(release, seeds: false)} couldn't be started");
+            }
         }
 
-        return null;
+        return StartResult.Failed;
     }
 
     private bool IsDead(ReleaseCandidate r) =>
@@ -516,7 +888,7 @@ public sealed class StreamResolver
     /// than <see cref="FlowBytes"/>. Reading the start is what makes the torrent fetch it. A start already on disk passes
     /// at once.
     /// </summary>
-    private async Task<bool> DataFlowsAsync(TorrentSession session, int index, MediaRequest req, CancellationToken ct)
+    private async Task<bool> DataFlowsAsync(TorrentSession session, int index, MediaRequest req, CancellationToken ct, string? label = null)
     {
         var file = session.Manager.Files[index];
         var seconds = req.Kind == MediaKind.Movie ? 7200.0 : 3000.0;
@@ -558,23 +930,27 @@ public sealed class StreamResolver
                 await Task.WhenAny(read, Task.Delay(1000, window.Token)).ConfigureAwait(false);
             }
 
-            LogNotDownloading(session, before, needRate);
+            LogNotDownloading(session, before, needRate, req, label);
             return false;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            LogNotDownloading(session, before, needRate);
+            LogNotDownloading(session, before, needRate, req, label);
             return false;
         }
     }
 
-    private void LogNotDownloading(TorrentSession session, long before, double needRate) =>
+    private void LogNotDownloading(TorrentSession session, long before, double needRate, MediaRequest req, string? label)
+    {
+        var got = session.Manager.Monitor.DataBytesReceived - before;
         _logger.LogWarning(
             "{Name} is too slow to play ({Kb} KB in {Seconds} s; it needs about {Need} KB/s); trying the next release",
             session.Manager.Torrent?.Name ?? session.InfoHash,
-            (session.Manager.Monitor.DataBytesReceived - before) >> 10,
+            got >> 10,
             (int)FlowWindow.TotalSeconds,
             (int)(needRate / 1024));
+        _status.Report(req, $"{label ?? "This release"} is too slow ({Speed((long)(got / FlowWindow.TotalSeconds))}; it needs about {Speed((long)needRate)})");
+    }
 
     /// <summary>
     /// Watching a release to the end downloads all of its file. If the disk hasn't room for what's left of it (plus a
