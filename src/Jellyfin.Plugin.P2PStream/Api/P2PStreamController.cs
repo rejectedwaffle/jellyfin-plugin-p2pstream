@@ -548,7 +548,7 @@ public class P2PStreamController : ControllerBase
             DownloadFolder = Plugin.Instance.DownloadPath,
             Storage = new[]
             {
-                new { Name = "Torrent data", Mb = FolderBytes(Plugin.Instance.DownloadPath) >> 20, Note = "what's being watched; deleted 15 minutes after, and kept under the limit above" },
+                new { Name = "Torrent data", Mb = FolderBytes(Plugin.Instance.DownloadPath) >> 20, Note = $"what's being watched; deleted {Math.Max(1, Plugin.Instance.Configuration.IdleTimeoutMinutes)} minutes after, and kept under the limit below" },
                 new { Name = "Saved torrents", Mb = FolderBytes(Path.Combine(Plugin.Instance.DataFolderPath, "torrents")) >> 20, Note = "so replays start instantly; unused for 30 days are deleted" },
                 new { Name = "Engine cache", Mb = FolderBytes(Path.Combine(Plugin.Instance.DataFolderPath, "cache")) >> 20, Note = "resume data and peer lists; unused for 30 days are deleted" },
                 new { Name = "Catalog files", Mb = FolderBytes(Plugin.Instance.CatalogPath) >> 20, Note = ".strm files for catalogs and search (artwork is kept by Jellyfin, not here)" }
