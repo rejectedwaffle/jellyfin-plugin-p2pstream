@@ -128,6 +128,30 @@ public class StartStatusTests
         _status = new StartStatus(_sessions.Object, _options, NullLogger<StartStatus>.Instance);
     }
 
+    /// <summary>Waits until at least <paramref name="count"/> messages were sent (or 8 s pass), then returns them.</summary>
+    private List<(string Session, string Text)> SentWhen(int count)
+    {
+        var until = DateTime.UtcNow.AddSeconds(8);
+        while (DateTime.UtcNow < until)
+        {
+            lock (_sent)
+            {
+                if (_sent.Count >= count)
+                {
+                    break;
+                }
+            }
+
+            Thread.Sleep(100);
+        }
+
+        Thread.Sleep(300); // and nothing more right after
+        lock (_sent)
+        {
+            return [.. _sent];
+        }
+    }
+
     private List<(string Session, string Text)> SentAfter(int ms)
     {
         Thread.Sleep(ms);
@@ -158,7 +182,7 @@ public class StartStatusTests
         _status.Report(title, "second");
         _status.Report(title, "third");
         Assert.Single(SentAfter(500));
-        var sent = SentAfter(3500);
+        var sent = SentWhen(2);
         Assert.Equal(["first", "third"], sent.Select(s => s.Text).ToArray());
     }
 
@@ -189,7 +213,7 @@ public class StartStatusTests
         Assert.Contains("Checking live seeder counts", SentAfter(0)[0].Text, StringComparison.Ordinal);
 
         _options.NotifyLiveCheckFinished(title);
-        var sent = SentAfter(3500);
+        var sent = SentWhen(2);
         Assert.Equal(2, sent.Count);
         Assert.Contains("are in", sent[1].Text, StringComparison.Ordinal);
     }
@@ -220,7 +244,7 @@ public class StartStatusTests
 
         _status.WatchPage(title, "phone", listShown: false);
         _options.NotifyLiveCheckFinished(title, found: false);
-        var sent = SentAfter(3500);
+        var sent = SentWhen(2);
         Assert.Equal(2, sent.Count);
         Assert.Contains("No releases found", sent[1].Text, StringComparison.Ordinal);
     }
