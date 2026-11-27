@@ -35,10 +35,6 @@ Still in development: versions are below 1.0 (semantic versioning), and settings
 
 Updates then appear in the plugin catalog. Requires Jellyfin 12.4 or newer.
 
-**Had a 1.x version installed?** Versions restarted below 1.0 (the old 1.0 to 1.3 are now 0.5 to 0.8), and Jellyfin
-never replaces a higher version with a lower one. Uninstall P2P Stream under **Dashboard > Plugins**, restart, then
-install it again from the catalog. Your settings, catalog folders and libraries are kept.
-
 ### Manual install
 Download `p2pstream_<version>.zip` from [Releases](https://github.com/rejectedwaffle/jellyfin-plugin-p2pstream/releases), extract it into
 `<jellyfin data>/plugins/P2P Stream_<version>/` (for example `/var/lib/jellyfin/plugins/P2P Stream_0.8.0.0/`) and restart Jellyfin.
