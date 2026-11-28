@@ -61,3 +61,23 @@ public class TorznabTests
         Assert.Equal(20, list[1].Peers);
     }
 }
+
+public class PlayingTitlesTests
+{
+    [Fact]
+    public void A_torrent_counts_as_playing_only_while_its_title_plays()
+    {
+        try
+        {
+            Jellyfin.Plugin.P2PStream.Torrent.TorrentEngine.PlayingHashes = () => new HashSet<string>(["ABCDEF"], StringComparer.OrdinalIgnoreCase);
+            Assert.True(Jellyfin.Plugin.P2PStream.Torrent.TorrentEngine.IsPlaying("abcdef"));
+            Assert.False(Jellyfin.Plugin.P2PStream.Torrent.TorrentEngine.IsPlaying("123456"));
+            Jellyfin.Plugin.P2PStream.Torrent.TorrentEngine.PlayingHashes = () => throw new InvalidOperationException("sessions unavailable");
+            Assert.False(Jellyfin.Plugin.P2PStream.Torrent.TorrentEngine.IsPlaying("abcdef")); // never blocks clean-up on an error
+        }
+        finally
+        {
+            Jellyfin.Plugin.P2PStream.Torrent.TorrentEngine.PlayingHashes = null;
+        }
+    }
+}

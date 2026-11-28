@@ -248,6 +248,13 @@ public sealed class TorrentSession
                         return;
                     }
 
+                    // Paused, or playing from what Jellyfin already read: still being watched. Look again later.
+                    if (TorrentEngine.IsPlaying(InfoHash))
+                    {
+                        SchedulePause();
+                        return;
+                    }
+
                     foreach (var f in Manager.Files.Where(f => f.Priority != Priority.DoNotDownload))
                     {
                         await Manager.SetFilePriorityAsync(f, Priority.DoNotDownload).ConfigureAwait(false);

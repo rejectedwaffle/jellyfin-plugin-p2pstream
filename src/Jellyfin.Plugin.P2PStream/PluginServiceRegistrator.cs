@@ -42,6 +42,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<TorrentSubtitles>();
         serviceCollection.AddSingleton<MissingSubtitles>();
         serviceCollection.AddHostedService<NextEpisodePreloader>();
+        serviceCollection.AddHostedService<PlayingTitles>();
 
         // Catalog and search
         serviceCollection.AddSingleton<TmdbClient>();

@@ -24,6 +24,8 @@ public sealed class StreamOptions
     private readonly ConcurrentDictionary<string, (DateTime At, List<ReleaseCandidate> Releases, string Rules)> _cache = new();
     // Lazy: two callers racing for the same title share one search (GetOrAdd may run its factory twice).
     private readonly ConcurrentDictionary<string, Lazy<Task<List<ReleaseCandidate>>>> _inflight = new();
+    private readonly ConcurrentDictionary<string, DateTime> _nothingFound = new();
+    private static readonly TimeSpan NothingFoundFor = TimeSpan.FromSeconds(90);
     private readonly ConcurrentDictionary<string, ProbeInfo> _probes = new();
 
     // Release lists kept at most (oldest dropped first) and checked tracks kept at most; enough for a big library.
@@ -168,6 +170,13 @@ public sealed class StreamOptions
         if (TryGetCached(request, out var cached))
         {
             return Task.FromResult(cached);
+        }
+
+        // Nothing was found a moment ago: a player retrying every few seconds shouldn't search every site each time
+        // (sites start refusing). Searched again once this has passed.
+        if (_nothingFound.TryGetValue(request.Key, out var emptyAt) && DateTime.UtcNow - emptyAt < NothingFoundFor)
+        {
+            return Task.FromResult(new List<ReleaseCandidate>());
         }
 
         var search = _inflight.GetOrAdd(request.Key, _ => new Lazy<Task<List<ReleaseCandidate>>>(() => Task.Run(() => SearchAsync(request))));
@@ -514,6 +523,15 @@ public sealed class StreamOptions
             if (list.Count == 0)
             {
                 NotifyLiveCheckFinished(request, found: false); // anyone told "you'll get a message" hears the outcome
+                _nothingFound[request.Key] = DateTime.UtcNow;
+                foreach (var old in _nothingFound.Where(e => DateTime.UtcNow - e.Value >= NothingFoundFor).ToList())
+                {
+                    _nothingFound.TryRemove(old.Key, out _);
+                }
+            }
+            else
+            {
+                _nothingFound.TryRemove(request.Key, out _);
             }
 
             _logger.LogInformation("Found {Count} streams for {Request}", list.Count, request);

@@ -796,7 +796,26 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
     /// have just been picked for a player that hasn't opened it yet, or be the other half of a start-up race).
     /// </summary>
     private static bool Removable(TorrentSession s, string? except) =>
-        s.ActiveStreams == 0 && s.InfoHash != except && DateTime.UtcNow - s.Started > TimeSpan.FromSeconds(30);
+        s.ActiveStreams == 0 && s.InfoHash != except && DateTime.UtcNow - s.Started > TimeSpan.FromSeconds(30) && !IsPlaying(s.InfoHash);
+
+    /// <summary>Gets or sets where the info hashes of titles someone has playing or paused come from (see PlayingTitles).</summary>
+    internal static Func<IReadOnlySet<string>>? PlayingHashes { get; set; }
+
+    /// <summary>
+    /// True if someone has this torrent's title playing or paused in Jellyfin, even if nothing reads it now (Jellyfin
+    /// may have read the whole file ahead, or the player is paused).
+    /// </summary>
+    internal static bool IsPlaying(string infoHash)
+    {
+        try
+        {
+            return PlayingHashes?.Invoke().Contains(infoHash) == true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Space the titles being watched will still take, apart from <paramref name="except"/>: the part of each watched
@@ -897,7 +916,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         try
         {
             var idle = TimeSpan.FromMinutes(Math.Max(1, Config.IdleTimeoutMinutes));
-            foreach (var s in _sessions.Values.Where(s => s.ActiveStreams == 0 && DateTime.UtcNow - s.LastAccess > idle).ToList())
+            foreach (var s in _sessions.Values.Where(s => s.ActiveStreams == 0 && DateTime.UtcNow - s.LastAccess > idle && !IsPlaying(s.InfoHash)).ToList())
             {
                 _logger.LogInformation("Torrent {Hash} idle, removing", s.InfoHash);
                 await RemoveAsync(s.InfoHash, !Config.KeepFilesAfterPlayback).ConfigureAwait(false);
@@ -905,6 +924,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
 
             await EnforceDiskCapAsync().ConfigureAwait(false);
             PruneOldFiles();
+            DeleteLeftoverFolders();
         }
         catch (Exception ex)
         {
@@ -913,6 +933,59 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         finally
         {
             Volatile.Write(ref _cleaning, 0);
+        }
+    }
+
+    /// <summary>
+    /// Deletes download folders no torrent owns any more (a removal that failed, or ran while Jellyfin shut down): only
+    /// the plugin's own info-hash folders, untouched for 10 minutes, and never with "Keep downloaded files" on.
+    /// </summary>
+    private void DeleteLeftoverFolders()
+    {
+        var root = Plugin.Instance?.DownloadPath;
+        if (Config.KeepFilesAfterPlayback || Volatile.Read(ref _starting) > 0 || string.IsNullOrEmpty(root) || !Directory.Exists(root))
+        {
+            return;
+        }
+
+        var owned = new HashSet<string>(_sessions.Keys, StringComparer.OrdinalIgnoreCase);
+        owned.UnionWith(_removing.Keys);
+        foreach (var m in _engine?.Torrents.ToList() ?? [])
+        {
+            owned.Add(Hash(m));
+        }
+
+        foreach (var dir in Directory.GetDirectories(root))
+        {
+            var name = Path.GetFileName(dir);
+            if (name.Length is not (40 or 64) || !name.All(char.IsAsciiHexDigit) || owned.Contains(name)
+                || DateTime.UtcNow - Directory.GetLastWriteTimeUtc(dir) < TimeSpan.FromMinutes(10))
+            {
+                continue;
+            }
+
+            try
+            {
+                var mb = FolderSize(dir) >> 20;
+                Directory.Delete(dir, true);
+                _logger.LogInformation("Deleted a leftover download folder no torrent uses ({Name}, {Mb} MB)", name, mb);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Could not delete the leftover download folder {Name}: {Message}", name, ex.Message);
+            }
+        }
+    }
+
+    private static long FolderSize(string dir)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
+        }
+        catch (Exception)
+        {
+            return 0;
         }
     }
 
