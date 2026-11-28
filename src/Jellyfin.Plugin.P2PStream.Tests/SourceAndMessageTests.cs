@@ -243,6 +243,7 @@ public class StartStatusTests
         _sessions.SetupGet(s => s.Sessions).Returns([new SessionInfo(_sessions.Object, NullLogger.Instance) { Id = "phone" }]);
 
         _status.WatchPage(title, "phone", listShown: false);
+        SentWhen(1); // the newest unsent message replaces an older one, so let the first go out
         _options.NotifyLiveCheckFinished(title, found: false);
         var sent = SentWhen(2);
         Assert.Equal(2, sent.Count);
