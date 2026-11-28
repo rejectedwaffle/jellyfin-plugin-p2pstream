@@ -235,6 +235,15 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                 }
             }
 
+            // Every file must stay inside the torrent's own folder (a hostile file list could name a parent folder).
+            var root = Path.GetFullPath(TorrentDirectory(source.InfoHash)).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            if (manager.Files.Any(f => !Path.GetFullPath(f.FullPath).StartsWith(root, comparison)))
+            {
+                await RemoveManagerAsync(manager, false).ConfigureAwait(false);
+                throw new InvalidOperationException("This torrent's file names point outside its folder, so it isn't used");
+            }
+
             // Don't download anything until a stream asks for it.
             foreach (var f in manager.Files)
             {

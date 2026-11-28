@@ -308,12 +308,14 @@ public sealed class TorznabClient
                 throw new InvalidOperationException($"Unsupported link: {url.Scheme}");
             }
 
-            if (trustedHosts is not null && !trustedHosts.Contains(url.Host))
+            // A link from somewhere other than your own sources or indexers: public addresses only, checked when connecting.
+            var untrusted = trustedHosts is not null && !trustedHosts.Contains(url.Host);
+            if (untrusted)
             {
-                await AddressPolicy.ResolvePublicAsync(url.IdnHost, "download link", ct).ConfigureAwait(false);
+                await AddressPolicy.ResolvePublicAsync(url.IdnHost, "download link", ct).ConfigureAwait(false); // a clear message early
             }
 
-            using var resp = await HttpClients.NoRedirect.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            using var resp = await (untrusted ? HttpClients.PublicOnly : HttpClients.NoRedirect).GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
             var code = (int)resp.StatusCode;
             if (code is >= 300 and < 400)
             {

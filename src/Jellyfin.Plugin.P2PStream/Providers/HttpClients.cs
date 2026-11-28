@@ -13,6 +13,21 @@ internal static class HttpClients
     private static string? _proxyKey;
     private static HttpClient? _default;
     private static HttpClient? _noRedirect;
+    private static HttpClient? _publicOnly;
+
+    /// <summary>
+    /// Gets a no-redirect client that only connects to public addresses, checked on the address it really connects to
+    /// (not a separate lookup, which a hostile site could answer differently the second time: "DNS rebinding"). Used for
+    /// download links from sites that aren't one of your own sources or indexers.
+    /// </summary>
+    public static HttpClient PublicOnly
+    {
+        get
+        {
+            Ensure();
+            return _publicOnly!;
+        }
+    }
 
     public static HttpClient Default
     {
@@ -61,6 +76,7 @@ internal static class HttpClients
                 : null;
             _noRedirect = Create(false, proxy, viaVpn, blocked);
             _default = Create(true, proxy, viaVpn, blocked);
+            _publicOnly = Create(false, proxy, viaVpn, blocked, publicOnly: true);
             _proxyKey = key;
         }
     }
@@ -81,7 +97,7 @@ internal static class HttpClients
         return proxy;
     }
 
-    private static HttpClient Create(bool followRedirects, IWebProxy? proxy, bool viaVpn, string? blocked)
+    private static HttpClient Create(bool followRedirects, IWebProxy? proxy, bool viaVpn, string? blocked, bool publicOnly = false)
     {
         var handler = new SocketsHttpHandler
         {
@@ -105,8 +121,31 @@ internal static class HttpClients
                     throw new Torrent.NetworkBlockedException("Waiting for the VPN settings to apply");
                 }
 
-                var socket = await Torrent.NetworkGuard.ConnectTcpAsync(context.DnsEndPoint.Host, context.DnsEndPoint.Port, ct, context.DnsEndPoint.AddressFamily).ConfigureAwait(false);
+                var socket = await Torrent.NetworkGuard.ConnectTcpAsync(context.DnsEndPoint.Host, context.DnsEndPoint.Port, ct, context.DnsEndPoint.AddressFamily, publicOnly ? "download link" : null).ConfigureAwait(false);
                 return new NetworkStream(socket, ownsSocket: true);
+            };
+        }
+        else if (publicOnly && proxy is null)
+        {
+            // Direct: look the name up, refuse private and local addresses, and connect to exactly the address checked.
+            handler.ConnectCallback = async (context, ct) =>
+            {
+                var host = context.DnsEndPoint.Host;
+                var addresses = IPAddress.TryParse(host, out var literal) ? [literal] : await Torrent.AddressPolicy.ResolvePublicAsync(host, "download link", ct).ConfigureAwait(false);
+                var target = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork) ?? addresses.FirstOrDefault()
+                    ?? throw new SocketException((int)SocketError.HostNotFound);
+                Torrent.AddressPolicy.Require(target, host, "download link");
+                var socket = new Socket(target.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                try
+                {
+                    await socket.ConnectAsync(new IPEndPoint(target, context.DnsEndPoint.Port), ct).ConfigureAwait(false);
+                    return new NetworkStream(socket, ownsSocket: true);
+                }
+                catch
+                {
+                    socket.Dispose();
+                    throw;
+                }
             };
         }
 

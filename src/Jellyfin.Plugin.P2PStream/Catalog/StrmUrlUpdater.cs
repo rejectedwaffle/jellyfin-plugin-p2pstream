@@ -37,7 +37,8 @@ public sealed partial class StrmUrlUpdater : IHostedService
     public static bool IsRecentPreviousToken(string token)
     {
         var (old, until) = _previous;
-        return !string.IsNullOrEmpty(old) && (DateTime.UtcNow < until || _rewriting) && old == token;
+        return !string.IsNullOrEmpty(old) && (DateTime.UtcNow < until || _rewriting)
+            && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(System.Text.Encoding.UTF8.GetBytes(old), System.Text.Encoding.UTF8.GetBytes(token ?? string.Empty));
     }
 
     public StrmUrlUpdater(StreamUrlBuilder urls, ILibraryManager libraryManager, ILogger<StrmUrlUpdater> logger)
