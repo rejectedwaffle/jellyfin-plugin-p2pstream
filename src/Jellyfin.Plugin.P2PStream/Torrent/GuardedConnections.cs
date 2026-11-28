@@ -131,9 +131,20 @@ public sealed class GuardedUdpTrackerConnection : ITrackerConnection
         var result = new Dictionary<InfoHash, (int, int)>();
         foreach (var batch in hashes.Chunk(70))
         {
-            var connectionId = await GetConnectionIdAsync(token).ConfigureAwait(false);
             var list = batch.ToList();
-            var (raw, error) = await SendAndReceiveAsync(new ScrapeMessage(Environment.TickCount ^ Random.Shared.Next(), connectionId, list), token).ConfigureAwait(false);
+            UdpTrackerMessage? raw;
+            string? error;
+            try
+            {
+                var connectionId = await GetConnectionIdAsync(token).ConfigureAwait(false);
+                (raw, error) = await SendAndReceiveAsync(new ScrapeMessage(Environment.TickCount ^ Random.Shared.Next(), connectionId, list), token).ConfigureAwait(false);
+            }
+            catch (Exception) when (!token.IsCancellationRequested)
+            {
+                _connectionId = null; // no answer or a failed connect: start over next time
+                throw;
+            }
+
             if (error is not null || raw is not ScrapeResponseMessage response)
             {
                 _connectionId = null;
@@ -194,14 +205,17 @@ public sealed class GuardedUdpTrackerConnection : ITrackerConnection
 
     private Task<long> GetConnectionIdAsync(CancellationToken token)
     {
-        // A connection id is valid for 2 minutes; renew after 1 like MonoTorrent does.
-        if (_connectionId is null || _connectionId.IsFaulted || _lastConnected.Elapsed > TimeSpan.FromMinutes(1))
+        // A connection id is valid for 2 minutes; renew after 1 like MonoTorrent does. The connect is shared by every
+        // request to this tracker, so it runs on its own time limit: a caller that gives up only stops waiting for it.
+        var current = _connectionId;
+        if (current is null || current.IsFaulted || current.IsCanceled || _lastConnected.Elapsed > TimeSpan.FromMinutes(1))
         {
             _lastConnected.Restart();
-            _connectionId = ConnectAsync(token);
+            current = ConnectAsync(CancellationToken.None);
+            _connectionId = current;
         }
 
-        return _connectionId;
+        return current.WaitAsync(token);
     }
 
     private async Task<long> ConnectAsync(CancellationToken token)

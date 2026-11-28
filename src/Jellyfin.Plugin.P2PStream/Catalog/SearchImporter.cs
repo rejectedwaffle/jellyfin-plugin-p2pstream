@@ -96,7 +96,19 @@ public sealed class SearchImporter
             _catalog.MarkKept(dir); // asked for by name: the search clean-up never removes it
         }
 
-        return dirs.FirstOrDefault() ?? CatalogBuilder.FindExistingAnywhere(isMovie, tmdbId) ?? string.Empty;
+        if (dirs.Count > 0)
+        {
+            return dirs[0];
+        }
+
+        // Already in a library folder, so nothing was written: it was still asked for by name, so keep it.
+        var existing = CatalogBuilder.FindExistingAnywhere(isMovie, tmdbId);
+        if (existing is not null)
+        {
+            _catalog.MarkKept(existing);
+        }
+
+        return existing ?? string.Empty;
     }
 
     private static string Name(string? configured, string fallback) => string.IsNullOrWhiteSpace(configured) ? fallback : configured.Trim();

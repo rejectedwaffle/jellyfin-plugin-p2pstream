@@ -125,7 +125,7 @@ public sealed class SourceHub
 
         // The same torrent often turns up on several sources. Keep the copy with the most seeders.
         return results
-            .GroupBy(r => string.IsNullOrEmpty(r.InfoHash) ? "u:" + (r.DownloadUrl ?? r.MagnetPageUrl ?? r.Title) : r.InfoHash!.ToLowerInvariant())
+            .GroupBy(r => string.IsNullOrEmpty(r.InfoHash) ? "u:" + (r.DownloadUrl ?? r.MagnetUrl ?? r.MagnetPageUrl ?? r.Title) : r.InfoHash!.ToLowerInvariant())
             .Select(g => ReleaseRanker.KeepOne(g))
             .ToList();
     }

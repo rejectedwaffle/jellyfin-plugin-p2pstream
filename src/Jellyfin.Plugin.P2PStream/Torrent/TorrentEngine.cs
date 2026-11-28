@@ -673,9 +673,13 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
                         _stoppedByGuard.Clear();
                     }
 
-                    // Only torrents someone is watching. Idle ones stay stopped (playing one starts it again), since
-                    // nothing would stop them otherwise: their idle timer already ran while they were blocked.
-                    var watched = resume.Where(h => _sessions.TryGetValue(h, out var s) && s.ActiveStreams > 0).ToList();
+                    // Only torrents someone is watching, or still fetching their file list for someone (not a
+                    // session yet; left stopped, that start would wait out its whole timeout). Idle ones stay stopped
+                    // (playing one starts it again), since nothing would stop them otherwise: their idle timer already
+                    // ran while they were blocked.
+                    var watched = resume.Where(h => _sessions.TryGetValue(h, out var s)
+                        ? s.ActiveStreams > 0
+                        : !_removing.ContainsKey(h)).ToList();
                     foreach (var m in engine.Torrents.Where(m => watched.Contains(Hash(m))))
                     {
                         await m.StartAsync().ConfigureAwait(false);
@@ -707,7 +711,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
         while (_sessions.Count + Volatile.Read(ref _starting) >= max)
         {
             // Never a torrent someone is watching: if every slot is in use by playback, go over the limit for now.
-            var victim = _sessions.Values.Where(s => s.ActiveStreams == 0).OrderBy(s => s.LastAccess).FirstOrDefault();
+            var victim = _sessions.Values.Where(s => Removable(s, null)).OrderBy(s => s.LastAccess).FirstOrDefault();
             if (victim is null)
             {
                 _logger.LogInformation("Torrent limit reached, but every torrent is being watched; starting one more for now");
@@ -865,7 +869,7 @@ public sealed class TorrentEngine : IHostedService, IAsyncDisposable
 
         var cap = capGb * DiskUnitBytes;
         var used = TotalDiskBytes;
-        foreach (var victim in _sessions.Values.Where(s => s.ActiveStreams == 0).OrderBy(s => s.LastAccess).ToList())
+        foreach (var victim in _sessions.Values.Where(s => Removable(s, null)).OrderBy(s => s.LastAccess).ToList())
         {
             if (used <= cap)
             {

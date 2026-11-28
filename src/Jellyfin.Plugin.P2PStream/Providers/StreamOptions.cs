@@ -286,7 +286,7 @@ public sealed class StreamOptions
     /// </summary>
     private static List<ReleaseCandidate> Dedupe(IEnumerable<ReleaseCandidate> releases) =>
         releases
-            .GroupBy(r => string.IsNullOrEmpty(r.InfoHash) ? "u:" + (r.DownloadUrl ?? r.MagnetPageUrl ?? r.Title) : r.InfoHash!.ToLowerInvariant())
+            .GroupBy(r => string.IsNullOrEmpty(r.InfoHash) ? "u:" + (r.DownloadUrl ?? r.MagnetUrl ?? r.MagnetPageUrl ?? r.Title) : r.InfoHash!.ToLowerInvariant())
             .Select(g => ReleaseRanker.KeepOne(g))
             .ToList();
 

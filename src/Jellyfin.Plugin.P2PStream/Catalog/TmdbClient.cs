@@ -40,6 +40,31 @@ public sealed class TmdbClient
     private const string BaseUrl = "https://api.themoviedb.org/3/";
     private static readonly TimeSpan CacheAge = TimeSpan.FromHours(6);
     private readonly ConcurrentDictionary<string, (DateTime At, JsonNode Node)> _cache = new();
+    private DateTime _lastPrune = DateTime.UtcNow;
+
+    /// <summary>Drops expired answers every 10 minutes, and the oldest ones while more than 5000 are kept (a full catalog sync asks for every season).</summary>
+    private void PruneCache()
+    {
+        var now = DateTime.UtcNow;
+        if (_cache.Count <= 5000 && now - _lastPrune < TimeSpan.FromMinutes(10))
+        {
+            return;
+        }
+
+        _lastPrune = now;
+        foreach (var old in _cache.Where(e => now - e.Value.At >= CacheAge).ToList())
+        {
+            _cache.TryRemove(old.Key, out _);
+        }
+
+        if (_cache.Count > 5000)
+        {
+            foreach (var old in _cache.OrderBy(e => e.Value.At).Take(_cache.Count - 4000).ToList())
+            {
+                _cache.TryRemove(old.Key, out _);
+            }
+        }
+    }
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Plugin.Instance?.Configuration.TmdbApiKey);
 
@@ -256,6 +281,7 @@ public sealed class TmdbClient
             var node = JsonNode.Parse(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false))
                 ?? throw new InvalidOperationException("Empty TMDB response");
             _cache[url] = (DateTime.UtcNow, node);
+            PruneCache();
             return node;
         }
     }

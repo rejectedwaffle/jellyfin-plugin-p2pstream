@@ -105,7 +105,7 @@ public sealed partial class CatalogBuilder
     {
         var name = DisplayName(m.Title, m.Year);
         var dir = FindExisting(root, m.Id, true) ?? Path.Combine(root, $"{name} [tmdbid-{m.Id}]");
-        var changed = WriteStrm(Path.Combine(dir, name + ".strm"), _urls.Movie(m.Id));
+        var changed = WriteStrm(ReuseExisting(dir, Path.Combine(dir, name + ".strm"), "*.strm"), _urls.Movie(m.Id));
         return (dir, changed);
     }
 
@@ -122,7 +122,8 @@ public sealed partial class CatalogBuilder
             var episodes = await _tmdb.GetSeasonAsync(s.Id, season, TmdbClient.CatalogLanguage, ct).ConfigureAwait(false);
             foreach (var ep in episodes.Where(e => e.AirDate is not null && e.AirDate.Value.Date <= today))
             {
-                var file = Path.Combine(dir, $"Season {season:00}", $"{fileBase} S{season:00}E{ep.Number:00}.strm");
+                var seasonDir = Path.Combine(dir, $"Season {season:00}");
+                var file = ReuseExisting(seasonDir, Path.Combine(seasonDir, $"{fileBase} S{season:00}E{ep.Number:00}.strm"), $"* S{season:00}E{ep.Number:00}.strm");
                 changed += WriteStrm(file, _urls.Episode(s.Id, season, ep.Number)) ? 1 : 0;
             }
         }
@@ -136,7 +137,8 @@ public sealed partial class CatalogBuilder
     public string WriteFirstEpisode(TmdbItem s, string root, int season)
     {
         var dir = FindExisting(root, s.Id, false) ?? Path.Combine(root, $"{DisplayName(s.Title, s.Year)} [tmdbid-{s.Id}]");
-        var file = Path.Combine(dir, $"Season {season:00}", $"{Sanitize(s.Title)} S{season:00}E01.strm");
+        var seasonDir = Path.Combine(dir, $"Season {season:00}");
+        var file = ReuseExisting(seasonDir, Path.Combine(seasonDir, $"{Sanitize(s.Title)} S{season:00}E01.strm"), $"* S{season:00}E01.strm");
         WriteStrm(file, _urls.Episode(s.Id, season, 1));
         return dir;
     }
@@ -569,7 +571,7 @@ public sealed partial class CatalogBuilder
                 .FirstOrDefault();
             if (sameName is not null)
             {
-                var catalogRoot = Path.GetFullPath(Plugin.Instance!.CatalogPath);
+                var catalogRoot = Path.GetFullPath(Plugin.Instance!.CatalogPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
                 var existingMembers = sameName.GetLinkedChildren();
                 if (existingMembers.Count > 0 && existingMembers.All(m => !string.IsNullOrEmpty(m.Path) && Path.GetFullPath(m.Path).StartsWith(catalogRoot, StringComparison.OrdinalIgnoreCase)))
                 {
@@ -635,6 +637,24 @@ public sealed partial class CatalogBuilder
 
     private static void SaveOwnedCollections(Dictionary<string, Guid> owned) =>
         File.WriteAllText(OwnedCollectionsPath, JsonSerializer.Serialize(owned));
+
+    /// <summary>
+    /// The file to write for a title or episode: <paramref name="wanted"/>, unless the folder already has a file for it
+    /// under another name (the title was renamed on TMDB). That one is reused, so the title isn't listed twice and the
+    /// subtitles named after it still match.
+    /// </summary>
+    internal static string ReuseExisting(string folder, string wanted, string pattern)
+    {
+        if (File.Exists(wanted) || !Directory.Exists(folder))
+        {
+            return wanted;
+        }
+
+        return Directory.EnumerateFiles(folder, pattern)
+            .Where(f => f.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(f => f, StringComparer.Ordinal)
+            .FirstOrDefault() ?? wanted;
+    }
 
     private static bool WriteStrm(string path, string url)
     {

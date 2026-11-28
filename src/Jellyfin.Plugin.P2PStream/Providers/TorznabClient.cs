@@ -219,7 +219,7 @@ public sealed class TorznabClient
         }
     }
 
-    private List<ReleaseCandidate> Parse(string xml, string indexerName)
+    internal List<ReleaseCandidate> Parse(string xml, string indexerName)
     {
         var doc = XDocument.Parse(xml);
         if (doc.Root?.Name.LocalName == "error")
@@ -242,7 +242,7 @@ public sealed class TorznabClient
                 ?? ParseLong(attrs.GetValueOrDefault("size"))
                 ?? ParseLong((string?)enclosure?.Attribute("length"))
                 ?? 0;
-            var seeders = (int)(ParseLong(attrs.GetValueOrDefault("seeders")) ?? 0);
+            var seeders = (int)(ParseLong(attrs.GetValueOrDefault("seeders")) ?? -1); // -1 = not given
 
             list.Add(new ReleaseCandidate
             {
