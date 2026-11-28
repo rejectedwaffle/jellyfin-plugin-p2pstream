@@ -74,6 +74,7 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
         // While Jellyfin answers the Play request, its forced re-check of the stream gets only the start of the release
         // (see PlaybackInfoWindow). Held from here until Jellyfin has answered, whatever happens in between.
         MediaRequest? playRequest = playItem is not null && StreamPicker.TryGetRequest(playItem, out _, out var foundRequest) ? foundRequest : null;
+        var answerClock = playRequest is not null ? System.Diagnostics.Stopwatch.StartNew() : null;
         using var checkWindow = playRequest is not null ? PlaybackInfoWindow.Begin(playRequest.Key) : null;
 
         // Whoever pressed Play sees short messages while the title starts (see StartStatus).
@@ -118,12 +119,24 @@ public sealed partial class StreamPickerFilter : IAsyncActionFilter
             versionLookup = lookupId;
         }
 
+        var prepared = answerClock?.Elapsed;
         var executed = await next().ConfigureAwait(false);
 
         if (playItem is not null && executed.Result is ObjectResult { Value: PlaybackInfoResponse info })
         {
             UseRequestAddress(http.Request, info);
             UsePickedSubtitleFile(http, info);
+        }
+
+        if (answerClock is not null)
+        {
+            // When a start is slow, this tells the server's part (release start, Jellyfin's stream check) from the app's.
+            _logger.LogInformation(
+                "Answered the Play request for {Title} in {Total:0.0} s ({Prepared:0.0} s preparing the release, {Jellyfin:0.0} s Jellyfin's check)",
+                playItem!.Name,
+                answerClock.Elapsed.TotalSeconds,
+                prepared!.Value.TotalSeconds,
+                (answerClock.Elapsed - prepared.Value).TotalSeconds);
         }
 
         if (enabled && HttpMethods.IsGet(http.Request.Method) && ItemPath().IsMatch(path))

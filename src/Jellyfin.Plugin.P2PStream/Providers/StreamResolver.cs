@@ -922,8 +922,28 @@ public sealed class StreamResolver
         {
             await using var lease = await session.OpenAsync(file, window.Token).ConfigureAwait(false);
             var read = lease.ReadAsync(new byte[16 * 1024], window.Token).AsTask();
+            var retried = false;
             while (true)
             {
+                // A read that fails outright (rather than waiting for data) says nothing about the swarm: seen once
+                // milliseconds after a healthy torrent started. Try once more before giving up on the release.
+                if (read.IsFaulted && !retried && !window.IsCancellationRequested)
+                {
+                    retried = true;
+                    _logger.LogInformation("Reading {Name} failed ({Message}); trying once more", session.Manager.Torrent?.Name ?? session.InfoHash, read.Exception?.GetBaseException().Message);
+                    try
+                    {
+                        await Task.Delay(1000, window.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+
+                    read = lease.ReadAsync(new byte[16 * 1024], window.Token).AsTask();
+                    continue;
+                }
+
                 var got = session.Manager.Monitor.DataBytesReceived - before;
                 if (got >= needBytes)
                 {
@@ -961,7 +981,7 @@ public sealed class StreamResolver
 
             // Stopped from outside (another release won the race, or the player left): not a verdict on this release.
             ct.ThrowIfCancellationRequested();
-            LogNotDownloading(session, before, needRate, req, label);
+            LogNotDownloading(session, before, needRate, req, label, read.IsFaulted ? read.Exception?.GetBaseException() : null);
             return false;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -971,8 +991,16 @@ public sealed class StreamResolver
         }
     }
 
-    private void LogNotDownloading(TorrentSession session, long before, double needRate, MediaRequest req, string? label)
+    private void LogNotDownloading(TorrentSession session, long before, double needRate, MediaRequest req, string? label, Exception? failure = null)
     {
+        if (failure is not null)
+        {
+            // Not slow: the torrent couldn't be read at all. Say why.
+            _logger.LogWarning("{Name} couldn't be read ({Message}); trying the next release", session.Manager.Torrent?.Name ?? session.InfoHash, failure.Message);
+            _status.Report(req, $"{label ?? "This release"} couldn't be read, so another one is being tried");
+            return;
+        }
+
         var got = session.Manager.Monitor.DataBytesReceived - before;
         _logger.LogWarning(
             "{Name} is too slow to play ({Kb} KB in {Seconds} s; it needs about {Need} KB/s); trying the next release",
