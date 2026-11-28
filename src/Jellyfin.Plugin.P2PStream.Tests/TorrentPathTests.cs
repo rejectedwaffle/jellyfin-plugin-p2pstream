@@ -25,15 +25,40 @@ public class TorrentPathTests
         Assert.ThrowsAny<ArgumentException>(() => MonoTorrent.Torrent.Load(Torrent(info)));
 
     [Fact]
-    public void An_absolute_single_file_name_is_saved_inside_the_folder()
+    public void The_file_writer_refuses_paths_outside_the_download_folder()
     {
-        var t = MonoTorrent.Torrent.Load(Torrent("d6:lengthi1e4:name12:/tmp/evil.sh12:piece lengthi16384e6:pieces20:"));
-        var save = Path.Combine(Path.GetTempPath(), "p2pstream-tests", "hash");
-        Directory.CreateDirectory(save);
-        using var engine = new MonoTorrent.Client.ClientEngine(new MonoTorrent.Client.EngineSettingsBuilder { AllowPortForwarding = false, DhtEndPoint = null, ListenEndPoints = new() }.ToSettings());
-        var m = engine.AddAsync(t, save).GetAwaiter().GetResult();
-        var full = Path.GetFullPath(m.Files[0].FullPath);
-        engine.RemoveAsync(m).GetAwaiter().GetResult();
-        Assert.StartsWith(Path.GetFullPath(save) + Path.DirectorySeparatorChar, full, StringComparison.OrdinalIgnoreCase);
+        TestSetup.Settings();
+        var downloads = Plugin.Instance!.DownloadPath;
+        var inner = new Moq.Mock<MonoTorrent.PieceWriter.IPieceWriter>();
+        var writer = new Jellyfin.Plugin.P2PStream.Torrent.ConfinedPieceWriter(inner.Object);
+        MonoTorrent.ITorrentManagerFile File(string path)
+        {
+            var f = new Moq.Mock<MonoTorrent.ITorrentManagerFile>();
+            f.SetupGet(x => x.FullPath).Returns(path);
+            return f.Object;
+        }
+
+        // A single-file torrent named with an absolute path: on Linux the engine would write exactly there.
+        var outside = OperatingSystem.IsWindows() ? @"C:\Windows\Temp\evil.sh" : "/tmp/evil.sh";
+        Assert.Throws<UnauthorizedAccessException>(() => writer.WriteAsync(File(outside), 0, new byte[1]));
+        Assert.Throws<UnauthorizedAccessException>(() => writer.ReadAsync(File(outside), 0, new byte[1]));
+        Assert.Throws<UnauthorizedAccessException>(() => writer.ExistsAsync(File(Path.Combine(downloads, "abc", "..", "..", "escaped.txt"))));
+
+        writer.WriteAsync(File(Path.Combine(downloads, "abc", "video.mkv")), 0, new byte[1]);
+        inner.Verify(x => x.WriteAsync(Moq.It.IsAny<MonoTorrent.ITorrentManagerFile>(), 0, Moq.It.IsAny<ReadOnlyMemory<byte>>()), Moq.Times.Once);
+    }
+
+    [Theory]
+    [InlineData("/data/downloads/abc/file.mkv", "/data/downloads", true)]
+    [InlineData("/data/downloads2/file.mkv", "/data/downloads", false)]
+    [InlineData("/data/downloads/../etc/passwd", "/data/downloads", false)]
+    public void Inside_means_inside_by_whole_folder_names(string path, string root, bool expected)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return; // Unix paths
+        }
+
+        Assert.Equal(expected, Jellyfin.Plugin.P2PStream.Torrent.ConfinedPieceWriter.IsInside(path, root));
     }
 }

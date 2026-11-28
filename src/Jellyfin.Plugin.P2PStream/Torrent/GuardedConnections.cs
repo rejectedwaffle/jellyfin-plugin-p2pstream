@@ -34,7 +34,8 @@ public static class GuardedFactories
             .WithTrackerCreator("https", uri => new Tracker(new HttpTrackerConnection(uri, http, AddressFamily.InterNetwork), new HttpTrackerConnection(uri, http, AddressFamily.InterNetworkV6)))
             .WithTrackerCreator("udp", uri => new Tracker(new GuardedUdpTrackerConnection(uri, AddressFamily.InterNetwork), new GuardedUdpTrackerConnection(uri, AddressFamily.InterNetworkV6)))
             .WithDhtListenerCreator(endpoint => new GuardedDhtListener(endpoint))
-            .WithPeerConnectionListenerCreator(endpoint => new GuardedPeerListener(endpoint));
+            .WithPeerConnectionListenerCreator(endpoint => new GuardedPeerListener(endpoint))
+            .WithPieceWriterCreator(maxOpenFiles => new ConfinedPieceWriter(Factories.Default.CreatePieceWriter(maxOpenFiles))); // files only inside the download folder
     }
 }
 
